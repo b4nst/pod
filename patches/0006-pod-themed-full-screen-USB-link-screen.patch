@@ -1,0 +1,110 @@
+From 4dc8702bdfba90a412d18443b44d81730944ac64 Mon Sep 17 00:00:00 2001
+From: banst <cycles@banst.ch>
+Date: Wed, 4 Nov 2026 23:02:35 +0100
+Subject: [PATCH 6/6] pod: themed full screen USB link screen
+
+Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
+---
+ apps/bitmaps/native/SOURCES               |   4 +++-
+ apps/bitmaps/native/usblogo.138x110x2.bmp | Bin 0 -> 45814 bytes
+ apps/gui/usb_screen.c                     |  10 ++++++++++
+ 3 files changed, 13 insertions(+), 1 deletion(-)
+ create mode 100644 apps/bitmaps/native/usblogo.138x110x2.bmp
+
+diff --git a/apps/bitmaps/native/SOURCES b/apps/bitmaps/native/SOURCES
+index b3c5b64b6b..0871fdfcd3 100644
+--- a/apps/bitmaps/native/SOURCES
++++ b/apps/bitmaps/native/SOURCES
+@@ -65,7 +65,9 @@ usblogo.128x37x16.bmp
+ usblogo.88x24x16.bmp
+ #endif
+ #elif LCD_DEPTH > 1 /* greyscale */
+-#ifdef IPOD_1G2G /* use firewire logo */
++#if (LCD_WIDTH == 138) && (LCD_HEIGHT == 110)
++usblogo.138x110x2.bmp
++#elif defined(IPOD_1G2G) /* use firewire logo */
+ usblogo.fw.128x39x2.bmp
+ #else
+ usblogo.128x33x2.bmp
+diff --git a/apps/bitmaps/native/usblogo.138x110x2.bmp b/apps/bitmaps/native/usblogo.138x110x2.bmp
+new file mode 100644
+index 0000000000000000000000000000000000000000..a191a6962b8d221d15ab0f697015b0ef21bb2f5b
+GIT binary patch
+literal 45814
+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
+L_!;!+gn<D7@qsS%
+
+literal 0
+HcmV?d00001
+
+diff --git a/apps/gui/usb_screen.c b/apps/gui/usb_screen.c
+index b1a12d2d83..009f02a9b5 100644
+--- a/apps/gui/usb_screen.c
++++ b/apps/gui/usb_screen.c
+@@ -140,6 +140,16 @@ static void usb_screen_fix_viewports(struct screen *screen,
+         logo_height = BMPHEIGHT_usblogo;
+     }
+ 
++#if BMPHEIGHT_usblogo == LCD_HEIGHT
++    /* the logo is a complete screen: no status bar around it */
++    if (screen->screen_type == SCREEN_MAIN)
++    {
++        viewportmanager_theme_enable(screen->screen_type, false, NULL);
++        memset(parent, 0, sizeof(*parent)); /* no stale buffer pointer */
++        viewport_set_fullscreen(parent, screen->screen_type);
++    }
++    else
++#endif
+     viewportmanager_theme_enable(screen->screen_type, true, parent);
+ 
+     if (logo_width  > parent->width)
+-- 
+2.56.0
+

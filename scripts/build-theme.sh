@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the theme into build/theme/.rockbox and the splash bitmap into the
 # patched source tree. Needs the devenv shell and a built tools/convbdf.
-#   scripts/build-theme.sh <rockbox-src> [splash.bmp]
+#   scripts/build-theme.sh <rockbox-src> [splash.bmp usb.bmp]
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 src=$(cd "$1" && pwd)
@@ -25,7 +25,8 @@ magick -size 512x480 xc:black -fill none -stroke white -strokewidth 48 \
   -resize 64x60 -depth 8 "$work/delta.pgm"
 
 splash=${2:-$src/apps/bitmaps/native/rockboxlogo.138x110x2.bmp}
-python3 "$root/tools/mktheme.py" "$work" "$work/delta.pgm" "$out" "$splash" "$ui_h"
+usb=${3:-$src/apps/bitmaps/native/usblogo.138x110x2.bmp}
+python3 "$root/tools/mktheme.py" "$work" "$work/delta.pgm" "$out" "$splash" "$ui_h" "$usb"
 
 cvt() { "$src/tools/convbdf" -f "$@" >/dev/null; }
 cvt -a '-1!' -d '-1!' -o "$out/fonts/11-JetBrainsMono.fnt" "$work/jb11.bdf"

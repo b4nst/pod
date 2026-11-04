@@ -65,7 +65,7 @@ devenv shell -- scripts/sim-shot.sh build/shots/x "W200 D S W60 D MM W80 D"
 `sim-shot.sh` runs the simulator headless and saves screendumps as PNG. The
 script is a list of steps: `W<ticks>` wait (100 ticks = 1 s), `D` screendump,
 `M S P L R` press MENU/SELECT/PLAY/PREV/NEXT, a doubled letter is a long
-press, and `F<n>`/`B<n>` turn the wheel.
+press, `F<n>`/`B<n>` turn the wheel, and `U` plugs or unplugs USB.
 
 ## Layout
 
@@ -80,8 +80,11 @@ press, and `F<n>`/`B<n>` turn the wheel.
      by itself
   5. full-screen splash, codecs: MP3, AAC/ALAC, FLAC, Vorbis, Opus, WAV, AIFF,
      WavPack, APE
-- `tools/mktheme.py` + `tools/canvas.py`: draw every bitmap (splash, cassette,
-  reels, meters) and write the WPS/SBS from the same layout constants
+  6. full-screen "DATA LINK" USB screen in place of the stock logo
+- `tools/mktheme.py` + `tools/canvas.py`: draw every bitmap (splash, USB
+  screen, cassette, reels, meters) and write the WPS/SBS from the same layout
+  constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,
+  because a dark background shows up as a frame on the backlit LCD.
 - `scripts/build-theme.sh`: rasterizes JetBrains Mono and Orbitron to Rockbox
   fonts and runs the generator
 - `theme/`: static files: default `config.cfg`, `themes/pod.cfg`, library

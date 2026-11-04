@@ -1,7 +1,7 @@
-From 54fb42b635b24821ab707b4a0a2afbd4454eeed0 Mon Sep 17 00:00:00 2001
+From aaf3d6d6e16777a0416614174580383331137b24 Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 21:37:48 +0100
-Subject: [PATCH 2/5] skin: add %pW, a tape reel animation frame that advances
+Subject: [PATCH 2/6] skin: add %pW, a tape reel animation frame that advances
  while playing
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3

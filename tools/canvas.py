@@ -1,12 +1,18 @@
 """Tiny 2-bit greyscale canvas: BDF text, primitives, 24-bit BMP output.
 
-Levels match the iPod mini LCD: 0 black, 1 dark grey, 2 light grey, 3 white.
+Levels are ink: 0 is the bare panel, 3 is full ink. The mini's backlit LCD
+looks best with a light background, so ink is drawn dark.
 """
 import math
 import struct
 
-K, D, L, W = 0, 1, 2, 3
-RGB = {0: (0, 0, 0), 1: (85, 85, 85), 2: (170, 170, 170), 3: (255, 255, 255)}
+PAPER, FAINT, MID, INK = 0, 1, 2, 3
+RGB = {0: (255, 255, 255), 1: (170, 170, 170), 2: (85, 85, 85), 3: (0, 0, 0)}
+
+
+def lcd(level):
+    """Ink level as a Rockbox greyscale colour (0 black .. 3 white)."""
+    return 3 - level
 
 
 class BDF:
@@ -48,7 +54,7 @@ class BDF:
 
 
 class Canvas:
-    def __init__(self, w, h, fill=K):
+    def __init__(self, w, h, fill=PAPER):
         self.w, self.h = w, h
         self.px = [[fill] * w for _ in range(h)]
 
