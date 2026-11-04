@@ -1,4 +1,4 @@
-From 82a446a8e8718272b0ffd0c0200c485d1cfdbd90 Mon Sep 17 00:00:00 2001
+From 43749e95dd8cd7fd1221a78b8db072e32eba7622 Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 21:37:48 +0100
 Subject: [PATCH 3/6] pod: five band EQ screen drawn as a frequency response
@@ -7,9 +7,9 @@ Subject: [PATCH 3/6] pod: five band EQ screen drawn as a frequency response
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
 ---
  apps/SOURCES      |   1 +
- apps/gui/pod_eq.c | 512 ++++++++++++++++++++++++++++++++++++++++++++++
+ apps/gui/pod_eq.c | 523 ++++++++++++++++++++++++++++++++++++++++++++++
  apps/gui/pod_eq.h |  26 +++
- 3 files changed, 539 insertions(+)
+ 3 files changed, 550 insertions(+)
  create mode 100644 apps/gui/pod_eq.c
  create mode 100644 apps/gui/pod_eq.h
 
@@ -27,10 +27,10 @@ index c8b21daf3b..c7fc583478 100644
  gui/bitmap/list.c
 diff --git a/apps/gui/pod_eq.c b/apps/gui/pod_eq.c
 new file mode 100644
-index 0000000000..fec6c1b14a
+index 0000000000..62f55b63ee
 --- /dev/null
 +++ b/apps/gui/pod_eq.c
-@@ -0,0 +1,512 @@
+@@ -0,0 +1,523 @@
 +/***************************************************************************
 + *             __________               __   ___.
 + *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
@@ -354,23 +354,34 @@ index 0000000000..fec6c1b14a
 +    /* text goes over filled chips, so never paint glyph backgrounds */
 +    d->set_drawmode(DRMODE_FG);
 +
-+    /* header: title, band count, on/off chip */
++    /* header: inverted bar with the Δ mark, title, band count, on/off chip */
 +    d->set_foreground(POD_INK);
++    d->fillrect(0, 0, LCD_WIDTH, 11);
++    d->set_foreground(POD_PAPER);
++    for (int i = 0; i < 8; i++)
++    {
++        d->drawpixel(6 - i/2, 2 + i);
++        d->drawpixel(6 + (i + 1)/2, 2 + i);
++    }
++    d->hline(2, 10, 9);
 +    d->setfont(f_label);
-+    d->putsxy(2, 1, "EQUALIZER");
++    d->putsxy(13, 2, "EQUALIZER");
 +    d->set_foreground(POD_FAINT);
 +    d->setfont(f_tiny);
-+    d->putsxy(2 + text_width(f_label, "EQUALIZER") + 4, 4, "5-BAND");
++    d->putsxy(13 + text_width(f_label, "EQUALIZER") + 4, 4, "5-BAND");
 +
-+    const char *state = on ? "ON" : "BYPASS";
++    const char *state = on ? "ON" : "OFF";
 +    int sw = text_width(f_tiny, state) + 6;
-+    d->set_foreground(on ? POD_INK : POD_FAINT);
-+    d->fillrect(LCD_WIDTH - sw - 1, 2, sw, th + 3);
-+    d->set_foreground(POD_PAPER);
-+    d->putsxy(LCD_WIDTH - sw + 2, 4, state);
++    d->set_foreground(on ? POD_PAPER : POD_MID);
++    d->fillrect(LCD_WIDTH - sw - 2, 2, sw, th + 2);
++    d->set_foreground(on ? POD_INK : POD_PAPER);
++    d->putsxy(LCD_WIDTH - sw + 1, 3, state);
 +
-+    d->set_foreground(POD_FAINT);
-+    d->hline(0, LCD_WIDTH - 1, 12);
++    d->set_foreground(POD_INK);
++    for (int y = 12; y <= 13; y++)
++        for (int x = 0; x < LCD_WIDTH; x++)
++            if ((x + y) % 3 == 0)
++                d->drawpixel(x, y);
 +
 +    /* plot grid */
 +    d->set_foreground(POD_FAINT);

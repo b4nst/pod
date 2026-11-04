@@ -1,4 +1,4 @@
-From 4dc8702bdfba90a412d18443b44d81730944ac64 Mon Sep 17 00:00:00 2001
+From 9b325bcabb6a24e0147b310c9f0bc3c7a38a704f Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 23:02:35 +0100
 Subject: [PATCH 6/6] pod: themed full screen USB link screen
@@ -7,8 +7,8 @@ Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
 ---
  apps/bitmaps/native/SOURCES               |   4 +++-
  apps/bitmaps/native/usblogo.138x110x2.bmp | Bin 0 -> 45814 bytes
- apps/gui/usb_screen.c                     |  10 ++++++++++
- 3 files changed, 13 insertions(+), 1 deletion(-)
+ apps/gui/usb_screen.c                     |  15 +++++++++++++++
+ 3 files changed, 18 insertions(+), 1 deletion(-)
  create mode 100644 apps/bitmaps/native/usblogo.138x110x2.bmp
 
 diff --git a/apps/bitmaps/native/SOURCES b/apps/bitmaps/native/SOURCES
@@ -28,7 +28,7 @@ index b3c5b64b6b..0871fdfcd3 100644
  usblogo.128x33x2.bmp
 diff --git a/apps/bitmaps/native/usblogo.138x110x2.bmp b/apps/bitmaps/native/usblogo.138x110x2.bmp
 new file mode 100644
-index 0000000000000000000000000000000000000000..a191a6962b8d221d15ab0f697015b0ef21bb2f5b
+index 0000000000000000000000000000000000000000..0ad3550c6c86ea1e11a287bd769af93b212ea9bc
 GIT binary patch
 literal 45814
 zcmZ?r{kDk#49pl97&I6d7`hl381fhx7#JBOz~TosF)#>oLoir?fq~)wC>X>cFd9FD
@@ -47,45 +47,46 @@ z2*wXQz~Bscgh0XxB90t6XbK?8&`5|bG(loCVrrqH$WV(P<WR(9Lqs4XS|C9LF-f>G
 zh!mU)XW$ZtE1)T3NW~8%sNfj`!i5A6gpEu>#Ni~e6fzr40h|kGKorBdbY={l_<@8I
 zJaW)V9*8U?@E~ktm1v3~%FsxNE;K=6G-7I@qR3E-A7rm1hbS@|9;nDsgr)%590(hi
 z0$kz{U9={LRQ#X?26D(DvmweLBJe1Jb1@lc>M<3-4S}enCpmQD2QyS40SOUDW<x~K
-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
-L_!;!+gn<D7@qsS%
+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
 
 literal 0
 HcmV?d00001
 
 diff --git a/apps/gui/usb_screen.c b/apps/gui/usb_screen.c
-index b1a12d2d83..009f02a9b5 100644
+index b1a12d2d83..2d2b3249cf 100644
 --- a/apps/gui/usb_screen.c
 +++ b/apps/gui/usb_screen.c
 @@ -140,6 +140,16 @@ static void usb_screen_fix_viewports(struct screen *screen,
@@ -105,6 +106,18 @@ index b1a12d2d83..009f02a9b5 100644
      viewportmanager_theme_enable(screen->screen_type, true, parent);
  
      if (logo_width  > parent->width)
+@@ -216,6 +226,11 @@ static void usb_screens_draw(struct usb_screen_vps_t *usb_screen_vps_ar)
+         screen->backlight_on();
+         screen->set_viewport(logo);
+         screen->bmp(logos[i], 0, 0);
++#if BMPHEIGHT_usblogo == LCD_HEIGHT
++        /* without the theme nothing else pushes this to the LCD */
++        screen->set_viewport(NULL);
++        screen->update();
++#endif
+         screen->set_viewport(last_vp);
+     }
+ #ifdef USB_ENABLE_HID
 -- 
 2.56.0
 

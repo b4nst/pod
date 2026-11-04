@@ -10,6 +10,7 @@ import math
 import os
 import sys
 
+import iso
 from canvas import BDF, Canvas, PAPER, FAINT, MID, INK, lcd, vstack, load_pgm_levels
 
 LCD_W, LCD_H = 138, 110
@@ -54,19 +55,54 @@ def segments(c, x, y, w, h, v, seg=2, gap=1):
 
 
 # battery: outline in the backdrop, segments as the bar image
-BAT_X, BAT_Y = 118, 1
-BAT_FILL = (121, 3, 11, 3)
+BAT_X, BAT_Y = 118, 2
+BAT_FILL = (121, 4, 11, 3)
 
 
-def battery_outline(c):
-    c.frame(BAT_X, BAT_Y, 17, 7, MID)
-    c.rect(BAT_X + 17, BAT_Y + 2, 2, 3, MID)
-    segments(c, *BAT_FILL, FAINT)
+def battery_outline(c, v=MID, empty=FAINT):
+    c.frame(BAT_X, BAT_Y, 17, 7, v)
+    c.rect(BAT_X + 17, BAT_Y + 2, 2, 3, v)
+    segments(c, *BAT_FILL, empty)
 
 
-bat = Canvas(BAT_FILL[2], BAT_FILL[3])
-segments(bat, 0, 0, bat.w, bat.h, INK)
-save(bat, "batt.bmp")
+def battery_image(v):
+    b = Canvas(BAT_FILL[2], BAT_FILL[3], INK if v == PAPER else PAPER)
+    segments(b, 0, 0, b.w, b.h, v)
+    return b
+
+
+save(battery_image(INK), "batt.bmp")
+save(battery_image(PAPER), "batt_inv.bmp")
+
+
+def dot_grid(c, x0, y0, x1, y1, step=4):
+    for y in range(y0, y1 + 1, step):
+        for x in range(x0, x1 + 1, step):
+            c.set(x, y, FAINT)
+
+
+def crosshair(c, x, y, v=INK, r=3):
+    c.hline(x - r, x + r, y, v)
+    c.vline(x, y - r, y + r, v)
+
+
+def hatch(c, x0, y0, x1, y1, v=INK, step=3):
+    for y in range(y0, y1 + 1):
+        for x in range(x0, x1 + 1):
+            if (x + y) % step == 0:
+                c.set(x, y, v)
+
+
+def head_bar(c, title=None):
+    """Inverted header strip with the Δ mark, as on a HUD."""
+    c.rect(0, 0, LCD_W, HEAD_H, INK)
+    delta_mark(c, 2, 2, PAPER)
+    if title:
+        c.text(orb, 13, 2, title, PAPER)
+    hatch(c, 0, HEAD_H + 1, LCD_W - 1, HEAD_H + 2)
+
+
+HEAD_H = 11
 
 # playback state icons, 7x7: stop, play, pause, ffwd, rew (matches %mp)
 states = []
@@ -96,76 +132,60 @@ save(vstack(states), "state.bmp")
 
 # ---------------------------------------------------------------- WPS
 
-SHELL = (3, 12, 132, 64)
-LABEL = (12, 15, 114, 25)
-WINDOW = (28, 43, 82, 25)
-REEL = 23
-REEL_L = (34, 44)
-REEL_R = (81, 44)
+# cassette, projected; the window region animates
+CAS = iso.Cassette(22, 22, 0.84)
+WBOX = CAS.window_box()
 TAPE_LEVELS = 6
 REEL_FRAMES = 4
 
-TIME_VP = (2, 79, 48, orbb.height)
-VU = (58, 79, 78, 4)
-VU_GAP = 7
-PROG = (2, 95, 134, 5)
-INFO_Y = 103
+COL_X = 109                        # HUD readout column right of the cassette
+TITLE_Y = 70
+TIME_Y = 90
+VU = (70, 91, 66, 3)
+VU_GAP = 6
+PROG = (2, 104, 134, 5)
 
 wps_bg = Canvas(LCD_W, LCD_H)
 c = wps_bg
+dot_grid(c, 0, 13, LCD_W - 1, 66)
 
 # status row
-c.hline(0, LCD_W - 1, 9, FAINT)
-for x in range(0, LCD_W, 23):
-    c.set(x, 10, FAINT)
-battery_outline(c)
+c.hline(0, LCD_W - 1, 10, INK)
+battery_outline(c, INK)
 
-# cassette shell
-x, y, w, h = SHELL
-c.round_rect(x, y, w, h, 4, MID, fill=FAINT)
-for sx, sy in ((x + 4, y + 4), (x + w - 5, y + 4), (x + 4, y + h - 5), (x + w - 5, y + h - 5)):
-    c.disc(sx, sy, 1.5, PAPER)
-    c.set(sx, sy, MID)
+iso.draw(CAS, c)
 
-# paper label with a colour band between title and artist
-x, y, w, h = LABEL
-c.round_rect(x, y, w, h, 2, MID, fill=MID)
-c.hline(x + 2, x + w - 3, y + 15, FAINT)
-c.hline(x + 2, x + w - 3, y + 16, FAINT)
+# HUD column: side, tape position, track; dotted leader from the take-up hub
+cx = COL_X
+c.rect(cx, 13, 29, 8, INK)
+c.text_center(tiny, cx + 14, 14, "SIDE A", PAPER)
+c.text(tiny, cx, 26, "POS", MID)
+c.text(tiny, cx, 44, "TRK", MID)
+rx, ry = CAS.ip(iso.HUB_R, iso.HUB_Y)
+crosshair(c, rx, ry - 12, INK, 2)
+c.hline(rx + 3, cx - 2, ry - 12, INK, step=2)
+c.vline(cx - 2, 26, ry - 12, INK, step=2)
+c.hline(cx - 2, cx - 1, 26, INK)
+crosshair(c, 4, 64)
+crosshair(c, LCD_W - 5, 64)
 
-# window with the tape packs
-x, y, w, h = WINDOW
-c.round_rect(x, y, w, h, 3, MID, fill=PAPER)
-c.text(orb, 15, 50, "A", INK)
-c.text_center(tiny, 121, 46, "TRK", MID)
+# title strip
+c.hline(0, LCD_W - 1, TITLE_Y - 2, INK)
 
-# bottom ridge: trapezoid with guide holes
-sx, sy, sw, sh = SHELL
-by = sy + sh - 1
-c.line(30, by, 36, by - 6, MID)
-c.hline(36, sx + sw - 1 - 33, by - 6, MID)
-c.line(sx + sw - 1 - 33, by - 6, sx + sw - 1 - 27, by, MID)
-for hx in (50, 87):
-    c.disc(hx, by - 3, 1.5, PAPER)
-for hx in (41, 96):
-    c.rect(hx, by - 4, 2, 2, PAPER)
+# counter and meters
+c.hline(0, LCD_W - 1, TIME_Y - 2, FAINT, step=2)
+c.text(tiny, VU[0] - 6, VU[1] - 1, "L", INK)
+c.text(tiny, VU[0] - 6, VU[1] + VU_GAP - 1, "R", INK)
+segments(c, VU[0], VU[1], VU[2], VU[3], FAINT)
+segments(c, VU[0], VU[1] + VU_GAP, VU[2], VU[3], FAINT)
 
-# VU meters
-x, y, w, h = VU
-c.text(tiny, x - 6, y - 1, "L", MID)
-c.text(tiny, x - 6, y + VU_GAP - 1, "R", MID)
-segments(c, x, y, w, h, FAINT)
-segments(c, x, y + VU_GAP, w, h, FAINT)
-c.hline(x, x + w - 1, y + h + 1, FAINT, step=3)
-
-# progress track
+# tape position
 segments(c, *PROG, FAINT)
 save(wps_bg, "wps_bg.bmp")
 
 vu = Canvas(VU[2], VU[3])
 segments(vu, 0, 0, vu.w, vu.h, MID)
-hot = vu.w * 4 // 5
-for xx in range(hot, vu.w):
+for xx in range(vu.w * 3 // 4, vu.w):
     for yy in range(vu.h):
         if vu.get(xx, yy) == MID:
             vu.set(xx, yy, INK)
@@ -175,28 +195,18 @@ prog = Canvas(PROG[2], PROG[3])
 segments(prog, 0, 0, prog.w, prog.h, INK)
 save(prog, "progress.bmp")
 
-
-def reel(level, frame):
-    """Tape pack radius grows with level; hub spokes rotate with frame."""
-    r = Canvas(REEL, REEL, PAPER)
-    cx = cy = REEL // 2
-    pack = 6 + level
-    r.disc(cx, cy, pack, FAINT)
-    r.ring(cx, cy, pack, MID, 1.0)
-    r.disc(cx, cy, 5.5, PAPER)
-    r.ring(cx, cy, 5.5, INK, 1.6)
-    for i in range(3):
-        a = math.radians(frame * 30 + i * 120)
-        r.line(cx, cy, round(cx + 4.4 * math.cos(a)), round(cy + 4.4 * math.sin(a)), INK)
-    r.disc(cx, cy, 1.2, INK)
-    return r
-
-
+# one strip per tape level, one subimage per hub angle, cropped from a full
+# render so the edges line up with the backdrop
+bx0, by0, bx1, by1 = WBOX
 for lvl in range(TAPE_LEVELS):
-    save(vstack([reel(lvl, f) for f in range(REEL_FRAMES)]), f"reel{lvl}.bmp")
+    frames = []
+    for f in range(REEL_FRAMES):
+        full = Canvas(LCD_W, LCD_H)
+        iso.draw(CAS, full, tape=lvl / (TAPE_LEVELS - 1), angle=f * 30)
+        frames.append(full.crop(bx0, by0, bx1 - bx0, by1 - by0))
+    save(vstack(frames), f"tape{lvl}.bmp")
 
-reels = "|".join(
-    f"%xd(L{TAPE_LEVELS - 1 - i},%pW)%xd(R{i},%pW)" for i in range(TAPE_LEVELS))
+tapes = "|".join(f"%xd(T{i},%pW)" for i in range(TAPE_LEVELS))
 
 wps = f"""# pod - cassette deck WPS for the iPod mini (bΔnst ⧉ design)
 %wd
@@ -204,69 +214,66 @@ wps = f"""# pod - cassette deck WPS for the iPod mini (bΔnst ⧉ design)
 %Fl(2,10-Orbitron-Medium.fnt)
 %Fl(3,14-Orbitron-Bold.fnt)
 %Fl(4,06-Tiny.fnt)
-%xl(S,state.bmp,1,1,5)
+%xl(S,state.bmp,1,2,5)
 """ + "".join(
-    f"%xl(L{i},reel{i}.bmp,{REEL_L[0]},{REEL_L[1]},{REEL_FRAMES})\n"
-    f"%xl(R{i},reel{i}.bmp,{REEL_R[0]},{REEL_R[1]},{REEL_FRAMES})\n"
+    f"%xl(T{i},tape{i}.bmp,{bx0},{by0},{REEL_FRAMES})\n"
     for i in range(TAPE_LEVELS)) + f"""
 %xd(S,%mp)
-%?px<{reels}>
+%?px<{tapes}>
 
 # status row
-%V(10,2,40,6,4)%Vf({lcd(INK)})
+%V(10,3,40,6,4)%Vf({lcd(INK)})
 %?mp<STOP|PLAY|PAUSE|FFWD|REW>
-%V(52,2,34,6,4)%Vf({lcd(MID)})
+%V(52,3,34,6,4)%Vf({lcd(MID)})
 %ac%?cc<%cH:%cM|>
-%V(84,2,32,6,4)%Vf({lcd(MID)})
+%V(84,3,32,6,4)%Vf({lcd(MID)})
 %ar%?ps<SHF|>%?mm<| RPT| RP1|| A-B>
 %V({BAT_FILL[0]},{BAT_FILL[1]},{BAT_FILL[2]},{BAT_FILL[3]},1)
 %bl(0,0,{BAT_FILL[2]},{BAT_FILL[3]},image,batt.bmp)
 
-# cassette label
-%V({LABEL[0] + 2},{LABEL[1] + 1},{LABEL[2] - 4},{UI_H},1)%Vf({lcd(PAPER)})
+# HUD column
+%V({COL_X},32,{LCD_W - COL_X},{orb.height},2)%Vf({lcd(INK)})
+%px%%
+%V({COL_X},50,{LCD_W - COL_X},{orb.height},2)%Vf({lcd(INK)})
+%pp/%pe
+
+# title, artist and album
+%V(2,{TITLE_Y},{LCD_W - 4},{UI_H},1)%Vf({lcd(INK)})
 %s%?it<%it|%fn>
-%V({LABEL[0] + 2},{LABEL[1] + 18},{LABEL[2] - 4},6,4)%Vf({lcd(PAPER)})
-%s%?ia<%ia|UNKNOWN ARTIST>
-%V(110,54,22,{orb.height},2)%Vf({lcd(INK)})
-%ac%pp
+%V(2,{TITLE_Y + UI_H + 1},{LCD_W - 30},6,4)%Vf({lcd(MID)})
+%s%?ia<%ia|UNKNOWN ARTIST>%?id< - %id|>
+%V({LCD_W - 28},{TITLE_Y + UI_H + 1},26,6,4)%Vf({lcd(MID)})
+%ar-%pr
 
 # counter, meters, tape position
-%V({TIME_VP[0]},{TIME_VP[1]},{TIME_VP[2]},{TIME_VP[3]},3)%Vf({lcd(INK)})
+%V(2,{TIME_Y},56,{orbb.height},3)%Vf({lcd(INK)})
 %?mv(1)<%pv|%pc>
 %V({VU[0]},{VU[1]},{VU[2]},{VU[3] + VU_GAP},1)
 %pL(0,0,{VU[2]},{VU[3]},image,vu.bmp)%pR(0,{VU_GAP},{VU[2]},{VU[3]},image,vu.bmp)
 %V({PROG[0]},{PROG[1]},{PROG[2]},{PROG[3]},1)
 %pb(0,0,{PROG[2]},{PROG[3]},image,progress.bmp)
-
-# album, remaining
-%V(2,{INFO_Y},96,6,4)%Vf({lcd(MID)})
-%s%?id<%id|>%?iy< - %iy|>
-%V(98,{INFO_Y},38,6,4)%Vf({lcd(MID)})
-%ar-%pr
 """
 
 # ---------------------------------------------------------------- SBS (lists)
 
-HEAD_H = 12
-LIST_Y = HEAD_H + 3
+LIST_Y = HEAD_H + 4
 ROWS = (LCD_H - LIST_Y - 10) // UI_H
 LIST_H = ROWS * UI_H
 FOOT_Y = LIST_Y + LIST_H + 1
+NUM_W = 16
 
 sbs_bg = Canvas(LCD_W, LCD_H)
 c = sbs_bg
-delta_mark(c, 2, 2, INK)
-c.hline(0, LCD_W - 1, HEAD_H, FAINT)
-for x in range(0, LCD_W, 23):
-    c.set(x, HEAD_H + 1, FAINT)
-battery_outline(c)
+head_bar(c)
+battery_outline(c, PAPER, MID)
 c.vline(LCD_W - 2, LIST_Y, LIST_Y + LIST_H - 1, FAINT, step=2)
-c.hline(0, LCD_W - 1, FOOT_Y, FAINT)
+c.hline(0, LCD_W - 1, FOOT_Y, INK)
+segments(c, 0, LCD_H - 1, LCD_W, 1, FAINT)
 save(sbs_bg, "sbs_bg.bmp")
 
-scroll = Canvas(2, LIST_H)
-scroll.rect(0, 0, 2, LIST_H, INK)
-save(scroll, "scroll.bmp")
+foot_prog = Canvas(LCD_W, 1)
+segments(foot_prog, 0, 0, LCD_W, 1, INK)
+save(foot_prog, "foot_prog.bmp")
 
 sbs = f"""# pod - library chrome for the iPod mini (bΔnst ⧉ design)
 %X(sbs_bg.bmp)
@@ -278,21 +285,25 @@ sbs = f"""# pod - library chrome for the iPod mini (bΔnst ⧉ design)
 %Lb(item,{LCD_W - 4},{UI_H})
 %xd(S,%mp)
 
-%V(13,2,103,{orb.height},2)%Vf({lcd(INK)})
+%V(13,2,103,{orb.height},2)%Vf({lcd(PAPER)})%Vb({lcd(INK)})
 %s%Lt
 %V({BAT_FILL[0]},{BAT_FILL[1]},{BAT_FILL[2]},{BAT_FILL[3]},1)
-%bl(0,0,{BAT_FILL[2]},{BAT_FILL[3]},image,batt.bmp)
+%bl(0,0,{BAT_FILL[2]},{BAT_FILL[3]},image,batt_inv.bmp)
 
-%Vl(item,0,0,{LCD_W - 4},{UI_H},1)%Vf({lcd(INK)})%Vb({lcd(PAPER)})
+%Vl(item,0,0,{LCD_W - 4 - NUM_W},{UI_H},1)%Vf({lcd(INK)})%Vb({lcd(PAPER)})
 %?Lc<%Vs(invert)▸ %s%LT|  %LT>
+%Vl(item,{LCD_W - 4 - NUM_W},0,{NUM_W},{UI_H},4)%Vf({lcd(INK)})%Vb({lcd(PAPER)})
+%?Lc<%Vs(invert)|>%ar%LN 
 
 %V({LCD_W - 2},{LIST_Y},2,{LIST_H},1)
 %?LB<%LB(0,0,2,{LIST_H},noborder,slider,Sl)|>
 
-%V(10,{FOOT_Y + 3},92,6,4)%Vf({lcd(MID)})
+%V(10,{FOOT_Y + 2},92,6,4)%Vf({lcd(MID)})
 %?mp<NO TAPE|%s%it|%s%it|%s%it|%s%it>
-%V(102,{FOOT_Y + 3},34,6,4)%Vf({lcd(MID)})
+%V(102,{FOOT_Y + 2},34,6,4)%Vf({lcd(MID)})
 %?mp<|%ar%pc|%ar%pc|%ar%pc|%ar%pc>
+%V(0,{LCD_H - 1},{LCD_W},1,1)
+%?mp<|%pb(0,0,{LCD_W},1,image,foot_prog.bmp)|%pb(0,0,{LCD_W},1,image,foot_prog.bmp)|%pb(0,0,{LCD_W},1,image,foot_prog.bmp)|%pb(0,0,{LCD_W},1,image,foot_prog.bmp)>
 """
 
 knob = Canvas(2, 6)
@@ -329,7 +340,7 @@ sp.save_bmp(splash_out)
 
 def ipod(c, x, y):
     """22x34 iPod mini: body, screen, click wheel."""
-    c.round_rect(x, y, 22, 34, 3, INK)
+    c.round_rect(x, y, 22, 34, 3, INK, fill=PAPER)
     c.frame(x + 4, y + 4, 14, 11, MID)
     c.ring(x + 11, y + 24, 6, INK, 1.2)
     c.disc(x + 11, y + 24, 2, MID)
@@ -337,7 +348,7 @@ def ipod(c, x, y):
 
 def host(c, x, y):
     """34x30 terminal: screen with scanlines, stand."""
-    c.round_rect(x, y, 34, 24, 2, INK)
+    c.round_rect(x, y, 34, 24, 2, INK, fill=PAPER)
     for yy in range(y + 4, y + 21, 2):
         c.hline(x + 4, x + 29, yy, FAINT)
     c.rect(x + 14, y + 24, 6, 3, INK)
@@ -347,14 +358,11 @@ def host(c, x, y):
 
 usb = Canvas(LCD_W, LCD_H)
 c = usb
-delta_mark(c, 2, 2, INK)
-c.text(orb, 13, 2, "DATA LINK", INK)
+head_bar(c, "DATA LINK")
 chip = tiny.width("USB") + 8
-c.rect(LCD_W - chip - 1, 1, chip, 9, INK)
-c.text_center(tiny, LCD_W - 1 - chip // 2, 3, "USB", PAPER)
-c.hline(0, LCD_W - 1, HEAD_H, FAINT)
-for x in range(0, LCD_W, 23):
-    c.set(x, HEAD_H + 1, FAINT)
+c.rect(LCD_W - chip - 2, 2, chip, 7, PAPER)
+c.text_center(tiny, LCD_W - 2 - chip // 2, 3, "USB", INK)
+dot_grid(c, 0, 16, LCD_W - 1, 68)
 
 ipod(c, 14, 22)
 host(c, 90, 24)

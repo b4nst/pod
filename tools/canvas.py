@@ -127,6 +127,27 @@ class Canvas:
                     elif fill is not None:
                         self.set(xx, yy, fill)
 
+    def fill_poly(self, pts, v):
+        """Fill a convex polygon given as (x, y) float points."""
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        n = len(pts)
+        for y in range(int(min(ys)), int(max(ys)) + 2):
+            for x in range(int(min(xs)), int(max(xs)) + 2):
+                px, py = x + 0.5, y + 0.5
+                sign = 0
+                inside = True
+                for i in range(n):
+                    (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % n]
+                    cr = (x1 - x0) * (py - y0) - (y1 - y0) * (px - x0)
+                    if cr != 0:
+                        if sign == 0:
+                            sign = 1 if cr > 0 else -1
+                        elif (cr > 0) != (sign > 0):
+                            inside = False
+                            break
+                if inside:
+                    self.set(x, y, v)
+
     def text(self, font, x, y, s, v, spacing=0):
         """Draw s with its cell top at y. Returns the advance."""
         x0 = x
