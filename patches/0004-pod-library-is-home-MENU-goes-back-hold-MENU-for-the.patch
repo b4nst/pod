@@ -1,0 +1,319 @@
+From 879e3120ffff88a028fe9d653f1ff3dd6cfef9e9 Mon Sep 17 00:00:00 2001
+From: banst <cycles@banst.ch>
+Date: Wed, 4 Nov 2026 21:37:49 +0100
+Subject: [PATCH 4/5] pod: library is home, MENU goes back, hold MENU for the
+ only settings menu
+
+Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
+---
+ apps/gui/wps.c             |  2 +-
+ apps/keymaps/keymap-ipod.c | 28 ++++++++++++++++++++++++----
+ apps/menus/main_menu.c     | 34 ++++++++++++++++++++++++++--------
+ apps/onplay.c              | 29 +++--------------------------
+ apps/root_menu.c           | 36 ++++++++++++------------------------
+ apps/tree.c                |  8 +++++---
+ 6 files changed, 71 insertions(+), 66 deletions(-)
+
+diff --git a/apps/gui/wps.c b/apps/gui/wps.c
+index 12fda68824..a928dc8d33 100644
+--- a/apps/gui/wps.c
++++ b/apps/gui/wps.c
+@@ -991,7 +991,7 @@ long gui_wps_show(void)
+             /* menu key functions */
+             case ACTION_WPS_MENU:
+                 gwps_leave_wps(true);
+-                return GO_TO_ROOT;
++                return GO_TO_MAINMENU;
+                 break;
+ 
+ 
+diff --git a/apps/keymaps/keymap-ipod.c b/apps/keymaps/keymap-ipod.c
+index 787d930468..d6eb81c8fe 100644
+--- a/apps/keymaps/keymap-ipod.c
++++ b/apps/keymaps/keymap-ipod.c
+@@ -47,8 +47,8 @@ static const struct button_mapping button_context_standard[]  = {
+     { ACTION_STD_CANCEL,        BUTTON_LEFT,                        BUTTON_NONE },
+     { ACTION_STD_OK,            BUTTON_RIGHT,                       BUTTON_NONE },
+     { ACTION_STD_OK,            BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
+-    { ACTION_STD_MENU,          BUTTON_MENU|BUTTON_REL,             BUTTON_MENU },
+-    { ACTION_STD_QUICKSCREEN,   BUTTON_MENU|BUTTON_REPEAT,          BUTTON_MENU },
++    { ACTION_STD_CANCEL,        BUTTON_MENU|BUTTON_REL,             BUTTON_MENU },
++    { ACTION_STD_MENU,          BUTTON_MENU|BUTTON_REPEAT,          BUTTON_MENU },
+     { ACTION_STD_CONTEXT,       BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
+     { ACTION_STD_CANCEL,        BUTTON_PLAY|BUTTON_REPEAT,          BUTTON_NONE },
+ 
+@@ -90,8 +90,8 @@ static const struct button_mapping button_context_wps[]  = {
+     { ACTION_WPS_BROWSE,    BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
+     { ACTION_WPS_CONTEXT,   BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
+     { ACTION_WPS_HOTKEY,        BUTTON_SELECT|BUTTON_PLAY,      BUTTON_NONE },
+-    { ACTION_WPS_MENU,          BUTTON_MENU|BUTTON_REL,         BUTTON_MENU },
+-    { ACTION_WPS_QUICKSCREEN,   BUTTON_MENU|BUTTON_REPEAT,      BUTTON_MENU },
++    { ACTION_WPS_BROWSE,        BUTTON_MENU|BUTTON_REL,         BUTTON_MENU },
++    { ACTION_WPS_MENU,          BUTTON_MENU|BUTTON_REPEAT,      BUTTON_MENU },
+ 
+     LAST_ITEM_IN_LIST,
+ }; /* button_context_wps */
+@@ -111,6 +111,25 @@ static const struct button_mapping button_context_settings[]  = {
+     LAST_ITEM_IN_LIST__NEXTLIST(CONTEXT_STD)
+ }; /* button_context_settings */
+ 
++/* pod EQ screen: wheel = gain, prev/next = band, select = preset,
++ * play = EQ on/off, menu = done */
++static const struct button_mapping button_context_eq[]  = {
++    { ACTION_SETTINGS_INC,          BUTTON_SCROLL_FWD,                  BUTTON_NONE },
++    { ACTION_SETTINGS_INCREPEAT,    BUTTON_SCROLL_FWD|BUTTON_REPEAT,    BUTTON_NONE },
++    { ACTION_SETTINGS_DEC,          BUTTON_SCROLL_BACK,                 BUTTON_NONE },
++    { ACTION_SETTINGS_DECREPEAT,    BUTTON_SCROLL_BACK|BUTTON_REPEAT,   BUTTON_NONE },
++    { ACTION_STD_PREV,              BUTTON_LEFT,                        BUTTON_NONE },
++    { ACTION_STD_PREVREPEAT,        BUTTON_LEFT|BUTTON_REPEAT,          BUTTON_NONE },
++    { ACTION_STD_NEXT,              BUTTON_RIGHT,                       BUTTON_NONE },
++    { ACTION_STD_NEXTREPEAT,        BUTTON_RIGHT|BUTTON_REPEAT,         BUTTON_NONE },
++    { ACTION_STD_OK,                BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
++    { ACTION_SETTINGS_SET,          BUTTON_PLAY|BUTTON_REL,             BUTTON_PLAY },
++    { ACTION_STD_CANCEL,            BUTTON_MENU|BUTTON_REL,             BUTTON_MENU },
++    { ACTION_STD_CANCEL,            BUTTON_MENU|BUTTON_REPEAT,          BUTTON_MENU },
++
++    LAST_ITEM_IN_LIST
++}; /* button_context_eq */
++
+ static const struct button_mapping button_context_yesno[]  = {
+     { ACTION_YESNO_ACCEPT,          BUTTON_SELECT,                  BUTTON_NONE },
+     { ACTION_STD_CANCEL,          BUTTON_PLAY,                  BUTTON_NONE },
+@@ -458,6 +477,7 @@ const struct button_mapping* get_context_mapping(int context)
+             return button_context_standard;
+ 
+         case CONTEXT_SETTINGS_EQ:
++            return button_context_eq;
+         case CONTEXT_SETTINGS_COLOURCHOOSER:
+         case CONTEXT_SETTINGS_TIME:
+         case CONTEXT_SETTINGS:
+diff --git a/apps/menus/main_menu.c b/apps/menus/main_menu.c
+index a09d81de3d..d987f3d2aa 100644
+--- a/apps/menus/main_menu.c
++++ b/apps/menus/main_menu.c
+@@ -29,6 +29,8 @@
+ #include "power.h"
+ #include "powermgmt.h"
+ #include "menu.h"
++#include "pod_eq.h"
++#include "tagcache.h"
+ #include "misc.h"
+ #include "exported_menus.h"
+ #include "tree.h"
+@@ -506,19 +508,35 @@ MENUITEM_FUNCTION(main_menu_config_item, 0, ID2P(LANG_MAIN_MENU),
+ /***********************************/
+ /*    MAIN MENU                    */
+ 
++/* The only menu on the device, reached by holding MENU */
++static int pod_rescan_library(void)
++{
++    tagcache_rebuild();
++    splash(HZ*2, ID2P(LANG_TAGCACHE_FORCE_UPDATE_SPLASH));
++    return 0;
++}
++
++MENUITEM_FUNCTION(pod_eq_item, 0, ID2P(LANG_EQUALIZER),
++                  pod_eq_screen, NULL, Icon_EQ);
++MENUITEM_SETTING(pod_shuffle_item, &global_settings.playlist_shuffle, NULL);
++MENUITEM_SETTING(pod_repeat_item, &global_settings.repeat_mode, NULL);
++MENUITEM_SETTING(pod_backlight_item, &global_settings.backlight_timeout, NULL);
++MENUITEM_FUNCTION(pod_rescan_item, 0, "Rescan Library",
++                  pod_rescan_library, NULL, Icon_NOICON);
++MENUITEM_FUNCTION(pod_info_item, 0, ID2P(LANG_SYSTEM),
++                  show_info, NULL, Icon_NOICON);
++
+ MAKE_MENU(main_menu_, ID2P(LANG_SETTINGS), NULL,
+         Icon_Submenu_Entered,
+-        &sound_settings,
+-        &playback_settings,
+-        &settings_menu_item, &theme_menu,
+-#ifdef HAVE_RECORDING
+-        &recording_settings,
+-#endif
++        &pod_eq_item,
++        &pod_shuffle_item,
++        &pod_repeat_item,
++        &pod_backlight_item,
+ #if CONFIG_RTC
+         &timedate_item,
+ #endif
+-        &main_menu_config_item,
+-        &manage_settings,
++        &pod_rescan_item,
++        &pod_info_item,
+         );
+ /*    MAIN MENU                    */
+ /***********************************/
+diff --git a/apps/onplay.c b/apps/onplay.c
+index d383523879..29b6c87152 100644
+--- a/apps/onplay.c
++++ b/apps/onplay.c
+@@ -1247,20 +1247,7 @@ static int onplaymenu_callback(int action,
+ /* used when onplay() is called in the CONTEXT_WPS context */
+ MAKE_ONPLAYMENU( wps_onplay_menu, ID2P(LANG_ONPLAY_MENU_TITLE),
+            onplaymenu_callback, Icon_Audio,
+-           &wps_playlist_menu, &cat_playlist_menu,
+-           &sound_settings, &playback_settings,
+-#ifdef HAVE_TAGCACHE
+-           &rating_item,
+-#endif
+-           &bookmark_menu,
+-           &view_cue_item,
+-#ifndef HAVE_HOTKEY
+-           &context_item_0,
+-#endif
+-           &context_item_1,
+-           &context_item_2,
+-           &context_item_3,
+-           &context_item_4,
++           &browse_id3_item, &reshuffle_item,
+          );
+ 
+ int sort_playlists_callback(int action,
+@@ -1287,18 +1274,8 @@ MENUITEM_FUNCTION(view_playlist_item, 0, ID2P(LANG_VIEW),
+ /* used when onplay() is not called in the CONTEXT_WPS context */
+ MAKE_ONPLAYMENU( tree_onplay_menu, ID2P(LANG_ONPLAY_MENU_TITLE),
+            onplaymenu_callback, Icon_file_view_menu,
+-           &view_playlist_item, &tree_playlist_menu, &cat_playlist_menu,
+-           &rename_file_item, &clipboard_cut_item, &clipboard_copy_item,
+-           &clipboard_paste_item, &delete_file_item, &delete_dir_item,
+-           &list_viewers_item, &create_dir_item, &properties_item, &track_info_item,
+-           &reveal_item,
+-#ifdef HAVE_TAGCACHE
+-           &pictureflow_item,
+-#endif
+-#if LCD_DEPTH > 1
+-           &set_backdrop_item,
+-#endif
+-           &add_to_faves_item, &set_as_dir_menu, &file_menu, &sort_playlists,
++           &replace_shuf_pl_item, &i_first_pl_item, &i_last_pl_item,
++           &track_info_item,
+          );
+ 
+ static int onplaymenu_callback(int action,
+diff --git a/apps/root_menu.c b/apps/root_menu.c
+index 918669b245..04b4dd26d3 100644
+--- a/apps/root_menu.c
++++ b/apps/root_menu.c
+@@ -27,6 +27,7 @@
+ #include "root_menu.h"
+ #include "lang.h"
+ #include "settings.h"
++#include "system.h"
+ #include "screens.h"
+ #include "kernel.h"
+ #include "debug.h"
+@@ -190,8 +191,10 @@ static int browser(void* param)
+                     /* Maybe just needs to reboot due to delayed commit */
+                     if (stat->commit_delayed)
+                     {
+-                        splash(HZ*2, ID2P(LANG_PLEASE_REBOOT));
+-                        break;
++                        /* first scan only commits on boot: do it for them */
++                        splash(HZ*2, "Library scanned, restarting");
++                        settings_save();
++                        system_reboot();
+                     }
+ 
+                     /* Check if ready status is known */
+@@ -205,13 +208,7 @@ static int browser(void* param)
+                     if (!reinit_attempted && !stat->ready &&
+                         stat->processed_entries == 0 && stat->commit_step == 0)
+                     {
+-                        /* Prompt the user */
+                         reinit_attempted = true;
+-                        static const char *lines[]={
+-                            ID2P(LANG_TAGCACHE_BUSY), ID2P(LANG_TAGCACHE_FORCE_UPDATE)};
+-                        static const struct text_message message={lines, 2};
+-                        if(gui_syncyesno_run(&message, NULL, NULL) == YESNO_NO)
+-                            break;
+                         clear_screen_buffer(false);
+ 
+                         /* Start initialisation */
+@@ -269,7 +266,7 @@ static int browser(void* param)
+                 }
+             }
+             if (!tagcache_is_usable())
+-                return GO_TO_PREVIOUS;
++                return GO_TO_MAINMENU; /* aborted while scanning */
+             if (!tagtree_ready())
+             {
+                 splashf(HZ*3, "%s\n%s", str(LANG_FILE_NOT_FOUND),
+@@ -413,7 +410,7 @@ static int miscscrn(void * param)
+         case GO_TO_PREVIOUS_MUSIC:
+             return result;
+         default:
+-            return GO_TO_ROOT;
++            return GO_TO_PREVIOUS;
+     }
+ }
+ 
+@@ -855,11 +852,7 @@ static void ignore_back_button_stub(bool ignore)
+ 
+ static int root_menu_setup_screens(void)
+ {
+-    int new_screen = next_screen;
+-    if (global_settings.start_in_screen == 0)
+-        new_screen = global_status.last_screen;
+-    else
+-        new_screen = global_settings.start_in_screen - 2;
++    int new_screen = GO_TO_DBBROWSER;
+ 
+     if (new_screen >= NUM_ITEMS ||
+         (new_screen == GO_TO_WPS && global_status.resume_index == -1))
+@@ -940,7 +933,7 @@ static int root_menu_setup_screens(void)
+ 
+ void root_menu(void)
+ {
+-    int previous_browser = global_status.last_browser;
++    int previous_browser = GO_TO_DBBROWSER;
+     int selected = 0;
+     int shortcut_origin = GO_TO_ROOT;
+ 
+@@ -960,14 +953,9 @@ void root_menu(void)
+                 global_status.last_screen = GO_TO_ROOT; /* We've returned to ROOT */
+                 /* When we are in the main menu we want the hardware BACK
+                  * button to be handled by HOST instead of rockbox */
+-                ignore_back_button_stub(true);
+-
+-                next_screen = do_menu(&root_menu_, &selected, NULL, false);
+-
+-                ignore_back_button_stub(false);
+-
+-                if (next_screen != GO_TO_PREVIOUS)
+-                    last_screen = GO_TO_ROOT;
++                (void)selected;
++                next_screen = GO_TO_DBBROWSER;
++                last_screen = GO_TO_ROOT;
+                 break;
+ #ifdef HAVE_TAGCACHE
+             case GO_TO_DBBROWSER:
+diff --git a/apps/tree.c b/apps/tree.c
+index 450226961b..b3c93e0e88 100644
+--- a/apps/tree.c
++++ b/apps/tree.c
+@@ -831,8 +831,10 @@ static int dirbrowse(void)
+                     exit_func = true;
+                     break;
+                 }
+-                if ((*tc.dirfilter == SHOW_ID3DB && tc.dirlevel == 0) ||
+-                    ((*tc.dirfilter != SHOW_ID3DB && !strcmp(currdir,"/"))))
++                /* The library root is home: there is nothing above it */
++                if (*tc.dirfilter == SHOW_ID3DB && tc.dirlevel == 0)
++                    break;
++                if (*tc.dirfilter != SHOW_ID3DB && !strcmp(currdir,"/"))
+                 {
+                     if (oldbutton == ACTION_TREE_PGLEFT)
+                         break;
+@@ -857,7 +859,7 @@ static int dirbrowse(void)
+                 break;
+ 
+             case ACTION_STD_MENU:
+-                return exit_to_new_screen(GO_TO_ROOT);
++                return exit_to_new_screen(GO_TO_MAINMENU);
+                 break;
+ 
+ #ifdef HAVE_RECORDING
+-- 
+2.56.0
+

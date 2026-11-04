@@ -1,0 +1,574 @@
+From 12ed63e3ff122bf7392c85289d0d117a6124fb19 Mon Sep 17 00:00:00 2001
+From: banst <cycles@banst.ch>
+Date: Wed, 4 Nov 2026 21:37:48 +0100
+Subject: [PATCH 3/5] pod: five band EQ screen drawn as a frequency response
+ plot
+
+Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
+---
+ apps/SOURCES      |   1 +
+ apps/gui/pod_eq.c | 506 ++++++++++++++++++++++++++++++++++++++++++++++
+ apps/gui/pod_eq.h |  26 +++
+ 3 files changed, 533 insertions(+)
+ create mode 100644 apps/gui/pod_eq.c
+ create mode 100644 apps/gui/pod_eq.h
+
+diff --git a/apps/SOURCES b/apps/SOURCES
+index c8b21daf3b..c7fc583478 100644
+--- a/apps/SOURCES
++++ b/apps/SOURCES
+@@ -77,6 +77,7 @@ iap/iap-lingo7.c
+ #endif
+ screen_access.c
+ gui/icon.c
++gui/pod_eq.c
+ gui/list.c
+ gui/line.c
+ gui/bitmap/list.c
+diff --git a/apps/gui/pod_eq.c b/apps/gui/pod_eq.c
+new file mode 100644
+index 0000000000..4988578267
+--- /dev/null
++++ b/apps/gui/pod_eq.c
+@@ -0,0 +1,506 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++
++/*
++ * Five band equalizer shown as a tape deck style response plot.
++ *
++ * Bands 0-4 of the DSP equalizer are pinned to a low shelf, three peaks and
++ * a high shelf; the remaining bands stay at 0 dB, which disables them in the
++ * DSP.  The plotted curve is the magnitude response of the actual biquads.
++ */
++
++#include "config.h"
++#include <stdio.h>
++#include <stdbool.h>
++#include <string.h>
++#include "system.h"
++#include "kernel.h"
++#include "action.h"
++#include "settings.h"
++#include "rbpaths.h"
++#include "font.h"
++#include "screen_access.h"
++#include "viewport.h"
++#include "misc.h"
++#include "dsp_proc_settings.h"
++#include "pod_eq.h"
++
++#define POD_EQ_BANDS    5
++#define POD_GAIN_MAX    120     /* tenths of dB */
++#define POD_GAIN_STEP   10
++#define POD_FS          44100.0f
++
++#define FONT_LABEL      FONT_DIR "/10-Orbitron-Medium.fnt"
++#define FONT_VALUE      FONT_DIR "/14-Orbitron-Bold.fnt"
++#define FONT_TINY       FONT_DIR "/06-Tiny.fnt"
++
++/* plot area */
++#define GX  16
++#define GW  120
++#define GY  16
++#define GH  54
++#define G0  (GY + GH/2)     /* 0 dB line */
++
++static const struct {
++    enum eq_filter_type type;
++    int cutoff;
++    int q;                  /* tenths */
++    const char *label;
++} bands[POD_EQ_BANDS] = {
++    { EQ_FILTER_LOW_SHELF,    60,  7, "60"  },
++    { EQ_FILTER_PEAK,        250, 10, "250" },
++    { EQ_FILTER_PEAK,       1000, 10, "1K"  },
++    { EQ_FILTER_PEAK,       4000, 10, "4K"  },
++    { EQ_FILTER_HIGH_SHELF, 12000, 7, "12K" },
++};
++
++static const struct {
++    const char *name;
++    signed char gain[POD_EQ_BANDS]; /* dB */
++} presets[] = {
++    { "FLAT",  {  0,  0,  0,  0,  0 } },
++    { "BASS",  {  6,  3,  0,  0,  0 } },
++    { "SUB",   {  9,  2, -1,  0,  1 } },
++    { "WARM",  {  4,  2,  0, -1, -3 } },
++    { "VOCAL", { -2,  0,  3,  2,  0 } },
++    { "AIR",   {  0,  0,  0,  3,  5 } },
++    { "LOUD",  {  5,  1, -2,  2,  5 } },
++};
++
++/* Small float helpers: the core has no libm.  Accuracy only has to be good
++ * enough for a 54 pixel high plot. */
++static float pod_sinf(float x) /* |x| <= pi/2 */
++{
++    float x2 = x * x;
++    return x * (1.0f - x2/6.0f * (1.0f - x2/20.0f * (1.0f - x2/42.0f *
++                (1.0f - x2/72.0f))));
++}
++
++static float pod_log2f(float x)
++{
++    union { float f; uint32_t i; } u = { .f = x };
++    int e = (int)((u.i >> 23) & 0xff) - 127;
++    u.i = (u.i & 0x7fffff) | 0x3f800000; /* mantissa in [1, 2) */
++    float t = (u.f - 1.0f) / (u.f + 1.0f), t2 = t * t;
++    return e + 2.88539008f * t * (1.0f + t2 * (1.0f/3 + t2 * (0.2f + t2/7)));
++}
++
++static float pod_exp2f(float x)
++{
++    int i = (int)x;
++    if (x < i)
++        i--;
++    float f = x - i;
++    union { float f; uint32_t i; } u;
++    u.f = 1.0f + f * (0.693147f + f * (0.240227f + f * (0.0555041f +
++                                                         f * 0.00961813f)));
++    u.i += (uint32_t)i << 23;
++    return u.f;
++}
++
++#define PI_F 3.14159265f
++
++struct biquad { float b0, b1, b2, a0, a1, a2; };
++
++/* RBJ cookbook coefficients */
++static void band_coefs(int band, int gain, struct biquad *c)
++{
++    float w0 = 2.0f * PI_F * bands[band].cutoff / POD_FS;
++    float s = w0 <= PI_F/2 ? pod_sinf(w0) : pod_sinf(PI_F - w0);
++    float cs = pod_sinf(PI_F/2 - w0);
++    float alpha = s / (2.0f * bands[band].q / 10.0f);
++    float A = pod_exp2f(gain / 400.0f * 3.32192809f);    /* 10^(dB/40) */
++    float sA = pod_exp2f(gain / 800.0f * 3.32192809f);   /* sqrt(A) */
++
++    switch (bands[band].type)
++    {
++    case EQ_FILTER_PEAK:
++        c->b0 = 1 + alpha*A;  c->b1 = -2*cs; c->b2 = 1 - alpha*A;
++        c->a0 = 1 + alpha/A;  c->a1 = -2*cs; c->a2 = 1 - alpha/A;
++        break;
++    case EQ_FILTER_LOW_SHELF:
++        c->b0 = A*((A+1) - (A-1)*cs + 2*sA*alpha);
++        c->b1 = 2*A*((A-1) - (A+1)*cs);
++        c->b2 = A*((A+1) - (A-1)*cs - 2*sA*alpha);
++        c->a0 = (A+1) + (A-1)*cs + 2*sA*alpha;
++        c->a1 = -2*((A-1) + (A+1)*cs);
++        c->a2 = (A+1) + (A-1)*cs - 2*sA*alpha;
++        break;
++    case EQ_FILTER_HIGH_SHELF:
++        c->b0 = A*((A+1) + (A-1)*cs + 2*sA*alpha);
++        c->b1 = -2*A*((A-1) + (A+1)*cs);
++        c->b2 = A*((A+1) + (A-1)*cs - 2*sA*alpha);
++        c->a0 = (A+1) - (A-1)*cs + 2*sA*alpha;
++        c->a1 = 2*((A-1) - (A+1)*cs);
++        c->a2 = (A+1) - (A-1)*cs - 2*sA*alpha;
++        break;
++    }
++}
++
++/* |H|^2 written in terms of phi = sin^2(w/2) */
++static float biquad_db(const struct biquad *c, float phi)
++{
++    float n = (c->b0 + c->b1 + c->b2) * (c->b0 + c->b1 + c->b2)
++            - 4*(c->b0*c->b1 + 4*c->b0*c->b2 + c->b1*c->b2) * phi
++            + 16*c->b0*c->b2 * phi*phi;
++    float d = (c->a0 + c->a1 + c->a2) * (c->a0 + c->a1 + c->a2)
++            - 4*(c->a0*c->a1 + 4*c->a0*c->a2 + c->a1*c->a2) * phi
++            + 16*c->a0*c->a2 * phi*phi;
++    if (n <= 0 || d <= 0)
++        return 0;
++    return 3.01029996f * (pod_log2f(n) - pod_log2f(d));
++}
++
++/* plot x for a frequency: 20 Hz .. 20 kHz on a log axis */
++static int freq_x(int hz)
++{
++    return GX + (int)(GW * pod_log2f(hz / 20.0f) / 9.96578428f + 0.5f);
++}
++
++static int db_y(float db)
++{
++    int y = G0 - (int)(db * (GH/2 - 2) / (POD_GAIN_MAX / 10) +
++                       (db < 0 ? -0.5f : 0.5f));
++    return MAX(GY, MIN(GY + GH - 1, y));
++}
++
++static float phi_at[GW];
++static signed char curve[GW];
++
++static void compute_curve(void)
++{
++    struct biquad c[POD_EQ_BANDS];
++    int active = 0;
++
++    for (int b = 0; b < POD_EQ_BANDS; b++)
++    {
++        int gain = global_settings.eq_band_settings[b].gain;
++        if (gain)
++            band_coefs(b, gain, &c[active++]);
++    }
++
++    for (int x = 0; x < GW; x++)
++    {
++        float db = 0;
++        for (int i = 0; i < active; i++)
++            db += biquad_db(&c[i], phi_at[x]);
++        curve[x] = db_y(db) - GY;
++    }
++}
++
++static void init_phi(void)
++{
++    for (int x = 0; x < GW; x++)
++    {
++        float f = 20.0f * pod_exp2f(9.96578428f * x / (GW - 1));
++        float h = PI_F * f / POD_FS; /* w/2 */
++        float s = pod_sinf(h);
++        phi_at[x] = s * s;
++    }
++}
++
++static int find_preset(void)
++{
++    for (unsigned p = 0; p < ARRAYLEN(presets); p++)
++    {
++        bool match = true;
++        for (int b = 0; b < POD_EQ_BANDS && match; b++)
++            match = global_settings.eq_band_settings[b].gain ==
++                    presets[p].gain[b] * 10;
++        if (match)
++            return p;
++    }
++    return -1;
++}
++
++static void apply_eq(void)
++{
++    int precut = 0;
++    for (int b = 0; b < POD_EQ_BANDS; b++)
++        precut = MAX(precut, global_settings.eq_band_settings[b].gain);
++
++    global_settings.eq_precut = precut;
++    dsp_set_eq_precut(precut);
++    for (int b = 0; b < EQ_NUM_BANDS; b++)
++        dsp_set_eq_coefs(b, &global_settings.eq_band_settings[b]);
++    dsp_eq_enable(global_settings.eq_enabled);
++}
++
++/* Force the band layout this screen knows how to draw */
++static void pin_bands(void)
++{
++    for (int b = 0; b < EQ_NUM_BANDS; b++)
++    {
++        struct eq_band_setting *s = &global_settings.eq_band_settings[b];
++        if (b < POD_EQ_BANDS)
++        {
++            s->type = bands[b].type;
++            s->cutoff = bands[b].cutoff;
++            s->q = bands[b].q;
++            s->gain = MAX(-POD_GAIN_MAX, MIN(POD_GAIN_MAX, s->gain));
++        }
++        else
++            s->gain = 0;
++    }
++}
++
++static int load_font(const char *path)
++{
++    int id = font_load(path);
++    return id < 0 ? FONT_SYSFIXED : id;
++}
++
++static void unload_font(int id)
++{
++    if (id >= FONT_FIRSTUSERFONT)
++        font_unload(id);
++}
++
++static void dotted_hline(struct screen *d, int x1, int x2, int y, int step)
++{
++    for (int x = x1; x <= x2; x += step)
++        d->drawpixel(x, y);
++}
++
++static void dotted_vline(struct screen *d, int x, int y1, int y2, int step)
++{
++    for (int y = y1; y <= y2; y += step)
++        d->drawpixel(x, y);
++}
++
++static void corner_brackets(struct screen *d, int x, int y, int w, int h)
++{
++    int r = x + w - 1, b = y + h - 1;
++    d->hline(x, x + 3, y);     d->vline(x, y, y + 3);
++    d->hline(r - 3, r, y);     d->vline(r, y, y + 3);
++    d->hline(x, x + 3, b);     d->vline(x, b - 3, b);
++    d->hline(r - 3, r, b);     d->vline(r, b - 3, b);
++}
++
++static int text_width(int font, const char *s)
++{
++    int w, h;
++    font_getstringsize(s, &w, &h, font);
++    return w;
++}
++
++static void draw(struct screen *d, int sel, int f_label, int f_value,
++                 int f_tiny)
++{
++    char buf[16];
++    bool on = global_settings.eq_enabled;
++    int gain = global_settings.eq_band_settings[sel].gain;
++    int preset = find_preset();
++    int th = font_get(f_tiny)->height;
++
++    d->set_background(LCD_BLACK);
++    d->clear_display();
++    /* text goes over filled chips, so never paint glyph backgrounds */
++    d->set_drawmode(DRMODE_FG);
++
++    /* header: title, band count, on/off chip */
++    d->set_foreground(LCD_WHITE);
++    d->setfont(f_label);
++    d->putsxy(2, 1, "EQUALIZER");
++    d->set_foreground(LCD_DARKGRAY);
++    d->setfont(f_tiny);
++    d->putsxy(2 + text_width(f_label, "EQUALIZER") + 4, 4, "5-BAND");
++
++    const char *state = on ? "ON" : "BYPASS";
++    int sw = text_width(f_tiny, state) + 6;
++    d->set_foreground(on ? LCD_WHITE : LCD_DARKGRAY);
++    d->fillrect(LCD_WIDTH - sw - 1, 2, sw, th + 3);
++    d->set_foreground(LCD_BLACK);
++    d->putsxy(LCD_WIDTH - sw + 2, 4, state);
++
++    d->set_foreground(LCD_DARKGRAY);
++    d->hline(0, LCD_WIDTH - 1, 12);
++
++    /* plot grid */
++    d->set_foreground(LCD_DARKGRAY);
++    dotted_hline(d, GX, GX + GW - 1, db_y(6), 3);
++    dotted_hline(d, GX, GX + GW - 1, db_y(-6), 3);
++    static const int decades[] = { 100, 1000, 10000 };
++    for (unsigned i = 0; i < ARRAYLEN(decades); i++)
++        dotted_vline(d, freq_x(decades[i]), GY, GY + GH - 1, 3);
++    d->set_foreground(LCD_LIGHTGRAY);
++    dotted_hline(d, GX, GX + GW - 1, G0, 2);
++    corner_brackets(d, GX - 2, GY - 2, GW + 4, GH + 4);
++
++    d->set_foreground(LCD_DARKGRAY);
++    d->putsxy(1, db_y(12) - 1, "+12");
++    d->putsxy(5, G0 - th/2, "0");
++    d->putsxy(1, db_y(-12) - th + 2, "-12");
++
++    /* response: hatched fill to the 0 dB line, then a 2px trace */
++    d->set_foreground(LCD_DARKGRAY);
++    for (int x = 0; x < GW; x += 2)
++    {
++        int y = GY + curve[x];
++        if (y < G0 - 1)
++            d->vline(GX + x, y + 1, G0 - 1);
++        else if (y > G0 + 1)
++            d->vline(GX + x, G0 + 1, y - 1);
++    }
++    d->set_foreground(on ? LCD_WHITE : LCD_LIGHTGRAY);
++    for (int x = 0; x < GW; x++)
++    {
++        int y = GY + curve[x];
++        int py = x ? GY + curve[x - 1] : y;
++        if (!on && (x & 2))
++            continue;
++        d->vline(GX + x, MIN(y, py), MAX(y, py));
++        d->vline(GX + x, MIN(y, py) + 1, MAX(y, py) + 1);
++    }
++
++    /* band handles and labels */
++    d->setfont(f_tiny);
++    for (int b = 0; b < POD_EQ_BANDS; b++)
++    {
++        int bx = freq_x(bands[b].cutoff);
++        int by = GY + curve[bx - GX];
++        int lw = text_width(f_tiny, bands[b].label);
++        int lx = MIN(LCD_WIDTH - lw - 1, bx - lw/2);
++        if (b == sel)
++        {
++            d->set_foreground(LCD_LIGHTGRAY);
++            dotted_vline(d, bx, GY, GY + GH - 1, 2);
++            d->set_foreground(LCD_WHITE);
++            d->fillrect(bx - 3, by - 3, 7, 7);
++            d->set_foreground(LCD_BLACK);
++            d->fillrect(bx - 1, by - 1, 3, 3);
++            d->set_foreground(LCD_WHITE);
++            d->fillrect(lx - 2, GY + GH + 3, lw + 4, th + 2);
++            d->set_foreground(LCD_BLACK);
++        }
++        else
++        {
++            d->set_foreground(LCD_LIGHTGRAY);
++            d->fillrect(bx - 1, by - 1, 3, 3);
++        }
++        d->putsxy(lx, GY + GH + 4, bands[b].label);
++    }
++
++    /* readout: selected band gain, preset */
++    d->set_foreground(LCD_DARKGRAY);
++    d->hline(0, LCD_WIDTH - 1, 82);
++    d->setfont(f_tiny);
++    d->putsxy(2, 86, "GAIN");
++    d->putsxy(78, 86, "PRESET");
++
++    d->set_foreground(LCD_WHITE);
++    d->setfont(f_value);
++    snprintf(buf, sizeof(buf), "%+d", gain / 10);
++    d->putsxy(2, 86 + th + 1, buf);
++    int vw = text_width(f_value, buf);
++    d->setfont(f_tiny);
++    d->putsxy(2 + vw + 2, 86 + th + 1 + font_get(f_value)->height - th - 2, "DB");
++
++    d->setfont(f_label);
++    d->putsxy(78, 86 + th + 2, preset >= 0 ? presets[preset].name : "CUSTOM");
++
++    d->set_foreground(LCD_DARKGRAY);
++    d->vline(72, 85, LCD_HEIGHT - 1);
++
++    d->setfont(FONT_UI);
++    d->set_drawmode(DRMODE_SOLID);
++    d->set_foreground(LCD_DEFAULT_FG);
++    d->set_background(LCD_DEFAULT_BG);
++    d->update();
++}
++
++int pod_eq_screen(void)
++{
++    struct screen *d = &screens[SCREEN_MAIN];
++    int sel = 0;
++    int f_label = load_font(FONT_LABEL);
++    int f_value = load_font(FONT_VALUE);
++    int f_tiny = load_font(FONT_TINY);
++    bool changed = false;
++
++    FOR_NB_SCREENS(i)
++        viewportmanager_theme_enable(i, false, NULL);
++    d->set_viewport(NULL);
++
++    pin_bands();
++    apply_eq();
++    init_phi();
++    compute_curve();
++
++    while (true)
++    {
++        draw(d, sel, f_label, f_value, f_tiny);
++
++        int button = get_action(CONTEXT_SETTINGS_EQ, TIMEOUT_BLOCK);
++        int *gain = &global_settings.eq_band_settings[sel].gain;
++
++        switch (button)
++        {
++        case ACTION_SETTINGS_INC:
++        case ACTION_SETTINGS_INCREPEAT:
++            *gain = MIN(POD_GAIN_MAX, *gain + POD_GAIN_STEP);
++            break;
++        case ACTION_SETTINGS_DEC:
++        case ACTION_SETTINGS_DECREPEAT:
++            *gain = MAX(-POD_GAIN_MAX, *gain - POD_GAIN_STEP);
++            break;
++        case ACTION_STD_PREV:
++        case ACTION_STD_PREVREPEAT:
++            sel = (sel + POD_EQ_BANDS - 1) % POD_EQ_BANDS;
++            continue;
++        case ACTION_STD_NEXT:
++        case ACTION_STD_NEXTREPEAT:
++            sel = (sel + 1) % POD_EQ_BANDS;
++            continue;
++        case ACTION_STD_OK:
++        {
++            int p = (find_preset() + 1) % (int)ARRAYLEN(presets);
++            for (int b = 0; b < POD_EQ_BANDS; b++)
++                global_settings.eq_band_settings[b].gain = presets[p].gain[b] * 10;
++            break;
++        }
++        case ACTION_SETTINGS_SET:
++            global_settings.eq_enabled = !global_settings.eq_enabled;
++            break;
++        case ACTION_STD_CANCEL:
++            goto done;
++        default:
++            if (default_event_handler(button) == SYS_USB_CONNECTED)
++                goto done;
++            continue;
++        }
++
++        changed = true;
++        apply_eq();
++        compute_curve();
++    }
++
++done:
++    if (changed)
++        settings_save();
++
++    unload_font(f_tiny);
++    unload_font(f_value);
++    unload_font(f_label);
++
++    FOR_NB_SCREENS(i)
++        viewportmanager_theme_undo(i, false);
++    return 0;
++}
+diff --git a/apps/gui/pod_eq.h b/apps/gui/pod_eq.h
+new file mode 100644
+index 0000000000..11771dcbb4
+--- /dev/null
++++ b/apps/gui/pod_eq.h
+@@ -0,0 +1,26 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++#ifndef _POD_EQ_H_
++#define _POD_EQ_H_
++
++/* Five band graphical equalizer drawn as a frequency response plot */
++int pod_eq_screen(void);
++
++#endif /* _POD_EQ_H_ */
+-- 
+2.56.0
+

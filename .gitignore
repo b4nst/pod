@@ -1,0 +1,6 @@
+.devenv*
+devenv.lock
+.direnv
+build/
+dist/
+__pycache__/

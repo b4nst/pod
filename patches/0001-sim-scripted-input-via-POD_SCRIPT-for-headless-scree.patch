@@ -1,0 +1,105 @@
+From 135ed020daf30a89307958eaa5b3df7bfac771dd Mon Sep 17 00:00:00 2001
+From: banst <cycles@banst.ch>
+Date: Wed, 4 Nov 2026 21:07:34 +0100
+Subject: [PATCH 1/5] sim: scripted input via POD_SCRIPT for headless
+ screenshots
+
+Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
+---
+ firmware/target/hosted/sdl/button-sdl.c | 73 +++++++++++++++++++++++++
+ 1 file changed, 73 insertions(+)
+
+diff --git a/firmware/target/hosted/sdl/button-sdl.c b/firmware/target/hosted/sdl/button-sdl.c
+index a329bb6fc1..24d899c751 100644
+--- a/firmware/target/hosted/sdl/button-sdl.c
++++ b/firmware/target/hosted/sdl/button-sdl.c
+@@ -655,6 +655,76 @@ static void button_event(int key, bool pressed)
+     else
+         btn &= ~new_btn;
+ }
++#ifdef SIMULATOR
++/* Scripted input for headless UI checks.  POD_SCRIPT is a space separated
++ * list of steps:  W<ticks> wait, D screendump, X exit, and button steps
++ * M S P L R (menu, select, play, left, right; doubled = long press),
++ * F<n>/B<n> wheel forward/back n clicks. */
++static void script_step(void)
++{
++    static const char *script = NULL;
++    static bool started = false;
++    static long next_tick = 0;
++    static int held = 0;
++    static const char *p;
++
++    if (!started)
++    {
++        started = true;
++        script = getenv("POD_SCRIPT");
++        p = script;
++        next_tick = current_tick + HZ*3;
++    }
++    if (!script || TIME_BEFORE(current_tick, next_tick))
++        return;
++
++    if (held)
++    {
++        btn &= ~held;
++        held = 0;
++        next_tick = current_tick + HZ/5;
++        return;
++    }
++
++    while (*p == ' ')
++        p++;
++    if (!*p)
++        return;
++
++    char c = *p++;
++    bool dbl = (*p == c);
++    if (dbl)
++        p++;
++    int n = 0;
++    while (*p >= '0' && *p <= '9')
++        n = n*10 + (*p++ - '0');
++
++    int b = 0;
++    switch (c)
++    {
++        case 'W': next_tick = current_tick + n; return;
++        case 'D': sim_trigger_screendump(); next_tick = current_tick + HZ; return;
++        case 'X': exit(EXIT_SUCCESS);
++        case 'F':
++        case 'B':
++            for (int i = 0; i < (n ? n : 1); i++)
++                button_queue_post(c == 'F' ? BUTTON_SCROLL_FWD : BUTTON_SCROLL_BACK,
++                                  1<<24);
++            next_tick = current_tick + HZ/5;
++            return;
++        case 'M': b = BUTTON_MENU; break;
++        case 'S': b = BUTTON_SELECT; break;
++        case 'P': b = BUTTON_PLAY; break;
++        case 'L': b = BUTTON_LEFT; break;
++        case 'R': b = BUTTON_RIGHT; break;
++        default: return;
++    }
++    btn |= b;
++    held = b;
++    next_tick = current_tick + (dbl ? HZ*3/2 : HZ/10);
++}
++#endif
++
+ #if defined(HAVE_BUTTON_DATA)
+ int button_read_device(int* data)
+ {
+@@ -685,6 +755,9 @@ int button_read_device(void)
+     else
+ #endif
+ 
++#ifdef SIMULATOR
++    script_step();
++#endif
+     return btn;
+ }
+ 
+-- 
+2.56.0
+
