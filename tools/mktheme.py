@@ -202,6 +202,7 @@ for lvl in range(TAPE_LEVELS):
     frames = []
     for f in range(REEL_FRAMES):
         full = Canvas(LCD_W, LCD_H)
+        dot_grid(full, 0, 13, LCD_W - 1, 66)
         iso.draw(CAS, full, tape=lvl / (TAPE_LEVELS - 1), angle=f * 30)
         frames.append(full.crop(bx0, by0, bx1 - bx0, by1 - by0))
     save(vstack(frames), f"tape{lvl}.bmp")

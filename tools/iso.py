@@ -77,72 +77,75 @@ def window_outline(steps=40):
     return pts
 
 
-def shade_window(cas, c, tape, angle):
-    """Packs, hubs and spokes inside the window.
+def dotted(cas, c, a, b, v, gap=2):
+    (u0, v0), (u1, v1) = cas.p(*a), cas.p(*b)
+    n = max(1, int(math.hypot(u1 - u0, v1 - v0) / gap))
+    for i in range(n + 1):
+        t = i / n
+        c.set(round(u0 + (u1 - u0) * t), round(v0 + (v1 - v0) * t), v)
+
+
+def circle(cas, c, cx, cy, r, v, clip=None, steps=48, dots=False):
+    """Circle on the top face, projected to an ellipse."""
+    pts = [(cx + r * math.cos(2 * math.pi * i / steps),
+            cy + r * math.sin(2 * math.pi * i / steps)) for i in range(steps + 1)]
+    for i, ((x0, y0), (x1, y1)) in enumerate(zip(pts, pts[1:])):
+        if clip and not (clip(x0, y0) and clip(x1, y1)):
+            continue
+        if dots:
+            if i % 2 == 0:
+                c.set(*cas.ip(x0, y0), v)
+            continue
+        cas.line(c, (x0, y0, HGT), (x1, y1, HGT), v)
+
+
+def reels(cas, c, tape, angle):
+    """Tape pack outlines and spoked hubs.
 
     tape: 0 at the start of the track (all tape on the left reel) .. 1.
     angle: hub rotation in degrees.
     """
-    packs = ((HUB_L, PACK_MIN + (PACK_MAX - PACK_MIN) * (1 - tape)),
-             (HUB_R, PACK_MIN + (PACK_MAX - PACK_MIN) * tape))
+    for hx, pack in ((HUB_L, 1 - tape), (HUB_R, tape)):
+        circle(cas, c, hx, HUB_Y, PACK_MIN + (PACK_MAX - PACK_MIN) * pack,
+               INK, clip=in_window, steps=72, dots=True)
+        circle(cas, c, hx, HUB_Y, 5.5, INK)
+        for i in range(3):
+            a = math.radians(angle + i * 120)
+            cas.line(c, (hx + 2.0 * math.cos(a), HUB_Y + 2.0 * math.sin(a), HGT),
+                     (hx + 5.5 * math.cos(a), HUB_Y + 5.5 * math.sin(a), HGT), INK)
+
+
+def clear_window(cas, c):
+    """Wipe the window region back to the bare panel inside the outline."""
     bx0, by0, bx1, by1 = cas.window_box()
     for v in range(by0, by1):
         for u in range(bx0, bx1):
-            x, y = cas.unproject(u + 0.5, v + 0.5)
-            if not in_window(x, y):
-                continue
-            col = FAINT
-            for hx, pr in packs:
-                dx, dy = x - hx, y - HUB_Y
-                r = math.hypot(dx, dy)
-                if r <= pr:
-                    col = MID
-                if r <= 6.5:
-                    col = INK if r > 4.6 else PAPER
-                    if r <= 4.6:
-                        for i in range(3):
-                            a = math.radians(angle + i * 120)
-                            along = dx * math.cos(a) + dy * math.sin(a)
-                            perp = -dx * math.sin(a) + dy * math.cos(a)
-                            if along > 0 and abs(perp) < 1.1:
-                                col = INK
-                        if r < 1.5:
-                            col = INK
-            c.set(u, v, col)
+            if in_window(*cas.unproject(u + 0.5, v + 0.5)):
+                c.set(u, v, PAPER)
 
 
 def draw(cas, c, tape=0.5, angle=0.0):
-    p = cas.p
-    # faces: front and right end shaded for depth, top face blank
-    c.fill_poly([p(0, DEP, 0), p(LEN, DEP, 0), p(LEN, DEP), p(0, DEP)], FAINT)
-    c.fill_poly([p(LEN, 0, 0), p(LEN, DEP, 0), p(LEN, DEP), p(LEN, 0)], MID)
-    c.fill_poly([p(0, 0), p(LEN, 0), p(LEN, DEP), p(0, DEP)], PAPER)
+    """Wireframe: visible edges solid, hidden ones dotted, no fills."""
+    L, D, H = LEN, DEP, HGT
+    for a, b in (((0, 0, 0), (LEN, 0, 0)), ((0, 0, 0), (0, DEP, 0)),
+                 ((0, 0, 0), (0, 0, HGT))):
+        dotted(cas, c, a, b, MID)
 
-    # tape head openings on the front face
-    for x0 in (30, 46, 62):
-        c.fill_poly([p(x0, DEP, 3), p(x0 + 8, DEP, 3), p(x0 + 8, DEP, 8),
-                     p(x0, DEP, 8)], INK)
-
-    shade_window(cas, c, tape, angle)
-
-    # label, its colour band and the bottom ridge
-    cas.poly(c, [(5, 3, HGT), (95, 3, HGT), (95, 44, HGT), (5, 44, HGT)], MID)
-    cas.line(c, (7, 39, HGT), (93, 39, HGT), MID)
-    cas.line(c, (7, 41, HGT), (93, 41, HGT), MID)
-    cas.poly(c, [(18, DEP, HGT), (25, 51, HGT), (75, 51, HGT), (82, DEP, HGT)],
-             INK, closed=False)
-    for hx in (36, 64):
-        u, v = cas.ip(hx, 58)
-        c.rect(u, v, 2, 1, INK)
-    for sx, sy in ((4, 4), (96, 4), (4, 60), (96, 60)):
-        u, v = cas.ip(sx, sy)
-        c.set(u, v, MID)
-
+    clear_window(cas, c)
+    reels(cas, c, tape, angle)
     cas.poly(c, window_outline(), INK)
 
-    # silhouette and the visible edges
-    cas.poly(c, [(0, 0, HGT), (LEN, 0, HGT), (LEN, DEP, HGT), (0, DEP, HGT)], INK)
-    for a, b in (((0, DEP, HGT), (0, DEP, 0)), ((LEN, DEP, HGT), (LEN, DEP, 0)),
-                 ((LEN, 0, HGT), (LEN, 0, 0)), ((0, DEP, 0), (LEN, DEP, 0)),
-                 ((LEN, 0, 0), (LEN, DEP, 0))):
+    # label and the bottom ridge on the top face
+    cas.poly(c, [(5, 3, H), (95, 3, H), (95, 44, H), (5, 44, H)], INK)
+    cas.poly(c, [(18, D, H), (25, 51, H), (75, 51, H), (82, D, H)], INK,
+             closed=False)
+    # tape head openings on the front face
+    for x0 in (30, 46, 62):
+        cas.poly(c, [(x0, D, 3), (x0 + 8, D, 3), (x0 + 8, D, 8), (x0, D, 8)], INK)
+
+    # visible box edges
+    cas.poly(c, [(0, 0, H), (L, 0, H), (L, D, H), (0, D, H)], INK)
+    for a, b in (((0, D, H), (0, D, 0)), ((L, D, H), (L, D, 0)),
+                 ((L, 0, H), (L, 0, 0)), ((0, D, 0), (L, D, 0)),
+                 ((L, 0, 0), (L, D, 0))):
         cas.line(c, a, b, INK)
