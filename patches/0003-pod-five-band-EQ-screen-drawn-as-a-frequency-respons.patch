@@ -1,7 +1,7 @@
-From 43749e95dd8cd7fd1221a78b8db072e32eba7622 Mon Sep 17 00:00:00 2001
+From 3735a882fa7900b02cc0c4963448ff465f16ce1e Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 21:37:48 +0100
-Subject: [PATCH 3/7] pod: five band EQ screen drawn as a frequency response
+Subject: [PATCH 3/8] pod: five band EQ screen drawn as a frequency response
  plot
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
@@ -27,7 +27,7 @@ index c8b21daf3b..c7fc583478 100644
  gui/bitmap/list.c
 diff --git a/apps/gui/pod_eq.c b/apps/gui/pod_eq.c
 new file mode 100644
-index 0000000000..62f55b63ee
+index 0000000000..e031b8dc89
 --- /dev/null
 +++ b/apps/gui/pod_eq.c
 @@ -0,0 +1,523 @@
@@ -80,8 +80,8 @@ index 0000000000..62f55b63ee
 +#define POD_GAIN_STEP   10
 +#define POD_FS          44100.0f
 +
-+#define FONT_LABEL      FONT_DIR "/10-Orbitron-Medium.fnt"
-+#define FONT_VALUE      FONT_DIR "/14-Orbitron-Bold.fnt"
++#define FONT_LABEL      FONT_DIR "/10-Deck-Medium.fnt"
++#define FONT_VALUE      FONT_DIR "/14-Deck-Bold.fnt"
 +#define FONT_TINY       FONT_DIR "/06-Tiny.fnt"
 +
 +/* light theme: dark ink on the bare (backlit) panel */

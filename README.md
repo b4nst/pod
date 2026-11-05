@@ -33,13 +33,28 @@ Library, System (battery, disk, version).
 
 ## Install
 
-1. Install the Rockbox bootloader once with the official installer or
-   `ipodpatcher`. This repo doesn't build the bootloader.
-2. Build (below) or take `dist/pod-ipodmini2g.zip` (or `-1g`) and unzip it at
-   the root of the iPod so that `.rockbox/` sits at the top level.
-3. Eject and reboot. On the first boot pod scans the library, then restarts by
-   itself once so Rockbox can commit the database. After that it boots straight
-   into the library. New music is picked up automatically at boot.
+pod lives in `/.pod` and boots `/.pod/pod.ipod`, so it needs its own
+bootloader. The stock Rockbox bootloader won't find it. The Apple firmware
+stays installed: hold MENU (or switch HOLD on) at power on to boot it.
+
+1. Build (below). The outputs are in `dist/`: `pod-<target>.zip`,
+   `pod-bootloader-<target>.ipod` and `ipodpatcher`.
+2. Put the iPod in disk mode and unzip `dist/pod-ipodmini1g.zip` (or `-2g`)
+   at its root so that `.pod/` sits at the top level. If you're upgrading
+   from Rockbox, delete `.rockbox/`.
+3. Install the bootloader once per device. It writes the raw disk, so it asks
+   for sudo, and the terminal needs access to removable volumes:
+
+   ```sh
+   diskutil list                                          # find the iPod, e.g. disk5
+   scripts/install-bootloader.sh ipodmini1g /dev/disk5
+   ```
+
+4. Eject and reboot. On the first boot pod scans the library, then restarts by
+   itself once to commit the database. After that it boots straight into the
+   library. New music is picked up automatically at boot.
+
+Unzipping an update replaces `config.cfg`, which resets the settings.
 
 ## Build
 
@@ -84,12 +99,20 @@ press, `F<n>`/`B<n>` turn the wheel, and `U` plugs or unplugs USB.
   7. with the backlight off, the player redraws at most every 5 s and stops
      polling the peak meters. The mini's LCD has no sleep mode, so it would
      otherwise keep animating in a pocket.
+  8. the rename: `/.pod/pod.ipod` in place of `/.rockbox/rockbox.ipod`
+     (configure's default `--rbdir` and the mini's boot file), a bootloader
+     that shows the Δ splash from power on, "pod" in the UI, and the source
+     and license on the System screen
 - `tools/mktheme.py` + `tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,
   because a dark background shows up as a frame on the backlit LCD.
 - `scripts/build-theme.sh`: rasterizes JetBrains Mono and Orbitron to Rockbox
-  fonts and runs the generator
+  fonts and runs the generator. Orbitron's license reserves its name for
+  modified versions, so the converted fonts are called Deck.
+- `scripts/install-bootloader.sh`: installs the pod bootloader with ipodpatcher
+- `device/README.txt`, `licenses/`: shipped in `/.pod` with the GPL text and
+  Rockbox's third party notices (`/.pod/docs`)
 - `theme/`: static files: default `config.cfg`, `themes/pod.cfg`, library
   menu (`tagnavi_user.config`)
 
@@ -103,11 +126,16 @@ rm patches/*.patch
 git -C build/src format-patch --binary -o "$PWD/patches" $(cat ROCKBOX_REV)..pod
 ```
 
+## License
+
+pod is Rockbox with patches, so it is GPLv2 or later like Rockbox (see
+`/.pod/docs/COPYING.txt` on the device). The fonts are under the SIL Open
+Font License (`licenses/`).
+
 ## Notes
 
 - The toolchain is nixpkgs' arm-none-eabi GCC 15. Rockbox recommends 9.5, and
-  configure warns about it. The firmware builds and links, but it hasn't run
-  on hardware yet.
+  configure warns about it. It runs on a 1G mini.
 - Peak meters stay empty in the simulator because its dummy audio driver feeds
   no samples. They should move on the device.
 - Removed codecs still let those files into the library, but they won't play.

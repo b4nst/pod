@@ -1,7 +1,7 @@
-From c62852ac08381993a971426e066c135200e5be53 Mon Sep 17 00:00:00 2001
+From ad2a871a289fa60edcecb05eb35a4256cecfbb9c Mon Sep 17 00:00:00 2001
 From: banst <bastien@banst.ch>
 Date: Thu, 5 Nov 2026 09:25:45 +0100
-Subject: [PATCH 7/7] pod: let the WPS idle while the backlight is off
+Subject: [PATCH 7/8] pod: let the WPS idle while the backlight is off
 
 The mini's LCD has no sleep mode, so the WPS kept redrawing the reels and
 the peak meters (polled every tick) in a pocket. With the backlight off,

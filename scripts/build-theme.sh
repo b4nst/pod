@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Build the theme into build/theme/.rockbox and the splash bitmap into the
+# Build the theme into build/theme/.pod and the splash bitmap into the
 # patched source tree. Needs the devenv shell and a built tools/convbdf.
 #   scripts/build-theme.sh <rockbox-src> [splash.bmp usb.bmp]
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 src=$(cd "$1" && pwd)
 work=$root/build/theme-work
-out=$root/build/theme/.rockbox
+out=$root/build/theme/.pod
 rm -rf "$work" "$out"
 mkdir -p "$work" "$out/fonts" "$out/themes"
 
@@ -30,8 +30,8 @@ python3 "$root/tools/mktheme.py" "$work" "$work/delta.pgm" "$out" "$splash" "$ui
 
 cvt() { "$src/tools/convbdf" -f "$@" >/dev/null; }
 cvt -a '-1!' -d '-1!' -o "$out/fonts/11-JetBrainsMono.fnt" "$work/jb11.bdf"
-cvt -o "$out/fonts/10-Orbitron-Medium.fnt" "$work/or10.bdf"
-cvt -o "$out/fonts/14-Orbitron-Bold.fnt" "$work/or14b.bdf"
+cvt -o "$out/fonts/10-Deck-Medium.fnt" "$work/or10.bdf"
+cvt -o "$out/fonts/14-Deck-Bold.fnt" "$work/or14b.bdf"
 cvt -o "$out/fonts/06-Tiny.fnt" "$work/tiny6.bdf"
 
 cp -R "$root/theme/." "$out/"

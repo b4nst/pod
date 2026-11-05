@@ -1,0 +1,230 @@
+From 0cbefd8685cd01be727f065c4533a19c0e7cf419 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Thu, 5 Nov 2026 09:37:59 +0100
+Subject: [PATCH 8/8] pod: rename to pod: /.pod/pod.ipod, pod bootloader with
+ the splash
+
+The firmware, its data and the boot file move from /.rockbox/rockbox.ipod
+to /.pod/pod.ipod, so the iPod mini needs the matching bootloader built
+from this tree. The bootloader holds the splash from power on. The UI says
+pod, and the System screen points to the source and the license.
+---
+ apps/lang/english.lang              |  8 ++++----
+ apps/menus/main_menu.c              | 11 +++++++++++
+ apps/tagnavi.config                 |  6 +++---
+ apps/tree.c                         |  4 ++--
+ bootloader/ipod.c                   | 19 ++++++++++++++++---
+ firmware/export/config/ipodmini1g.h |  2 +-
+ firmware/export/config/ipodmini2g.h |  2 +-
+ tools/configure                     |  6 +++---
+ 8 files changed, 41 insertions(+), 17 deletions(-)
+
+diff --git a/apps/lang/english.lang b/apps/lang/english.lang
+index a796b0aa9a..3e2e967655 100644
+--- a/apps/lang/english.lang
++++ b/apps/lang/english.lang
+@@ -95,10 +95,10 @@
+     *: "Rockbox"
+   </source>
+   <dest>
+-    *: "Rockbox"
++    *: "pod"
+   </dest>
+   <voice>
+-    *: "Rockbox"
++    *: "pod"
+   </voice>
+ </phrase>
+ <phrase>
+@@ -5935,10 +5935,10 @@
+     *: "Rockbox Info"
+   </source>
+   <dest>
+-    *: "Rockbox Info"
++    *: "System"
+   </dest>
+   <voice>
+-    *: "Rockbox Info"
++    *: "System"
+   </voice>
+ </phrase>
+ <phrase>
+diff --git a/apps/menus/main_menu.c b/apps/menus/main_menu.c
+index d987f3d2aa..d9c8d22803 100644
+--- a/apps/menus/main_menu.c
++++ b/apps/menus/main_menu.c
+@@ -52,6 +52,10 @@
+ #include "disk.h"
+ 
+ static const struct browse_folder_info config = {ROCKBOX_DIR, SHOW_CFG};
++/* split to fit the 138 px wide screen */
++#define POD_SOURCE_HOST "github.com"
++#define POD_SOURCE_PATH "/b4nst/pod"
++
+ static int show_info(void);
+ /***********************************/
+ /*    MANAGE SETTINGS MENU        */
+@@ -452,6 +456,13 @@ static int info_action_callback(int action, struct gui_synclist *lists)
+         }
+     }
+ 
++/* pod is free software: say where it comes from and where its source is */
++    simplelist_setline("Rockbox based");
++    simplelist_setline("License: GPLv2");
++    simplelist_setline("Source:");
++    simplelist_setline(POD_SOURCE_HOST);
++    simplelist_setline(POD_SOURCE_PATH);
++
+     return action;
+ }
+ 
+diff --git a/apps/tagnavi.config b/apps/tagnavi.config
+index 3c333ffc45..6bf885b181 100644
+--- a/apps/tagnavi.config
++++ b/apps/tagnavi.config
+@@ -2,11 +2,11 @@
+ # ^ Version header must be the first line of every file
+ 
+ # Tag Browser configuration file, do not edit as changes will be lost!
+-# Instead, copy this file to "/.rockbox/tagnavi_user.config" and edit
++# Instead, copy this file to "/.pod/tagnavi_user.config" and edit
+ # that, so your changes will not be overwritten automatically.
+ #
+ # If you only want to add menus and don't need to modify the default
+-# ones, you can edit "/.rockbox/tagnavi_custom.config" instead, which
++# ones, you can edit "/.pod/tagnavi_custom.config" instead, which
+ # is included by this file and will not be overwritten automatically.
+ #
+ # Please note that modifying any menu labels/titles may result in them
+@@ -26,7 +26,7 @@
+ %format "fmt_rating"       "(%2d) %s-%s" rating title canonicalartist %sort = "inverse"
+ 
+ # Include our custom menu
+-%include "/.rockbox/tagnavi_custom.config"
++%include "/.pod/tagnavi_custom.config"
+ 
+ #
+ # === Begin of "First Letter" sub menus
+diff --git a/apps/tree.c b/apps/tree.c
+index b3c93e0e88..25b6c0f361 100644
+--- a/apps/tree.c
++++ b/apps/tree.c
+@@ -329,10 +329,10 @@ bool check_rockboxdir(void)
+ {
+     if(!dir_exists(ROCKBOX_DIR))
+     {   /* No need to localise this message.
+-           If .rockbox is missing, it wouldn't work anyway */
++           If ROCKBOX_DIR is missing, it wouldn't work anyway */
+         FOR_NB_SCREENS(i)
+             screens[i].clear_display();
+-        splash(HZ*2, "No .rockbox directory");
++        splash(HZ*2, "No " ROCKBOX_DIR " directory");
+         FOR_NB_SCREENS(i)
+             screens[i].clear_display();
+         splash(HZ*2, "Installation incomplete");
+diff --git a/bootloader/ipod.c b/bootloader/ipod.c
+index 653169dade..6054caaaee 100644
+--- a/bootloader/ipod.c
++++ b/bootloader/ipod.c
+@@ -41,6 +41,7 @@
+ #include "power.h"
+ #include "file.h"
+ #include "common.h"
++#include "bitmaps/rockboxlogo.h"
+ #include "rb-loader.h"
+ #include "loader_strerror.h"
+ #include "hwcompat.h"
+@@ -339,7 +340,19 @@ void* main(void)
+ 
+     lcd_setfont(FONT_SYSFIXED);
+ 
+-    printf("Rockbox boot loader");
++#if BMPHEIGHT_rockboxlogo == LCD_HEIGHT
++    /* pod: hold the splash from power on until the firmware draws its own.
++       The framebuffer is cleared again so that error messages start on a
++       blank screen; nothing reaches the LCD until the next update. */
++    if (!verbose)
++    {
++        lcd_bmp(&bm_rockboxlogo, 0, 0);
++        lcd_update();
++        lcd_clear_display();
++    }
++#endif
++
++    printf("pod boot loader");
+     printf("Version: %s", rbversion);
+     printf("IPOD version: 0x%08x", IPOD_HW_REVISION);
+ 
+@@ -427,10 +440,10 @@ void* main(void)
+             return (void*)DRAM_START;
+         }
+     } else {
+-        printf("Loading Rockbox...");
++        printf("Loading pod...");
+         rc=load_firmware(loadbuffer, BOOTFILE, MAX_LOADSIZE);
+         if (rc > 0) {
+-            printf("Rockbox loaded.");
++            printf("pod loaded.");
+             return (void*)DRAM_START;
+         } else if (rc == EFILE_NOT_FOUND) {
+             /* if rockbox.ipod doesn't exist, then check if there is a Rockbox
+diff --git a/firmware/export/config/ipodmini1g.h b/firmware/export/config/ipodmini1g.h
+index f70047a65e..955f18944d 100644
+--- a/firmware/export/config/ipodmini1g.h
++++ b/firmware/export/config/ipodmini1g.h
+@@ -204,7 +204,7 @@
+ #define HAVE_HARDWARE_CLICK
+ 
+ #define BOOTFILE_EXT "ipod"
+-#define BOOTFILE "rockbox." BOOTFILE_EXT
++#define BOOTFILE "pod." BOOTFILE_EXT
+ 
+ #define ICODE_ATTR_TREMOR_NOT_MDCT
+ 
+diff --git a/firmware/export/config/ipodmini2g.h b/firmware/export/config/ipodmini2g.h
+index c1844dbf54..672a377297 100644
+--- a/firmware/export/config/ipodmini2g.h
++++ b/firmware/export/config/ipodmini2g.h
+@@ -207,7 +207,7 @@
+ #define HAVE_HARDWARE_CLICK
+ 
+ #define BOOTFILE_EXT "ipod"
+-#define BOOTFILE "rockbox." BOOTFILE_EXT
++#define BOOTFILE "pod." BOOTFILE_EXT
+ 
+ #define ICODE_ATTR_TREMOR_NOT_MDCT
+ 
+diff --git a/tools/configure b/tools/configure
+index f9d5c83739..161669a86a 100755
+--- a/tools/configure
++++ b/tools/configure
+@@ -21,7 +21,7 @@ use_logf="#undef ROCKBOX_HAS_LOGF"
+ use_bootchart="#undef DO_BOOTCHART"
+ use_logf_serial="#undef LOGF_SERIAL"
+ 
+-rbdir="/.rockbox"
++rbdir="/.pod"
+ bindir=
+ libdir=
+ sharedir=
+@@ -2080,7 +2080,7 @@ fi
+     tool="$rootdir/tools/scramble -add=mini"
+     bmp2rb_mono="$rootdir/tools/bmp2rb -f 0"
+     bmp2rb_native="$rootdir/tools/bmp2rb -f 6"
+-    output="rockbox.ipod"
++    output="pod.ipod"
+     appextra=""
+     plugins="yes"
+     bootoutput="bootloader-$modelname.ipod"
+@@ -2103,7 +2103,7 @@ fi
+     tool="$rootdir/tools/scramble -add=mn2g"
+     bmp2rb_mono="$rootdir/tools/bmp2rb -f 0"
+     bmp2rb_native="$rootdir/tools/bmp2rb -f 6"
+-    output="rockbox.ipod"
++    output="pod.ipod"
+     appextra=""
+     plugins="yes"
+     bootoutput="bootloader-$modelname.ipod"
+-- 
+2.56.0
+
