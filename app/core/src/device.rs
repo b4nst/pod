@@ -57,10 +57,10 @@ impl Device {
             match src {
                 Some(src) if which("udisksctl") => {
                     let o = Command::new("udisksctl").args(["unmount", "-b", &src]).output()?;
-                    if o.status.success() {
-                        if let Some(disk) = &self.disk {
-                            let _ = Command::new("udisksctl").args(["power-off", "-b", disk]).output();
-                        }
+                    if o.status.success()
+                        && let Some(disk) = &self.disk
+                    {
+                        let _ = Command::new("udisksctl").args(["power-off", "-b", disk]).output();
                     }
                     o
                 }
