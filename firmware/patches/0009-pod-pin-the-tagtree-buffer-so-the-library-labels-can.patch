@@ -1,0 +1,30 @@
+From 988b7e7921a79c5bf3af27d78c5868a03ac99125 Mon Sep 17 00:00:00 2001
+From: banst <cycles@banst.ch>
+Date: Thu, 5 Nov 2026 14:07:51 +0100
+Subject: [PATCH] pod: pin the tagtree buffer so the library labels can't go
+ stale
+
+---
+ apps/tagtree.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/apps/tagtree.c b/apps/tagtree.c
+index 0b9697eb14..8ee6eee8df 100644
+--- a/apps/tagtree.c
++++ b/apps/tagtree.c
+@@ -1464,6 +1464,12 @@ static bool initialize_tagtree(void) /* also used when user selects 'Reload' in
+     add_event(PLAYBACK_EVENT_TRACK_FINISH, tagtree_track_finish_event);
+ 
+     core_shrink(tagtree_handle, NULL, tagtree_buf_used);
++    /* pod: keep the buffer in place. The root menu's tree entries and the
++       list title point into it, and the move callback can't fix those up:
++       when it moved while the library was on screen at boot (the database
++       and dircache allocate then), the labels showed garbage until the
++       menu was entered again. It's small after the shrink. */
++    core_pin(tagtree_handle);
+     return true;
+ }
+ 
+-- 
+2.56.0
+
