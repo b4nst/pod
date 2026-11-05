@@ -2640,6 +2640,7 @@ dependencies = [
  "dirs",
  "filetime",
  "fs4",
+ "libc",
  "plist",
  "serde",
  "serde_json",

@@ -1,11 +1,19 @@
-//! Writing the bootloader needs raw disk access, so it runs in a helper: the
-//! app re-runs itself as `podlink flash-helper ...` with root (macOS: the
-//! system password prompt, Linux: pkexec, Windows: UAC). The helper writes
-//! its [`Report`] as JSON to a file the app reads back.
+//! Writing the bootloader needs raw disk access.
+//!
+//! macOS: root alone isn't enough, raw access to removable disks is also
+//! gated by the privacy settings. `/usr/libexec/authopen` asks for the
+//! password, opens the disk with its own entitlement and hands the open file
+//! back over a socket, so the app does the I/O itself.
+//!
+//! Linux and Windows: the app re-runs itself as `podlink flash-helper ...`
+//! with root (pkexec, UAC). The helper writes its [`Report`] as JSON to a
+//! file the app reads back.
 
 use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
-use std::path::{Path, PathBuf};
+use std::fs::{self, File, OpenOptions};
+#[cfg(not(target_os = "macos"))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};
@@ -45,22 +53,27 @@ fn describe(s: &BootState) -> String {
 
 /// Apply `action` to the raw disk. Runs as root.
 pub fn apply(disk: &str, action: &Action) -> Result<Report> {
-    // read the file before touching the disk
-    let boot = match action {
-        Action::Install(p) => Some(Bootloader::parse(&fs::read(p)?)?),
-        Action::Uninstall => None,
-    };
     let dev = raw_device(disk);
     let mut d = OpenOptions::new()
         .read(true)
         .write(true)
         .open(&dev)
         .map_err(|e| Error::Other(format!("cannot open {dev}: {e}")))?;
-    let mut fw = Firmware::open(&mut d)?;
-    let before = fw.boot_state(&mut d)?;
+    apply_to(&mut d, action)
+}
+
+/// Apply `action` to an opened raw disk.
+pub fn apply_to(d: &mut File, action: &Action) -> Result<Report> {
+    // read the file before touching the disk
+    let boot = match action {
+        Action::Install(p) => Some(Bootloader::parse(&fs::read(p)?)?),
+        Action::Uninstall => None,
+    };
+    let mut fw = Firmware::open(d)?;
+    let before = fw.boot_state(d)?;
     match &boot {
-        Some(b) => fw.install(&mut d, b)?,
-        None => fw.uninstall(&mut d)?,
+        Some(b) => fw.install(d, b)?,
+        None => fw.uninstall(d)?,
     }
     // block devices don't take F_FULLFSYNC on macOS (ENOTTY); the raw
     // device is unbuffered anyway
@@ -69,7 +82,7 @@ pub fn apply(disk: &str, action: &Action) -> Result<Report> {
     {
         return Err(e.into());
     }
-    let after = fw.boot_state(&mut d)?;
+    let after = fw.boot_state(d)?;
     Ok(Report { model: fw.model.to_string(), before: describe(&before), after: describe(&after) })
 }
 
@@ -116,7 +129,22 @@ pub fn helper_main(args: impl Iterator<Item = OsString>) -> i32 {
     if res.is_ok() { 0 } else { 1 }
 }
 
+/// Apply `action` to `disk` with root, prompting for the password.
+#[cfg(target_os = "macos")]
+pub fn run_elevated(disk: &str, action: &Action) -> Result<Report> {
+    let diskutil = |verb: &str| Command::new("/usr/sbin/diskutil").args([verb, disk]).output();
+    // raw writes need the volume unmounted; mount it again whatever happens
+    let out = diskutil("unmountDisk")?;
+    if !out.status.success() {
+        return Err(Error::Other(format!("cannot unmount the iPod: {}", String::from_utf8_lossy(&out.stderr).trim())));
+    }
+    let res = macos::authopen(&raw_device(disk)).and_then(|mut d| apply_to(&mut d, action));
+    let _ = diskutil("mountDisk");
+    res
+}
+
 /// Run the helper with root on `disk`, prompting for the password.
+#[cfg(not(target_os = "macos"))]
 pub fn run_elevated(disk: &str, action: &Action) -> Result<Report> {
     let exe = std::env::current_exe()?;
     let dir = tempdir()?;
@@ -141,6 +169,7 @@ pub fn run_elevated(disk: &str, action: &Action) -> Result<Report> {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn tempdir() -> Result<PathBuf> {
     let d = std::env::temp_dir().join(format!("podlink-{}", std::process::id()));
     fs::create_dir_all(&d)?;
@@ -153,41 +182,76 @@ fn tempdir() -> Result<PathBuf> {
     Ok(d)
 }
 
-/// POSIX single quoting.
-#[allow(dead_code)]
-fn sh_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
-}
-
 /// Ran, and the error text when it failed.
+#[cfg(not(target_os = "macos"))]
 type Status = (bool, String);
 
+#[cfg(not(target_os = "macos"))]
 fn status_of(out: std::process::Output) -> Status {
     let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
     (out.status.success(), if err.is_empty() { format!("helper failed ({})", out.status) } else { err })
 }
 
 #[cfg(target_os = "macos")]
-fn elevate(exe: &Path, args: &[String], disk: &str) -> Result<Status> {
-    // the volume has to be unmounted for raw writes; mount it again after
-    let cmd: Vec<String> =
-        std::iter::once(exe.to_string_lossy().into_owned()).chain(args.iter().cloned()).map(|a| sh_quote(&a)).collect();
-    let script = format!(
-        "/usr/sbin/diskutil unmountDisk {d} >/dev/null && {cmd}; r=$?; /usr/sbin/diskutil mountDisk {d} >/dev/null; exit $r",
-        d = sh_quote(disk),
-        cmd = cmd.join(" ")
-    );
-    let applescript = format!(
-        "do shell script \"{}\" with prompt \"pod link needs to write the bootloader to the iPod.\" \
-         with administrator privileges",
-        script.replace('\\', "\\\\").replace('"', "\\\"")
-    );
-    let out = Command::new("/usr/bin/osascript").arg("-e").arg(applescript).output()?;
-    let st = status_of(out);
-    if st.1.contains("-128") {
-        return Err(Error::Cancelled);
+mod macos {
+    use std::fs::File;
+    use std::io::Read;
+    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::os::unix::io::AsRawFd;
+    use std::os::unix::net::UnixStream;
+    use std::process::{Command, Stdio};
+
+    use crate::{Error, Result};
+
+    /// Open `dev` read/write through authopen, which shows the system
+    /// password prompt and sends the descriptor back with SCM_RIGHTS.
+    pub fn authopen(dev: &str) -> Result<File> {
+        let (ours, theirs) = UnixStream::pair()?;
+        let mut child = {
+            let mut c = Command::new("/usr/libexec/authopen");
+            c.args(["-stdoutpipe", "-o", &libc::O_RDWR.to_string(), dev])
+                .stdout(Stdio::from(OwnedFd::from(theirs)))
+                .stderr(Stdio::piped());
+            c.spawn()?
+            // dropping `c` closes our copy of the child's end, so the read
+            // below sees EOF if authopen exits without sending anything
+        };
+        let fd = recv_fd(&ours);
+        let status = child.wait()?;
+        let mut err = String::new();
+        if let Some(mut e) = child.stderr.take() {
+            let _ = e.read_to_string(&mut err);
+        }
+        match fd {
+            Some(fd) => Ok(unsafe { File::from_raw_fd(fd) }),
+            // authopen exits with 1 and says nothing when the dialog is cancelled
+            None if err.trim().is_empty() && !status.success() => Err(Error::Cancelled),
+            None => Err(Error::Other(format!("authopen: {}", err.trim()))),
+        }
     }
-    Ok(st)
+
+    fn recv_fd(sock: &UnixStream) -> Option<i32> {
+        let mut byte = [0u8; 1];
+        let mut iov = libc::iovec { iov_base: byte.as_mut_ptr().cast(), iov_len: 1 };
+        let space = unsafe { libc::CMSG_SPACE(size_of::<i32>() as u32) } as usize;
+        let mut cbuf = vec![0u8; space];
+        let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+        msg.msg_iov = &mut iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = cbuf.as_mut_ptr().cast();
+        msg.msg_controllen = space as _;
+        let n = unsafe { libc::recvmsg(sock.as_raw_fd(), &mut msg, 0) };
+        if n <= 0 {
+            return None;
+        }
+        unsafe {
+            let c = libc::CMSG_FIRSTHDR(&msg);
+            if c.is_null() || (*c).cmsg_level != libc::SOL_SOCKET || (*c).cmsg_type != libc::SCM_RIGHTS {
+                return None;
+            }
+            Some(std::ptr::read_unaligned(libc::CMSG_DATA(c).cast::<i32>()))
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]

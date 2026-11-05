@@ -27,6 +27,7 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 dirs = "7"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
 plist = "1"
 
 [dev-dependencies]
