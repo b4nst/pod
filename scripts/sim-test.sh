@@ -8,8 +8,11 @@ out=${1:-$root/build/shots/test}
 script="W300 D S W100 D MM W100 D M W100 D"
 want=$(tr ' ' '\n' <<<"$script" | grep -c '^D$')
 rm -rf "$out"
+# the first boot scans the library and reboots to commit it, which ends the
+# simulator: get that out of the way
+"$root/scripts/sim-shot.sh" "$out/first-boot" "W1500" >/dev/null
 "$root/scripts/sim-shot.sh" "$out" "$script"
-got=$(find "$out" -name '*.png' | wc -l | tr -d ' ')
+got=$(find "$out" -maxdepth 1 -name '*.png' | wc -l | tr -d ' ')
 if [ "$got" != "$want" ]; then
   echo "expected $want screenshots, got $got" >&2
   tail -30 "$out/sim.log" >&2
