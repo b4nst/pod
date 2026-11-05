@@ -655,11 +655,15 @@ impl App {
         let d = self.device();
         if let Some(b) = self.blocker() {
             col = col.push(b);
-        } else if d.is_some_and(|d| d.firmware.is_none()) {
+        } else if d.is_some_and(|d| !d.has_pod()) {
             col = col.push(notice("Install the firmware (UPGRADE) first: the bootloader starts /.pod/pod.ipod."));
         }
         let ok = d.is_some_and(|d| d.is_fat() && d.disk.is_some()) && self.job.is_none();
-        let go = ok && self.current_model().is_some() && self.can_download(&self.boot_local);
+        // without /.pod/pod.ipod the bootloader has nothing to start
+        let go = ok
+            && d.is_some_and(Device::has_pod)
+            && self.current_model().is_some()
+            && self.can_download(&self.boot_local);
         col = col.push(
             row![
                 button(text("FLASH BOOTLOADER").font(DECK_BOLD).size(13))

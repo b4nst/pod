@@ -32,6 +32,11 @@ impl Device {
         f.contains("fat") || f == "msdos"
     }
 
+    /// The firmware the pod bootloader starts is in place.
+    pub fn has_pod(&self) -> bool {
+        self.mount.join(".pod/pod.ipod").is_file()
+    }
+
     pub fn music_dir(&self) -> PathBuf {
         self.mount.join("Music")
     }
