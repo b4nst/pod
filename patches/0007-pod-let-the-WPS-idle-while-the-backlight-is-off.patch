@@ -1,0 +1,79 @@
+From c62852ac08381993a971426e066c135200e5be53 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Thu, 5 Nov 2026 09:25:45 +0100
+Subject: [PATCH 7/7] pod: let the WPS idle while the backlight is off
+
+The mini's LCD has no sleep mode, so the WPS kept redrawing the reels and
+the peak meters (polled every tick) in a pocket. With the backlight off,
+refresh at most every 5 s and skip the peak meter loop.
+---
+ apps/gui/skin_engine/skin_display.c |  4 +++-
+ apps/gui/wps.c                      | 16 ++++++++++++++++
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/apps/gui/skin_engine/skin_display.c b/apps/gui/skin_engine/skin_display.c
+index f2435fe709..592b3eb018 100644
+--- a/apps/gui/skin_engine/skin_display.c
++++ b/apps/gui/skin_engine/skin_display.c
+@@ -48,6 +48,7 @@
+ #include "buffering.h"
+ 
+ #include "peakmeter.h"
++#include "backlight.h"
+ /* Image stuff */
+ #include "bmp.h"
+ #ifdef HAVE_ALBUMART
+@@ -846,7 +847,8 @@ int skin_wait_for_action(enum skinnable_screens skin, int context, int timeout)
+     bool peak_meter_enabled = false;
+     FOR_NB_SCREENS(i)
+         peak_meter_enabled |= skin_get_gwps(skin, i)->data->peak_meter_enabled;
+-    if (!peak_meter_enabled)
++    /* Nor while the backlight is off: nobody is watching the meters. */
++    if (!peak_meter_enabled || !is_backlight_on(false))
+         return get_action(context, timeout);
+ 
+     long next_refresh = current_tick;
+diff --git a/apps/gui/wps.c b/apps/gui/wps.c
+index a928dc8d33..51285d8ace 100644
+--- a/apps/gui/wps.c
++++ b/apps/gui/wps.c
+@@ -72,6 +72,10 @@
+                                 /* 3% of 30min file == 54s step size */
+ #define MIN_FF_REWIND_STEP 500
+ 
++/* The mini's LCD stays readable with the backlight off, but then it is most
++ * likely in a pocket: refresh the WPS rarely and let the reels stand still. */
++#define WPS_IDLE_REFRESH (5*HZ)
++
+ static struct wps_state wps_state;
+ 
+ /* initial setup of wps_data  */
+@@ -729,6 +733,7 @@ long gui_wps_show(void)
+     bool update = false;
+     bool theme_enabled = true;
+     long last_left = 0, last_right = 0;
++    long next_idle_refresh = 0;
+     struct wps_state *state = get_wps_state();
+ 
+     ab_reset_markers();
+@@ -770,6 +775,17 @@ long gui_wps_show(void)
+         {
+             gwps_caption_backlight(state);
+ 
++            if (is_backlight_on(false))
++                next_idle_refresh = 0;
++            else if (update)
++            {
++                if (next_idle_refresh &&
++                    TIME_BEFORE(current_tick, next_idle_refresh))
++                    update = false;
++                else
++                    next_idle_refresh = current_tick + WPS_IDLE_REFRESH;
++            }
++
+             FOR_NB_SCREENS(i)
+             {
+ #if defined(HAVE_LCD_ENABLE) || defined(HAVE_LCD_SLEEP)
+-- 
+2.56.0
+

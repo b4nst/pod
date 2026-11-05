@@ -1,7 +1,7 @@
 From 9b325bcabb6a24e0147b310c9f0bc3c7a38a704f Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 23:02:35 +0100
-Subject: [PATCH 6/6] pod: themed full screen USB link screen
+Subject: [PATCH 6/7] pod: themed full screen USB link screen
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
 ---

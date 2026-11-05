@@ -1,7 +1,7 @@
 From 43749e95dd8cd7fd1221a78b8db072e32eba7622 Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 21:37:48 +0100
-Subject: [PATCH 3/6] pod: five band EQ screen drawn as a frequency response
+Subject: [PATCH 3/7] pod: five band EQ screen drawn as a frequency response
  plot
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3

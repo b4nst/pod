@@ -1,7 +1,7 @@
 From dc4ed865ebce0e419608443526a8f4f8c23ad968 Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 21:37:49 +0100
-Subject: [PATCH 4/6] pod: library is home, MENU goes back, hold MENU for the
+Subject: [PATCH 4/7] pod: library is home, MENU goes back, hold MENU for the
  only settings menu
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3

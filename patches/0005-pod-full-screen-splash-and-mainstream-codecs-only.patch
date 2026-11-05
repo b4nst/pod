@@ -1,7 +1,7 @@
 From 3ae49b7a39d794041a758bb517b025cc214d4f51 Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 21:37:49 +0100
-Subject: [PATCH 5/6] pod: full screen splash and mainstream codecs only
+Subject: [PATCH 5/7] pod: full screen splash and mainstream codecs only
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
 ---

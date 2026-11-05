@@ -81,6 +81,9 @@ press, `F<n>`/`B<n>` turn the wheel, and `U` plugs or unplugs USB.
   5. full-screen splash, codecs: MP3, AAC/ALAC, FLAC, Vorbis, Opus, WAV, AIFF,
      WavPack, APE
   6. full-screen "DATA LINK" USB screen in place of the stock logo
+  7. with the backlight off, the player redraws at most every 5 s and stops
+     polling the peak meters. The mini's LCD has no sleep mode, so it would
+     otherwise keep animating in a pocket.
 - `tools/mktheme.py` + `tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,
