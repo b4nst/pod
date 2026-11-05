@@ -1,28 +1,35 @@
 #!/usr/bin/env bash
 # Build pod for one or both iPod mini generations.
-#   devenv shell -- scripts/build.sh [ipodmini2g|ipodmini1g|all]
+#   devenv shell -- scripts/build.sh [ipodmini2g|ipodmini1g|ipodpatcher|all]...
+# Rockbox is the firmware/rockbox submodule; its checked out commit is the
+# base the patches apply to.
 # Output:
 #   dist/pod-<target>.zip             firmware, to unzip at the root of the iPod
 #   dist/pod-bootloader-<target>.ipod bootloader, see scripts/install-bootloader.sh
 #   dist/ipodpatcher                  host tool that installs the bootloader
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
-targets=${1:-all}
-[ "$targets" = all ] && targets="ipodmini2g ipodmini1g"
-rev=$(cat "$root/ROCKBOX_REV")
+targets=${*:-all}
+[ "$targets" = all ] && targets="ipodmini2g ipodmini1g ipodpatcher"
+fw=$root/firmware
+upstream=$fw/rockbox
+[ -e "$upstream/.git" ] || git -C "$root" submodule update --init firmware/rockbox
+rev=$(git -C "$upstream" rev-parse HEAD)
 src=$root/build/rockbox
 jobs=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
 # shown under System > Version and in the bootloader
-export VERSION="pod-$(git -C "$root" describe --always --dirty)"
+export VERSION="pod-$(git -C "$root" describe --always --dirty --tags)"
 
-# pristine Rockbox at the pinned revision with the pod patches on top
+# pristine Rockbox at the pinned revision with the pod patches on top. The
+# clone borrows the submodule's objects, so the detached commit is there.
 rm -rf "$src"
-git clone -q --shared "${ROCKBOX_SRC:?}" "$src"
+git clone -q --shared --no-checkout "$upstream" "$src"
 git -C "$src" checkout -q -b pod "$rev"
-git -C "$src" -c user.name=pod -c user.email=pod@localhost am -q "$root"/patches/*.patch
+git -C "$src" -c user.name=pod -c user.email=pod@localhost am -q "$fw"/patches/*.patch
 
 mkdir -p "$root/dist"
 for t in $targets; do
+  [ "$t" = ipodpatcher ] && continue
   b=$root/build/$t
   rm -rf "$b" "$b-boot"; mkdir -p "$b" "$b-boot"
   (
@@ -56,13 +63,14 @@ for t in $targets; do
   mkdir -p "$rb/fonts"
   cp -R "$root/build/theme/.pod/." "$rb/"
   # GPL text and third party notices stay in docs/, add the fonts' and ours
-  cp "$root"/licenses/*.txt "$rb/docs/"
-  cp "$root/device/README.txt" "$rb/README.txt"
+  cp "$fw"/licenses/*.txt "$rb/docs/"
+  cp "$fw/device/README.txt" "$rb/README.txt"
   rm -f "$root/dist/pod-$t.zip"
   (cd "$stage" && zip -qr "$root/dist/pod-$t.zip" .pod)
   echo "dist/pod-$t.zip ($(du -h "$root/dist/pod-$t.zip" | cut -f1))"
 done
 
+case " $targets " in *" ipodpatcher "*) ;; *) exit 0 ;; esac
 # the default macOS deployment target (10.5) predates the IOKit calls it uses
 mac=; [ "$(uname)" = Darwin ] && mac=-mmacosx-version-min=12.0
 make -C "$src/utils/ipodpatcher" CFLAGS="-Wall -W $mac" >"$root/build/ipodpatcher.log" 2>&1 \

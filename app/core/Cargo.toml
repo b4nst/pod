@@ -1,0 +1,33 @@
+[package]
+name = "pod-core"
+description = "Flash, upgrade and sync an iPod mini running pod"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# fake iPod disks for the flash-image example
+fixtures = []
+
+[[example]]
+name = "flash-image"
+required-features = ["fixtures"]
+
+[dependencies]
+filetime = "0.2"
+fs4 = "1.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+thiserror = "2"
+ureq = { version = "3", features = ["json"] }
+walkdir = "2"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+dirs = "7"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1"
+
+[dev-dependencies]
+tempfile = "3"

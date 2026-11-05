@@ -1,0 +1,13 @@
+[workspace]
+members = ["core", "podlink"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-or-later"
+repository = "https://github.com/b4nst/pod"
+
+[profile.release]
+lto = "thin"
+strip = true

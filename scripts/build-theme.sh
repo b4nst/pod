@@ -26,7 +26,7 @@ magick -size 512x480 xc:black -fill none -stroke white -strokewidth 48 \
 
 splash=${2:-$src/apps/bitmaps/native/rockboxlogo.138x110x2.bmp}
 usb=${3:-$src/apps/bitmaps/native/usblogo.138x110x2.bmp}
-python3 "$root/tools/mktheme.py" "$work" "$work/delta.pgm" "$out" "$splash" "$ui_h" "$usb"
+python3 "$root/firmware/tools/mktheme.py" "$work" "$work/delta.pgm" "$out" "$splash" "$ui_h" "$usb"
 
 cvt() { "$src/tools/convbdf" -f "$@" >/dev/null; }
 cvt -a '-1!' -d '-1!' -o "$out/fonts/11-JetBrainsMono.fnt" "$work/jb11.bdf"
@@ -34,4 +34,4 @@ cvt -o "$out/fonts/10-Deck-Medium.fnt" "$work/or10.bdf"
 cvt -o "$out/fonts/14-Deck-Bold.fnt" "$work/or14b.bdf"
 cvt -o "$out/fonts/06-Tiny.fnt" "$work/tiny6.bdf"
 
-cp -R "$root/theme/." "$out/"
+cp -R "$root/firmware/theme/." "$out/"

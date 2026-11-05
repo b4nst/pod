@@ -1,0 +1,150 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # git describe names the build
+      - run: git submodule update --init --depth 1 firmware/rockbox
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v16
+        with:
+          name: devenv
+      - run: nix profile install nixpkgs#devenv
+      - name: Build firmware and bootloaders
+        run: devenv shell -- scripts/build.sh ipodmini2g ipodmini1g
+      - name: Simulator smoke test
+        run: |
+          devenv shell -- scripts/sim-setup.sh build/rockbox
+          devenv shell -- scripts/sim-test.sh build/shots/test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            dist/*.zip
+            dist/*.ipod
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sim-screens
+          path: build/shots/test
+
+  app-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v16
+        with:
+          name: devenv
+      - run: nix profile install nixpkgs#devenv
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            app/target
+          key: app-test-${{ hashFiles('app/Cargo.lock') }}
+      - name: fmt, clippy, test
+        run: |
+          devenv shell -- bash -c 'cd app && cargo fmt --check \
+            && cargo clippy --all-targets --features pod-core/fixtures -- -D warnings \
+            && cargo test'
+
+  # Release binaries are built with the runners' own toolchains: anything
+  # linked in the Nix shell would load its libraries from /nix/store.
+  binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            suffix: linux-x86_64
+          - os: macos-latest
+            suffix: macos-arm64
+          - os: windows-latest
+            suffix: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: git submodule update --init --depth 1 firmware/rockbox
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            app/target
+          key: app-${{ matrix.suffix }}-${{ hashFiles('app/Cargo.lock') }}
+      - name: Build pod link
+        working-directory: app
+        run: cargo build --release --locked -p podlink
+      - name: ipodpatcher
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mac=; [ "$RUNNER_OS" = macOS ] && mac=-mmacosx-version-min=12.0
+          make -C firmware/rockbox/utils/ipodpatcher CFLAGS="-Wall -W $mac"
+          mkdir -p dist
+          cp firmware/rockbox/utils/ipodpatcher/ipodpatcher dist/ipodpatcher-${{ matrix.suffix }}
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          case "$RUNNER_OS" in
+            macOS) scripts/bundle-macos.sh app/target/release/podlink dist/podlink-${{ matrix.suffix }}.zip "$GITHUB_REF_NAME" ;;
+            Windows) cp app/target/release/podlink.exe dist/podlink-${{ matrix.suffix }}.exe ;;
+            *) cp app/target/release/podlink dist/podlink-${{ matrix.suffix }} ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.suffix }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [firmware, app-test, binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binaries-*
+          merge-multiple: true
+          path: dist
+      - name: Checksums
+        working-directory: dist
+        run: |
+          chmod +x ipodpatcher-* podlink-linux-*
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          pre=; case "$TAG" in *-*) pre=--prerelease ;; esac
+          gh release create "$TAG" dist/* --verify-tag --title "pod $TAG" \
+            --generate-notes --notes-file .github/release-notes.md $pre

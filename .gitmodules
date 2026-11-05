@@ -1,0 +1,4 @@
+[submodule "firmware/rockbox"]
+	path = firmware/rockbox
+	url = https://github.com/Rockbox/rockbox.git
+	shallow = true

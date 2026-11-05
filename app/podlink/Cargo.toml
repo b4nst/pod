@@ -1,0 +1,13 @@
+[package]
+name = "podlink"
+description = "pod link: flash, upgrade and sync an iPod mini running pod"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pod-core = { path = "../core" }
+futures = "0.3"
+iced = { version = "0.14", features = ["canvas", "tokio"] }
+rfd = "0.17"

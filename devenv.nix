@@ -12,6 +12,17 @@ let
   '';
   # Rockbox builds its host tools with a hardcoded `gcc`; point it at clang.
   hostGccShim = pkgs.writeShellScriptBin "gcc" ''exec ${pkgs.stdenv.cc}/bin/cc "$@"'';
+  # Linux runtime libraries for the app's window (winit, wgpu)
+  appLibs = with pkgs; [
+    wayland
+    libxkbcommon
+    vulkan-loader
+    libGL
+    xorg.libX11
+    xorg.libXcursor
+    xorg.libXi
+    xorg.libXrandr
+  ];
   # On macOS, the simulator's configure insists on Homebrew-style `gcc-16`.
   simGccShim = pkgs.runCommand "sim-gcc16-shim" { } ''
     mkdir -p $out/bin
@@ -37,9 +48,15 @@ in
     jetbrains-mono
     orbitron
     otf2bdf       # rasterize brand fonts to BDF
-  ];
+  ] ++ lib.optionals stdenv.isLinux appLibs;
 
-  env.ROCKBOX_SRC = "/Users/banst/workspace/github.com/Rockbox/rockbox";
-  env.JETBRAINS_MONO_DIR = "${pkgs.jetbrains-mono}/share/fonts/truetype";
-  env.ORBITRON_DIR = "${pkgs.orbitron}/share/fonts/truetype";
+  # the desktop app (app/)
+  languages.rust.enable = true;
+
+  env = {
+    JETBRAINS_MONO_DIR = "${pkgs.jetbrains-mono}/share/fonts/truetype";
+    ORBITRON_DIR = "${pkgs.orbitron}/share/fonts/truetype";
+  } // lib.optionalAttrs pkgs.stdenv.isLinux {
+    LD_LIBRARY_PATH = lib.makeLibraryPath appLibs;
+  };
 }
