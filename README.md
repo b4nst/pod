@@ -102,7 +102,7 @@ press, `F<n>`/`B<n>` turn the wheel, and `U` plugs or unplugs USB.
   8. the rename: `/.pod/pod.ipod` in place of `/.rockbox/rockbox.ipod`
      (configure's default `--rbdir` and the mini's boot file), a bootloader
      that shows the Δ splash from power on, "pod" in the UI, and the source
-     and license on the System screen
+     link and license on the System screen
 - `tools/mktheme.py` + `tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,
