@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Sat, 7 Nov 2026 22:37:16 +0100
+Subject: [PATCH] pod: pause on headphone unplug, cap the volume at boot
+
+---
+ apps/settings.c      | 10 ++++++++++
+ apps/settings_list.c |  2 +-
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/apps/settings.c b/apps/settings.c
+index dd0e5862a3d66f19401df0c379778431b8dc8ebc..31996a4da6fc40f5fac11f9084efa815919d40df 100644
+--- a/apps/settings.c
++++ b/apps/settings.c
+@@ -114,6 +114,9 @@ static long lasttime = 0;
+ #include "governor-ibasso.h"
+ #endif
+ 
++/* pod: never start louder than this, in dB */
++#define POD_BOOT_VOLUME_MAX (-20)
++
+ #ifdef LOGF_ENABLE
+ static char *debug_get_flags(uint32_t flags);
+ #undef DEBUGF /* allow DEBUGF or logf not both */
+@@ -212,6 +215,13 @@ void settings_load(void)
+     /* fixed settings file has final say on user_settings AND system_status items */
+     settings_load_config(FIXEDSETTINGSFILE, false);
+ 
++    /* pod: clamp the saved volume (stored in the codec's units) */
++    int cap = POD_BOOT_VOLUME_MAX;
++    for (int i = sound_numdecimals(SOUND_VOLUME); i > 0; i--)
++        cap *= 10;
++    if (global_status.volume > cap)
++        global_status.volume = cap;
++
+     /* set initial CRC value - settings_save checks, if changed writes to disk */
+     settings_crc_changed();
+ }
+diff --git a/apps/settings_list.c b/apps/settings_list.c
+index ea5acf703bc643c83533b4f55b3e3f39d5dbc718..b2ab237b9126aba23d71e3e69594e6f4580f58a0 100644
+--- a/apps/settings_list.c
++++ b/apps/settings_list.c
+@@ -2199,7 +2199,7 @@ const struct settings_list settings[] = {
+ #endif
+ #endif
+ #ifdef HAVE_HEADPHONE_DETECTION
+-    CHOICE_SETTING(0, unplug_mode, LANG_HEADPHONE_UNPLUG, 0,
++    CHOICE_SETTING(0, unplug_mode, LANG_HEADPHONE_UNPLUG, 1,
+                    "pause on headphone unplug", "off,pause,pause and resume",
+                    NULL, 3, ID2P(LANG_OFF), ID2P(LANG_PAUSE),
+                    ID2P(LANG_HEADPHONE_UNPLUG_RESUME)),

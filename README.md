@@ -31,6 +31,9 @@ settings menu, and you open it by holding MENU.
 Settings menu: Equalizer, Shuffle, Repeat, Backlight, Time & Date, Rescan
 Library, System (battery, disk, version).
 
+Unplugging the headphones pauses, and plugging them back in leaves it paused.
+pod never starts louder than −20 dB.
+
 ## Install
 
 pod lives in `/.pod` and boots `/.pod/pod.ipod`, so it needs its own
@@ -128,7 +131,8 @@ screens and fails if a screendump is missing or blank.
 `sim-shot.sh` runs the simulator headless and saves screendumps as PNG. The
 script is a list of steps: `W<ticks>` wait (100 ticks = 1 s), `D` screendump,
 `M S P L R` press MENU/SELECT/PLAY/PREV/NEXT, a doubled letter is a long
-press, `F<n>`/`B<n>` turn the wheel, and `U` plugs or unplugs USB.
+press, `F<n>`/`B<n>` turn the wheel, `U` plugs or unplugs USB and `H` the
+headphones.
 
 ## Layout
 
@@ -154,6 +158,9 @@ press, `F<n>`/`B<n>` turn the wheel, and `U` plugs or unplugs USB.
      (configure's default `--rbdir` and the mini's boot file), a bootloader
      that shows the Δ splash from power on, "pod" in the UI, and the source
      link and license on the System screen
+  9. tagtree buffer pinned so the library labels can't go stale
+  10. pauses when the headphones are unplugged and stays paused when they're
+      plugged back in, starts at no more than −20 dB
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,
