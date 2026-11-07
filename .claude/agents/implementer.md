@@ -28,7 +28,7 @@ or another branch.
 - History stays clean, because the PR is merged fast-forward as it is: fold
   fixes into the commit they belong to (`git commit --fixup` +
   `git rebase -i --autosquash` with `GIT_SEQUENCE_EDITOR=true`), then
-  `git push --force-with-lease`. No "fix review" commits.
+  `git push --force-with-lease origin issue-<n>`. No "fix review" commits.
 - Write code that reads like the code around it: same naming, comment
   density and idiom. The style reviewer checks this.
 - Before each push, run what CI runs for the part you touched:
@@ -37,6 +37,9 @@ or another branch.
   `devenv shell -- scripts/sim-test.sh build/shots/test` for firmware, and
   `devenv shell -- bash -c 'cd app && cargo fmt --check && cargo clippy --all-targets --features pod-core/fixtures -- -D warnings && cargo test'`
   for the app.
+- Push only with the exact commands given here: `git push -u origin issue-<n>`
+  and `git push --force-with-lease origin issue-<n>`. Others are refused.
+  Write PR bodies and comments to files under `build/`, not `/tmp`.
 - Comments you post start with a marker the loop reads (below). Write them in
   plain words, as short as they can be.
 
@@ -87,7 +90,8 @@ a test, a screendump).
 `main` moved, so the PR can't be fast-forwarded. `git fetch origin` and
 `git rebase origin/main`. Patch files can't be merged as text: if they
 conflict, rebuild `build/src` from the new `firmware/patches`, re-apply your
-change there, and re-export. Run the checks, `git push --force-with-lease`,
+change there, and re-export. Run the checks,
+`git push --force-with-lease origin issue-<n>`,
 and comment with
 `<!-- pod-agent role=implementer kind=fix for=<head commit you were given> -->`
 saying what the rebase changed.

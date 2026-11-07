@@ -30,13 +30,51 @@ REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner) || exit 1
 
 log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*"; }
 
-# agent <name> <dir> <prompt>: one headless session; the model and the tools
-# come from .claude/agents/<name>.md
+# Headless runs can't ask: what isn't allowed up front is refused. The agents
+# skip user settings (whose `ask` rules would refuse every push) and get only
+# the commands their job needs; nothing may push main or merge.
+DENY='["Bash(git push * main*)", "Bash(git push *:main*)",
+    "Bash(git push *refs/heads/main*)", "Bash(gh pr merge *)",
+    "Read(./.env)", "Read(./.env.*)", "Read(./secrets/**)", "Read(./**/*.pem)",
+    "Read(./**/*.key)", "Read(./**/id_rsa*)", "Read(./**/id_ed25519)"]'
+allowed() {
+    case $1 in
+    planner) echo '["Bash(gh issue comment *)", "Bash(gh issue edit *)"]' ;;
+    implementer)
+        echo '["Bash(git push -u origin issue-*)",
+            "Bash(git push --force-with-lease origin issue-*)",
+            "Bash(gh pr create *)", "Bash(gh pr comment *)", "Bash(gh run rerun *)"]'
+        ;;
+    *) echo '["Bash(gh pr comment *)", "Bash(git fetch *)", "Bash(git range-diff *)"]' ;;
+    esac
+}
+
+# definition <name>: .claude/agents/<name>.md from this checkout as --agents
+# JSON, so a branch can't change the agent that works on or reviews it
+definition() {
+    python3 -I - "$ROOT/.claude/agents/$1.md" <<'PY'
+import json, sys
+head, body = open(sys.argv[1]).read().split("---\n", 2)[1:]
+meta = dict(l.split(": ", 1) for l in head.splitlines() if ": " in l)
+agent = {"description": meta["description"], "prompt": body.strip(),
+         "model": meta["model"]}
+if "tools" in meta:
+    agent["tools"] = [t.strip() for t in meta["tools"].split(",")]
+print(json.dumps({meta["name"]: agent}))
+PY
+}
+
+# agent <name> <dir> <prompt>: one headless session on the agent's model
 agent() {
-    local name=$1 dir=$2 prompt=$3 out
+    local name=$1 dir=$2 prompt=$3 out settings def
+    settings=$(jq -cn --argjson a "$(allowed "$name")" --argjson d "$DENY" \
+        '{permissions: {allow: $a, deny: $d}}')
+    def=$LOGS/agent-$name.json
+    definition "$name" >"$def"
     out=$LOGS/$(date +%Y%m%d-%H%M%S)-$name.log
     log "$name: ${prompt%%.*} ($out)"
-    (cd "$dir" && claude -p "$prompt" --agent "$name" \
+    (cd "$dir" && claude -p "$prompt" --agents "$def" --agent "$name" \
+        --setting-sources project,local --settings "$settings" \
         --permission-mode "$MODE" --output-format text) </dev/null >"$out" 2>&1 ||
         log "$name exited with $? ($out)"
 }
@@ -169,8 +207,10 @@ plan() {
 implement() {
     local n start open
     open=$(prs | wc -l)
-    for n in $(issues_with planned); do
+    # implementing with no PR: an earlier run stopped before opening it
+    for n in $(issues_with implementing) $(issues_with planned); do
         ((open < WIP)) || return 0
+        [[ -z $(gh pr list --head "issue-$n" --state all --json number -q '.[].number') ]] || continue
         start=origin/main
         git show-ref -q --verify "refs/remotes/origin/issue-$n" && start=origin/issue-$n
         gh issue edit "$n" --remove-label planned --add-label implementing >/dev/null

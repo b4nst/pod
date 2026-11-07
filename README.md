@@ -227,9 +227,15 @@ a merge with four Claude Code agents (`.claude/agents/`). It needs the
 The loop leaves an issue or a PR labeled `needs-human` alone: a planner or
 implementer run that changed nothing, or a PR past `POD_LOOP_MAX_ROUNDS` (5)
 fix rounds. Remove the label to hand it back. The agents work in worktrees
-under `build/agents/` and log there. They run with `--permission-mode auto`
-(`POD_AGENT_PERMISSION_MODE`), so a blocked action stops a run rather than
-asking.
+under `build/agents/` and log there. Their definitions are read from this
+checkout, never from the branch they work on.
+
+The agents run headless with `--permission-mode auto`
+(`POD_AGENT_PERMISSION_MODE`), so what they may not do is refused, not asked.
+They skip your user settings, whose `ask` rules would refuse every push, and
+the loop gives each one the commands its job needs. The implementer can
+push `issue-*` branches and open PRs, and nothing can push `main` or merge
+except the loop itself.
 
 ## License
 
