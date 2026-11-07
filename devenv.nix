@@ -48,6 +48,8 @@ in
     jetbrains-mono
     orbitron
     otf2bdf       # rasterize brand fonts to BDF
+    gh            # the agent loop talks to GitHub
+    jq
   ] ++ lib.optionals stdenv.isLinux appLibs;
 
   # the desktop app (app/)
@@ -59,4 +61,8 @@ in
   } // lib.optionalAttrs pkgs.stdenv.isLinux {
     LD_LIBRARY_PATH = lib.makeLibraryPath appLibs;
   };
+
+  # the agent loop (scripts/agent-loop.sh), started with `devenv up`. It runs
+  # the `claude` CLI from your PATH.
+  processes.agents.exec = "scripts/agent-loop.sh";
 }

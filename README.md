@@ -198,6 +198,39 @@ patches, and check the submodule out at the new base:
 git -C firmware/rockbox fetch --depth 1 origin <rev> && git -C firmware/rockbox checkout <rev>
 ```
 
+## Agent loop
+
+`devenv up` starts `scripts/agent-loop.sh`, which takes issues from a plan to
+a merge with four Claude Code agents (`.claude/agents/`). It needs the
+`claude` CLI and `gh` logged in. GitHub holds all the state: labels, and
+`<!-- pod-agent ... -->` markers at the top of the agents' comments.
+
+| Agent            | Model  | Does                                                    |
+|------------------|--------|---------------------------------------------------------|
+| `planner`        | Opus   | comments a plan with a definition of done, labels the issue `planned` |
+| `implementer`    | Sonnet | implements it on `issue-<n>` and opens the PR, fixes red CI and review findings, rebases |
+| `reviewer`       | Opus   | correctness: the plan is done and nothing breaks        |
+| `style-reviewer` | Sonnet | the code, commits, patches and docs match the existing ones |
+
+1. Label an issue `ready`. The planner plans it, or labels it `blocked`
+   (it goes back to `ready` once the issues it waits for are closed) or
+   `needs-human` with questions.
+2. The implementer takes `planned` issues, one PR at a time
+   (`POD_LOOP_WIP`), since patches don't merge as text.
+3. Once CI is green, both reviewers comment `approve` or `changes` on the
+   head commit. The implementer folds fixes into its commits or replies, and
+   the reviewers look again.
+4. When both approve the head commit, the loop pushes it to `main`
+   fast-forward (a branch that's behind goes back for a rebase), closes the
+   issue and deletes the branch.
+
+The loop leaves an issue or a PR labeled `needs-human` alone: a planner or
+implementer run that changed nothing, or a PR past `POD_LOOP_MAX_ROUNDS` (5)
+fix rounds. Remove the label to hand it back. The agents work in worktrees
+under `build/agents/` and log there. They run with `--permission-mode auto`
+(`POD_AGENT_PERMISSION_MODE`), so a blocked action stops a run rather than
+asking.
+
 ## License
 
 pod is Rockbox with patches, so it is GPLv2 or later like Rockbox (see
