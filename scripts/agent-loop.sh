@@ -42,7 +42,6 @@ allowed() {
     planner) echo '["Bash(gh issue comment *)", "Bash(gh issue edit *)"]' ;;
     implementer)
         echo '["Bash(git push -u origin issue-*)",
-            "Bash(git push --force-with-lease origin issue-*)",
             "Bash(gh pr create *)", "Bash(gh pr comment *)", "Bash(gh run rerun *)"]'
         ;;
     *) echo '["Bash(gh pr comment *)", "Bash(git fetch *)", "Bash(git range-diff *)"]' ;;
@@ -239,6 +238,12 @@ fix() {
     worktree "$WORK/issue-$n" "origin/issue-$n" "issue-$n"
     agent implementer "$WORK/issue-$n" \
         "Mode: $mode. Issue #$n, PR #$pr, branch issue-$n, head commit $sha."
+    # auto mode won't let an agent rewrite a pushed branch, so the loop
+    # pushes what it committed, as long as nobody else moved the branch
+    if [[ $(git -C "$WORK/issue-$n" rev-parse HEAD) != "$sha" ]]; then
+        git -C "$WORK/issue-$n" push -q --force-with-lease="issue-$n:$sha" \
+            origin "HEAD:refs/heads/issue-$n" || log "PR #$pr: push refused"
+    fi
     git fetch -q origin "issue-$n"
     now=$(git rev-parse "origin/issue-$n")
     if [[ $now == "$sha" ]] && ! markers "$pr" | jq -se --arg s "$sha" \

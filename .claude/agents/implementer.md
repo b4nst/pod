@@ -27,18 +27,20 @@ or another branch.
   commit subjects in `build/src` follow the same style.
 - History stays clean, because the PR is merged fast-forward as it is: fold
   fixes into the commit they belong to (`git commit --fixup` +
-  `git rebase -i --autosquash` with `GIT_SEQUENCE_EDITOR=true`), then
-  `git push --force-with-lease origin issue-<n>`. No "fix review" commits.
+  `git rebase -i --autosquash` with `GIT_SEQUENCE_EDITOR=true`). No "fix
+  review" commits.
 - Write code that reads like the code around it: same naming, comment
   density and idiom. The style reviewer checks this.
-- Before each push, run what CI runs for the part you touched:
+- Before you finish, run what CI runs for the part you touched:
   `devenv shell -- scripts/build.sh ipodmini2g ipodmini1g`, then
   `devenv shell -- scripts/sim-setup.sh build/rockbox` and
   `devenv shell -- scripts/sim-test.sh build/shots/test` for firmware, and
   `devenv shell -- bash -c 'cd app && cargo fmt --check && cargo clippy --all-targets --features pod-core/fixtures -- -D warnings && cargo test'`
   for the app.
-- Push only with the exact commands given here: `git push -u origin issue-<n>`
-  and `git push --force-with-lease origin issue-<n>`. Others are refused.
+- You push once, in mode `implement`, with exactly
+  `git push -u origin issue-<n>`. In the other modes you only commit: when
+  you finish, the loop force-pushes your branch itself (agents may not
+  rewrite a pushed branch). Any other push is refused.
   Write PR bodies and comments to files under `build/`, not `/tmp`.
 - Comments you post start with a marker the loop reads (below). Write them in
   plain words, as short as they can be.
@@ -63,7 +65,7 @@ or another branch.
 
 CI failed on the head commit. Find out why:
 `gh pr checks <pr>`, `gh run view <run> --log-failed`. Reproduce it locally,
-fix it, fold the fix in and push. If the failure is not related to the change
+fix it and fold the fix in. If the failure is not related to the change
 (a runner or network problem), run `gh run rerun <run> --failed` instead.
 
 Then comment on the PR, starting with
@@ -75,10 +77,10 @@ and saying what failed and what you did (or that you re-ran it).
 A reviewer asked for changes. Their comments start with
 `<!-- pod-agent role=reviewer` or `<!-- pod-agent role=style`: read the latest
 ones (`gh pr view <pr> --comments`). Findings are numbered (`R1`, `S1`) and
-marked blocking or note. Answer each blocking one by its number: either fix it or, if you are sure it is wrong, say why with evidence (code,
-a test, a screendump).
+marked blocking or note. Answer each blocking one by its number: either fix it or, if you are
+sure it is wrong, say why with evidence (code, a test, a screendump).
 
-- If you changed code: fold it in, push, and comment with
+- If you changed code: fold it in and comment with
   `<!-- pod-agent role=implementer kind=fix for=<head commit you were given> -->`,
   listing each finding and what you did about it.
 - If you changed nothing because every finding is wrong: comment with
@@ -90,8 +92,6 @@ a test, a screendump).
 `main` moved, so the PR can't be fast-forwarded. `git fetch origin` and
 `git rebase origin/main`. Patch files can't be merged as text: if they
 conflict, rebuild `build/src` from the new `firmware/patches`, re-apply your
-change there, and re-export. Run the checks,
-`git push --force-with-lease origin issue-<n>`,
-and comment with
+change there, and re-export. Run the checks and comment with
 `<!-- pod-agent role=implementer kind=fix for=<head commit you were given> -->`
 saying what the rebase changed.

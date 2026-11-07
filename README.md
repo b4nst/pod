@@ -239,9 +239,11 @@ checkout, never from the branch they work on.
 The agents run headless with `--permission-mode auto`
 (`POD_AGENT_PERMISSION_MODE`), so what they may not do is refused, not asked.
 They skip your user settings, whose `ask` rules would refuse every push, and
-the loop gives each one the commands its job needs. The implementer can
-push `issue-*` branches and open PRs, and nothing can push `main` or merge
-except the loop itself.
+the loop gives each one the commands its job needs. The implementer pushes
+its branch once and opens the PR. After that it only commits, because auto
+mode won't let an agent rewrite a pushed branch, and the loop force-pushes
+it with a lease on the commit it handed out. Nothing but the loop can push
+`main` or merge.
 
 ## License
 
