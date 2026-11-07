@@ -91,12 +91,12 @@ prs() {
 }
 
 # markers <issue or pr>: one JSON object per agent comment, its marker's
-# key=value pairs plus `at`, the comment's time
+# key=value pairs plus `at` and `id`, the comment's time and id
 markers() {
     gh api "repos/$REPO/issues/$1/comments" --paginate --jq '
-        .[] | .created_at as $at | .body
+        .[] | .created_at as $at | .id as $id | .body
         | capture("<!-- pod-agent (?<a>[^>]*)-->") | .a
-        | [scan("[a-z]+=[^ ]+") | split("=") | {(.[0]): .[1]}] | add + {at: $at}'
+        | [scan("[a-z]+=[^ ]+") | split("=") | {(.[0]): .[1]}] | add + {at: $at, id: $id}'
 }
 
 # state <markers> <role> <sha>: approve, changes, or review when that role
@@ -208,13 +208,21 @@ fix() {
     fi
 }
 
-# review <agent> <role> <pr> <issue> <sha> <markers>
+# review <agent> <role> <pr> <issue> <sha> <markers>: the reviewer gets its
+# own last verdict, so a re-review checks that verdict and what changed since
+# rather than starting over and finding different things
 review() {
-    local name=$1 role=$2 pr=$3 n=$4 sha=$5 old
-    old=$(jq -rs --arg r "$role" --arg s "$sha" \
-        '[.[] | select(.role == $r and .sha != $s)] | last | .sha // empty' <<<"$6")
+    local name=$1 role=$2 pr=$3 n=$4 sha=$5 last prev=$WORK/review-$3/build/previous-$2.md
+    last=$(jq -cs --arg r "$role" '[.[] | select(.role == $r)] | last // empty' <<<"$6")
+    if [[ -z $last ]]; then
+        agent "$name" "$WORK/review-$pr" \
+            "Review PR #$pr for issue #$n at head commit $sha. This is the first review."
+        return
+    fi
+    mkdir -p "${prev%/*}"
+    gh api "repos/$REPO/issues/comments/$(jq -r .id <<<"$last")" -q .body >"$prev"
     agent "$name" "$WORK/review-$pr" \
-        "Review PR #$pr for issue #$n at head commit $sha. Previously reviewed commit: ${old:-none, this is the first review}."
+        "Re-review PR #$pr for issue #$n at head commit $sha. Your previous verdict was $(jq -r .verdict <<<"$last") on commit $(jq -r .sha <<<"$last"); it is in $prev. Follow the re-review rules."
 }
 
 merge() {

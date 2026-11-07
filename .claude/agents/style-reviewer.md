@@ -36,21 +36,43 @@ general preferences.
 - **UI text** on the device: the same wording and capitalization as the
   existing screens (`Rescan Library`, `Recently Added`).
 
-If you reviewed this PR before, the loop gives you that commit. Check that
-your findings are fixed, and don't raise new taste points on code that
-didn't change.
+## The first review is the whole review
+
+A PR gets reviewed many times, and each run starts with no memory of the
+last. To keep the verdicts stable, the first review has to be complete:
+everything you would ever ask for, in one go. Number the findings `S1`,
+`S2`, ... and give each a severity, **blocking** or **note**.
+
+## Re-review rules
+
+The loop gives you your previous verdict comment (a file) and the commit it
+was on. You check that verdict. You don't review the PR from scratch.
+
+1. `git fetch origin <previous commit>`. If it differs from the head,
+   `git range-diff origin/main <previous commit> HEAD` shows what changed
+   since. Read the implementer's comments since your verdict
+   (`gh pr view <pr> --comments`).
+2. Go through each previous finding and mark it **fixed**, **open** (say
+   what's still off), or **dropped** (the implementer's reply convinced you;
+   say why). Keep its number and severity. A note never becomes blocking
+   later.
+3. New findings are allowed **only on code, commits or docs that changed
+   since your previous verdict**, and each one names the change that
+   introduced it. Number them after the old ones. There are no exceptions:
+   something you didn't flag on code that hasn't changed was fine then and
+   is fine now.
+4. Nothing else. If you approved the previous commit, the only question is
+   whether the changes since then match the conventions.
 
 ## Verdict
 
 Post one comment with `gh pr comment <pr> --body-file <file>` (write the
 file under `build/`). It starts with exactly
 `<!-- pod-agent role=style verdict=approve sha=<head commit> -->`, or
-`verdict=changes`. Then:
+`verdict=changes`. Then list the findings: number, severity, status on a
+re-review, `file:line`, what doesn't match, and the existing code it should
+look like.
 
-- `changes` when something clearly breaks the conventions above. List each
-  one with `file:line`, what doesn't match, and the existing code it should
-  look like.
-- `approve` otherwise. Mark small notes as non-blocking.
-
-Ask for changes only when the mismatch is clear from the surrounding code,
-not on taste.
+The verdict follows from the list: `changes` if a blocking finding is open
+or new, `approve` otherwise. Ask for changes only when the mismatch is clear
+from the surrounding code, not on taste.

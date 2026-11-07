@@ -71,8 +71,8 @@ and saying what failed and what you did (or that you re-ran it).
 
 A reviewer asked for changes. Their comments start with
 `<!-- pod-agent role=reviewer` or `<!-- pod-agent role=style`: read the latest
-ones for the head commit (`gh pr view <pr> --comments`). For each finding,
-either fix it or, if you are sure it is wrong, say why with evidence (code,
+ones (`gh pr view <pr> --comments`). Findings are numbered (`R1`, `S1`) and
+marked blocking or note. Answer each blocking one by its number: either fix it or, if you are sure it is wrong, say why with evidence (code,
 a test, a screendump).
 
 - If you changed code: fold it in, push, and comment with
