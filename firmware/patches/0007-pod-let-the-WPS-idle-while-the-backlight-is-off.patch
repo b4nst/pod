@@ -1,7 +1,7 @@
-From ad2a871a289fa60edcecb05eb35a4256cecfbb9c Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: banst <bastien@banst.ch>
 Date: Thu, 5 Nov 2026 09:25:45 +0100
-Subject: [PATCH 7/8] pod: let the WPS idle while the backlight is off
+Subject: [PATCH] pod: let the WPS idle while the backlight is off
 
 The mini's LCD has no sleep mode, so the WPS kept redrawing the reels and
 the peak meters (polled every tick) in a pocket. With the backlight off,
@@ -12,7 +12,7 @@ refresh at most every 5 s and skip the peak meter loop.
  2 files changed, 19 insertions(+), 1 deletion(-)
 
 diff --git a/apps/gui/skin_engine/skin_display.c b/apps/gui/skin_engine/skin_display.c
-index f2435fe709..592b3eb018 100644
+index f2435fe709f4178b7ac97c836a85dceb7b76c882..592b3eb018595407a445ce1675f42b8023abe52f 100644
 --- a/apps/gui/skin_engine/skin_display.c
 +++ b/apps/gui/skin_engine/skin_display.c
 @@ -48,6 +48,7 @@
@@ -34,7 +34,7 @@ index f2435fe709..592b3eb018 100644
  
      long next_refresh = current_tick;
 diff --git a/apps/gui/wps.c b/apps/gui/wps.c
-index a928dc8d33..51285d8ace 100644
+index a928dc8d33267c3ae15fa37ce6b8e1f76ee1879a..51285d8acea7e388d074c97161c8210451efcdc5 100644
 --- a/apps/gui/wps.c
 +++ b/apps/gui/wps.c
 @@ -72,6 +72,10 @@
@@ -74,6 +74,3 @@ index a928dc8d33..51285d8ace 100644
              FOR_NB_SCREENS(i)
              {
  #if defined(HAVE_LCD_ENABLE) || defined(HAVE_LCD_SLEEP)
--- 
-2.56.0
-

@@ -1,7 +1,7 @@
-From f5083a09ed3fea31e5d83fa10249db74d2732b84 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 23:02:35 +0100
-Subject: [PATCH 6/8] pod: themed full screen USB link screen
+Subject: [PATCH] pod: themed full screen USB link screen
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
 ---
@@ -12,7 +12,7 @@ Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
  create mode 100644 apps/bitmaps/native/usblogo.138x110x2.bmp
 
 diff --git a/apps/bitmaps/native/SOURCES b/apps/bitmaps/native/SOURCES
-index b3c5b64b6b..0871fdfcd3 100644
+index b3c5b64b6beb83bb11918b0368d6997cf97c45a1..0871fdfcd3746a19638f83fc912b3a05d865e2d7 100644
 --- a/apps/bitmaps/native/SOURCES
 +++ b/apps/bitmaps/native/SOURCES
 @@ -65,7 +65,9 @@ usblogo.128x37x16.bmp
@@ -86,7 +86,7 @@ literal 0
 HcmV?d00001
 
 diff --git a/apps/gui/usb_screen.c b/apps/gui/usb_screen.c
-index b1a12d2d83..2d2b3249cf 100644
+index b1a12d2d83cb41bf962ea1425f6fb04f0e15e2d1..2d2b3249cfb88c2346659aea36e8fcff83d68d3a 100644
 --- a/apps/gui/usb_screen.c
 +++ b/apps/gui/usb_screen.c
 @@ -140,6 +140,16 @@ static void usb_screen_fix_viewports(struct screen *screen,
@@ -118,6 +118,3 @@ index b1a12d2d83..2d2b3249cf 100644
          screen->set_viewport(last_vp);
      }
  #ifdef USB_ENABLE_HID
--- 
-2.56.0
-

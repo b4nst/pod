@@ -1,8 +1,8 @@
-From 8ebf2e0e04448e3eba2db6e19abdb1c1371c91fd Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: banst <bastien@banst.ch>
 Date: Thu, 5 Nov 2026 09:37:59 +0100
-Subject: [PATCH 8/8] pod: rename to pod: /.pod/pod.ipod, pod bootloader with
- the splash
+Subject: [PATCH] pod: rename to pod: /.pod/pod.ipod, pod bootloader with the
+ splash
 
 The firmware, its data and the boot file move from /.rockbox/rockbox.ipod
 to /.pod/pod.ipod, so the iPod mini needs the matching bootloader built
@@ -20,7 +20,7 @@ pod, and the System screen points to the source and the license.
  8 files changed, 40 insertions(+), 17 deletions(-)
 
 diff --git a/apps/lang/english.lang b/apps/lang/english.lang
-index a796b0aa9a..3e2e967655 100644
+index a796b0aa9ac1159236a69f73518d978bcf647c88..3e2e9676558ee666b7493f579b74c37f5d349da1 100644
 --- a/apps/lang/english.lang
 +++ b/apps/lang/english.lang
 @@ -95,10 +95,10 @@
@@ -50,7 +50,7 @@ index a796b0aa9a..3e2e967655 100644
  </phrase>
  <phrase>
 diff --git a/apps/menus/main_menu.c b/apps/menus/main_menu.c
-index d987f3d2aa..a7f6aee631 100644
+index d987f3d2aa3788da880990878152601022a03e81..a7f6aee631576b4f3f66433a6f3e7087232d7f65 100644
 --- a/apps/menus/main_menu.c
 +++ b/apps/menus/main_menu.c
 @@ -52,6 +52,10 @@
@@ -78,7 +78,7 @@ index d987f3d2aa..a7f6aee631 100644
  }
  
 diff --git a/apps/tagnavi.config b/apps/tagnavi.config
-index 3c333ffc45..6bf885b181 100644
+index 3c333ffc459214ab4d6434cd0adc4444ec3c4dee..6bf885b1817b0ba6744e4648aa1c378a141032d2 100644
 --- a/apps/tagnavi.config
 +++ b/apps/tagnavi.config
 @@ -2,11 +2,11 @@
@@ -105,7 +105,7 @@ index 3c333ffc45..6bf885b181 100644
  #
  # === Begin of "First Letter" sub menus
 diff --git a/apps/tree.c b/apps/tree.c
-index b3c93e0e88..25b6c0f361 100644
+index b3c93e0e88c35b4b781bef647479f1ff3c55e3a5..25b6c0f361ba74ac52273f82f29a411724f509d2 100644
 --- a/apps/tree.c
 +++ b/apps/tree.c
 @@ -329,10 +329,10 @@ bool check_rockboxdir(void)
@@ -122,7 +122,7 @@ index b3c93e0e88..25b6c0f361 100644
              screens[i].clear_display();
          splash(HZ*2, "Installation incomplete");
 diff --git a/bootloader/ipod.c b/bootloader/ipod.c
-index 653169dade..6054caaaee 100644
+index 653169dade66bee373c2ff286de6841fc43f5d26..6054caaaeeded6b16aa1a0a99b0e87b3ed53151a 100644
 --- a/bootloader/ipod.c
 +++ b/bootloader/ipod.c
 @@ -41,6 +41,7 @@
@@ -168,7 +168,7 @@ index 653169dade..6054caaaee 100644
          } else if (rc == EFILE_NOT_FOUND) {
              /* if rockbox.ipod doesn't exist, then check if there is a Rockbox
 diff --git a/firmware/export/config/ipodmini1g.h b/firmware/export/config/ipodmini1g.h
-index f70047a65e..955f18944d 100644
+index f70047a65e707ddaca997be654bc5d9a901bedf9..955f18944d2027b840a1e1189fb8fd872ab06b77 100644
 --- a/firmware/export/config/ipodmini1g.h
 +++ b/firmware/export/config/ipodmini1g.h
 @@ -204,7 +204,7 @@
@@ -181,7 +181,7 @@ index f70047a65e..955f18944d 100644
  #define ICODE_ATTR_TREMOR_NOT_MDCT
  
 diff --git a/firmware/export/config/ipodmini2g.h b/firmware/export/config/ipodmini2g.h
-index c1844dbf54..672a377297 100644
+index c1844dbf545f4dff33313649cb16d6b35224878e..672a377297ace092c5fa798a9242fa523d76114b 100644
 --- a/firmware/export/config/ipodmini2g.h
 +++ b/firmware/export/config/ipodmini2g.h
 @@ -207,7 +207,7 @@
@@ -194,7 +194,7 @@ index c1844dbf54..672a377297 100644
  #define ICODE_ATTR_TREMOR_NOT_MDCT
  
 diff --git a/tools/configure b/tools/configure
-index f9d5c83739..161669a86a 100755
+index f9d5c83739bfd6dd7a447aaffdca2890f69f511d..161669a86af794fa0b23cb849fed39afb257b1b7 100755
 --- a/tools/configure
 +++ b/tools/configure
 @@ -21,7 +21,7 @@ use_logf="#undef ROCKBOX_HAS_LOGF"
@@ -224,6 +224,3 @@ index f9d5c83739..161669a86a 100755
      appextra=""
      plugins="yes"
      bootoutput="bootloader-$modelname.ipod"
--- 
-2.56.0
-

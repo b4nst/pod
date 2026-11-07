@@ -1,7 +1,7 @@
-From 46e074c6d9ed5997f5c937af1a38b85db5680029 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 21:37:49 +0100
-Subject: [PATCH 5/8] pod: full screen splash and mainstream codecs only
+Subject: [PATCH] pod: full screen splash and mainstream codecs only
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
 ---
@@ -13,7 +13,7 @@ Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
  create mode 100644 apps/bitmaps/native/rockboxlogo.138x110x2.bmp
 
 diff --git a/apps/bitmaps/native/SOURCES b/apps/bitmaps/native/SOURCES
-index 5fab111327..b3c5b64b6b 100644
+index 5fab111327e8734c6f357ded5c97dfeefa1846f8..b3c5b64b6beb83bb11918b0368d6997cf97c45a1 100644
 --- a/apps/bitmaps/native/SOURCES
 +++ b/apps/bitmaps/native/SOURCES
 @@ -16,7 +16,7 @@ rockboxlogo.128x40x16.bmp
@@ -67,7 +67,7 @@ literal 0
 HcmV?d00001
 
 diff --git a/apps/main.c b/apps/main.c
-index 9ce254b912..361ecd952a 100644
+index 9ce254b912197ee2a83c49b86e98bdb2363eac48..361ecd952ad598103335bb5061b3fe8fb6d5546a 100644
 --- a/apps/main.c
 +++ b/apps/main.c
 @@ -257,7 +257,11 @@ int show_logo_boot( void )
@@ -84,7 +84,7 @@ index 9ce254b912..361ecd952a 100644
      if (ver_w > LCD_WIDTH)
          lcd_putsxy(0, 0, rbversion);
 diff --git a/lib/rbcodec/codecs/SOURCES b/lib/rbcodec/codecs/SOURCES
-index 83f35295d7..e43679adb2 100644
+index 83f35295d751f7164a0e1d5e8a206367e02f792c..e43679adb2f129d80cc5d819dc8736e69f692298 100644
 --- a/lib/rbcodec/codecs/SOURCES
 +++ b/lib/rbcodec/codecs/SOURCES
 @@ -1,52 +1,18 @@
@@ -141,6 +141,3 @@ index 83f35295d7..e43679adb2 100644
  
  /* warble is decoder-only */
  #if defined(HAVE_RECORDING) && !defined(WARBLE)
--- 
-2.56.0
-

@@ -1,8 +1,8 @@
-From 11d63ef2de159a144ef18f31b5c7c337077dd822 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 21:37:49 +0100
-Subject: [PATCH 4/8] pod: library is home, MENU goes back, hold MENU for the
- only settings menu
+Subject: [PATCH] pod: library is home, MENU goes back, hold MENU for the only
+ settings menu
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
 ---
@@ -15,7 +15,7 @@ Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
  6 files changed, 71 insertions(+), 66 deletions(-)
 
 diff --git a/apps/gui/wps.c b/apps/gui/wps.c
-index 12fda68824..a928dc8d33 100644
+index 12fda6882460a9bff8a3dd54bd6ded8de9c56b4c..a928dc8d33267c3ae15fa37ce6b8e1f76ee1879a 100644
 --- a/apps/gui/wps.c
 +++ b/apps/gui/wps.c
 @@ -991,7 +991,7 @@ long gui_wps_show(void)
@@ -28,7 +28,7 @@ index 12fda68824..a928dc8d33 100644
  
  
 diff --git a/apps/keymaps/keymap-ipod.c b/apps/keymaps/keymap-ipod.c
-index 787d930468..d6eb81c8fe 100644
+index 787d930468a22c1ff032b6f2a1b38d1fc8b00a0c..d6eb81c8fed6ebe586599ab0e08e9d882458be7f 100644
 --- a/apps/keymaps/keymap-ipod.c
 +++ b/apps/keymaps/keymap-ipod.c
 @@ -47,8 +47,8 @@ static const struct button_mapping button_context_standard[]  = {
@@ -88,7 +88,7 @@ index 787d930468..d6eb81c8fe 100644
          case CONTEXT_SETTINGS_TIME:
          case CONTEXT_SETTINGS:
 diff --git a/apps/menus/main_menu.c b/apps/menus/main_menu.c
-index a09d81de3d..d987f3d2aa 100644
+index a09d81de3d99b88b2373bad377142821fac9e426..d987f3d2aa3788da880990878152601022a03e81 100644
 --- a/apps/menus/main_menu.c
 +++ b/apps/menus/main_menu.c
 @@ -29,6 +29,8 @@
@@ -145,7 +145,7 @@ index a09d81de3d..d987f3d2aa 100644
  /*    MAIN MENU                    */
  /***********************************/
 diff --git a/apps/onplay.c b/apps/onplay.c
-index d383523879..29b6c87152 100644
+index d383523879558f30c0a149c9ea98e08b0542d2c4..29b6c87152287029279fb8530aa4e21fb8cc9dde 100644
 --- a/apps/onplay.c
 +++ b/apps/onplay.c
 @@ -1247,20 +1247,7 @@ static int onplaymenu_callback(int action,
@@ -192,7 +192,7 @@ index d383523879..29b6c87152 100644
  
  static int onplaymenu_callback(int action,
 diff --git a/apps/root_menu.c b/apps/root_menu.c
-index 918669b245..04b4dd26d3 100644
+index 918669b24568c2effe708714c5c30bb2ddf21f3f..04b4dd26d301756aceb51120312de3d8014f7328 100644
 --- a/apps/root_menu.c
 +++ b/apps/root_menu.c
 @@ -27,6 +27,7 @@
@@ -289,7 +289,7 @@ index 918669b245..04b4dd26d3 100644
  #ifdef HAVE_TAGCACHE
              case GO_TO_DBBROWSER:
 diff --git a/apps/tree.c b/apps/tree.c
-index 450226961b..b3c93e0e88 100644
+index 450226961b40ed56e43c3844d1e49190c1c57ae8..b3c93e0e88c35b4b781bef647479f1ff3c55e3a5 100644
 --- a/apps/tree.c
 +++ b/apps/tree.c
 @@ -831,8 +831,10 @@ static int dirbrowse(void)
@@ -314,6 +314,3 @@ index 450226961b..b3c93e0e88 100644
                  break;
  
  #ifdef HAVE_RECORDING
--- 
-2.56.0
-

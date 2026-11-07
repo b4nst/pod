@@ -1,8 +1,7 @@
-From 3735a882fa7900b02cc0c4963448ff465f16ce1e Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 21:37:48 +0100
-Subject: [PATCH 3/8] pod: five band EQ screen drawn as a frequency response
- plot
+Subject: [PATCH] pod: five band EQ screen drawn as a frequency response plot
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
 ---
@@ -14,7 +13,7 @@ Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
  create mode 100644 apps/gui/pod_eq.h
 
 diff --git a/apps/SOURCES b/apps/SOURCES
-index c8b21daf3b..c7fc583478 100644
+index c8b21daf3b5ec54e2342437e6243827e4d69b8ef..c7fc583478e4cd00dffc82c12ed2f4e68734bb6a 100644
 --- a/apps/SOURCES
 +++ b/apps/SOURCES
 @@ -77,6 +77,7 @@ iap/iap-lingo7.c
@@ -27,7 +26,7 @@ index c8b21daf3b..c7fc583478 100644
  gui/bitmap/list.c
 diff --git a/apps/gui/pod_eq.c b/apps/gui/pod_eq.c
 new file mode 100644
-index 0000000000..e031b8dc89
+index 0000000000000000000000000000000000000000..e031b8dc8994d15dcfb6c9f19093d82b35751c06
 --- /dev/null
 +++ b/apps/gui/pod_eq.c
 @@ -0,0 +1,523 @@
@@ -556,7 +555,7 @@ index 0000000000..e031b8dc89
 +}
 diff --git a/apps/gui/pod_eq.h b/apps/gui/pod_eq.h
 new file mode 100644
-index 0000000000..11771dcbb4
+index 0000000000000000000000000000000000000000..11771dcbb4c5328f38a8ed71b5c68f7569134b16
 --- /dev/null
 +++ b/apps/gui/pod_eq.h
 @@ -0,0 +1,26 @@
@@ -586,6 +585,3 @@ index 0000000000..11771dcbb4
 +int pod_eq_screen(void);
 +
 +#endif /* _POD_EQ_H_ */
--- 
-2.56.0
-

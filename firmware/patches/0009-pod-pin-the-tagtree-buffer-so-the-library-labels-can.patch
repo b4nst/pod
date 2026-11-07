@@ -1,4 +1,4 @@
-From 988b7e7921a79c5bf3af27d78c5868a03ac99125 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Thu, 5 Nov 2026 14:07:51 +0100
 Subject: [PATCH] pod: pin the tagtree buffer so the library labels can't go
@@ -9,7 +9,7 @@ Subject: [PATCH] pod: pin the tagtree buffer so the library labels can't go
  1 file changed, 6 insertions(+)
 
 diff --git a/apps/tagtree.c b/apps/tagtree.c
-index 0b9697eb14..8ee6eee8df 100644
+index 0b9697eb14a8004fc1f51b0ce87aafb3681e5266..8ee6eee8df629fcc5a2b2ab8f02dc9a1c1f459cf 100644
 --- a/apps/tagtree.c
 +++ b/apps/tagtree.c
 @@ -1464,6 +1464,12 @@ static bool initialize_tagtree(void) /* also used when user selects 'Reload' in
@@ -25,6 +25,3 @@ index 0b9697eb14..8ee6eee8df 100644
      return true;
  }
  
--- 
-2.56.0
-

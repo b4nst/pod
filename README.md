@@ -187,9 +187,15 @@ commit there, then re-export:
 
 ```sh
 rm firmware/patches/*.patch
-git -C build/src format-patch --binary -o "$PWD/firmware/patches" \
+git -C build/src format-patch --binary --full-index --zero-commit -N \
+  --no-signature -o "$PWD/firmware/patches" \
   $(git -C firmware/rockbox rev-parse HEAD)..pod
 ```
+
+The flags keep the commit hashes, the series numbering, the abbreviation
+length and the git version out of the files. A patch you didn't touch comes
+out byte for byte the same, so a change only shows up in the patches it
+touches.
 
 To move to a newer Rockbox, rebase `pod` in `build/src` onto it, re-export the
 patches, and check the submodule out at the new base:

@@ -1,8 +1,7 @@
-From f229313052ad7774f9840a7accb3c5e83003bbd9 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: banst <cycles@banst.ch>
 Date: Wed, 4 Nov 2026 21:07:34 +0100
-Subject: [PATCH 1/8] sim: scripted input via POD_SCRIPT for headless
- screenshots
+Subject: [PATCH] sim: scripted input via POD_SCRIPT for headless screenshots
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
 ---
@@ -10,7 +9,7 @@ Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
  1 file changed, 81 insertions(+)
 
 diff --git a/firmware/target/hosted/sdl/button-sdl.c b/firmware/target/hosted/sdl/button-sdl.c
-index a329bb6fc1..58d07f140c 100644
+index a329bb6fc1791b82bc1c9aee199efdbb5f35ac33..58d07f140c923ca8c8ecfd21bf198b642ee73e88 100644
 --- a/firmware/target/hosted/sdl/button-sdl.c
 +++ b/firmware/target/hosted/sdl/button-sdl.c
 @@ -655,6 +655,84 @@ static void button_event(int key, bool pressed)
@@ -108,6 +107,3 @@ index a329bb6fc1..58d07f140c 100644
      return btn;
  }
  
--- 
-2.56.0
-
