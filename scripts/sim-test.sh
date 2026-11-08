@@ -192,3 +192,15 @@ done
 [ "$(markdiff love/02 love-keep/01)" = 0 ] || { echo "the love was lost on a skip" >&2; exit 1; }
 [ "$(areadiff love/01 love/02)" != 0 ] || { echo "the heart flash is not shown" >&2; exit 1; }
 echo "love ok"
+
+# a track over 10 minutes picks up where it stopped, a short one starts at 0.
+# Zero Hour (Albums row 4, 11 min) plays 6 s, Carrier 6 s, then Zero Hour
+# again starts at about 6 s and Carrier at 0. One run, because the resume
+# points are tagcache updates still queued when the simulator exits.
+"$root/scripts/sim-shot.sh" "$out/resume" "W300 F1 S W100 F3 S W100 S W600 M W100 M W100 B1 S W100 S W600 M W100 M W100 F1 S W100 S W300 D M W100 M W100 B1 S W100 S W300 D" >/dev/null
+starts=$(grep '^pod: start' "$out/resume/sim.log")
+[ "$(sed -n 1p <<<"$starts")" = 'pod: start long at 0' ] || { echo "Zero Hour is not a long track" >&2; exit 1; }
+[ "$(sed -n 2p <<<"$starts")" = 'pod: start short at 0' ] || { echo "Carrier is not a short track" >&2; exit 1; }
+sed -n 3p <<<"$starts" | grep -Eq 'long at [5-9][0-9]{3}$' || { echo "the long track did not resume" >&2; exit 1; }
+[ "$(sed -n 4p <<<"$starts")" = 'pod: start short at 0' ] || { echo "the short track resumed" >&2; exit 1; }
+echo "resume ok"

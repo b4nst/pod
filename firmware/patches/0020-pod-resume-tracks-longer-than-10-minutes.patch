@@ -1,0 +1,180 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <cycles@banst.ch>
+Date: Sun, 8 Nov 2026 17:45:35 +0100
+Subject: [PATCH] pod: resume tracks longer than 10 minutes
+
+---
+ apps/playback.c | 88 +++----------------------------------------------
+ apps/tagcache.c |  2 +-
+ apps/tagcache.h |  7 ++++
+ apps/tagtree.c  |  4 +--
+ 4 files changed, 15 insertions(+), 86 deletions(-)
+
+diff --git a/apps/playback.c b/apps/playback.c
+index ead1bd8f1879fd40cd54c354141730395c31ca45..e6202d2f1cd6fc89c02e1346b7d6c521b2e66b45 100644
+--- a/apps/playback.c
++++ b/apps/playback.c
+@@ -1695,58 +1695,6 @@ static bool audio_init_codec(struct track_info *track_infop,
+     (void)track_infop; /* When codec buffering isn't supported */
+ }
+ 
+-#ifdef HAVE_TAGCACHE
+-/* Check settings for whether the file should be autoresumed */
+-enum { AUTORESUMABLE_UNKNOWN = 0, AUTORESUMABLE_TRUE, AUTORESUMABLE_FALSE };
+-static bool autoresumable(struct mp3entry *id3)
+-{
+-    char *path;
+-    size_t len;
+-    bool is_resumable;
+-
+-    if (id3->autoresumable)             /* result cached? */
+-        return id3->autoresumable == AUTORESUMABLE_TRUE;
+-
+-    is_resumable = false;
+-
+-    if (*id3->path)
+-    {
+-        for (path = global_settings.autoresume_paths;
+-             *path;                     /* search terms left? */
+-             path++)
+-        {
+-            if (*path == ':')           /* Skip empty search patterns */
+-                continue;
+-
+-            len = strcspn(path, ":");
+-
+-            /* Note: At this point, len is always > 0 */
+-
+-            if (strncasecmp(id3->path, path, len) == 0)
+-            {
+-                /* Full directory-name matches only.  Trailing '/' in
+-                   search path OK. */
+-                if (id3->path[len] == '/' || id3->path[len - 1] == '/')
+-                {
+-                    is_resumable = true;
+-                    break;
+-                }
+-            }
+-            path += len - 1;
+-        }
+-    }
+-
+-    /* cache result */
+-    id3->autoresumable =
+-        is_resumable ? AUTORESUMABLE_TRUE : AUTORESUMABLE_FALSE;
+-
+-    logf("autoresumable: %s is%s resumable",
+-         id3->path, is_resumable ? "" : " not");
+-
+-    return is_resumable;
+-}
+-#endif  /* HAVE_TAGCACHE */
+-
+ /* Start the codec for the current track scheduled to be decoded */
+ static bool audio_start_codec(bool auto_skip)
+ {
+@@ -1767,46 +1715,20 @@ static bool audio_start_codec(bool auto_skip)
+     }
+ 
+     #ifdef HAVE_TAGCACHE
+-    bool autoresume_enable = !cur_id3->skip_resume_adjustments && global_settings.autoresume_enable;
++    bool autoresume_enable = !cur_id3->skip_resume_adjustments && pod_autoresumable(cur_id3);
+ 
+     if (autoresume_enable && !(cur_id3->elapsed || cur_id3->offset))
+     {
+-        /* Resume all manually selected tracks */
+-        bool resume = !auto_skip;
+-
+         /* Send the "buffer" event to obtain the resume position for the codec */
+         send_track_event(PLAYBACK_EVENT_TRACK_BUFFER, 0, cur_id3);
+ 
+-        if (!resume)
+-        {
+-            /* Automatic skip - do further tests to see if we should just
+-               ignore any autoresume position */
+-            int autoresume_automatic = global_settings.autoresume_automatic;
+-
+-            switch (autoresume_automatic)
+-            {
+-            case AUTORESUME_NEXTTRACK_ALWAYS:
+-                /* Just resume unconditionally */
+-                resume = true;
+-                break;
+-            case AUTORESUME_NEXTTRACK_NEVER:
+-                /* Force-rewind it */
+-                break;
+-            default:
+-                /* Not "never resume" - pass resume filter? */
+-                resume = autoresumable(cur_id3);
+-            }
+-        }
+-
+-        if (!resume)
+-        {
+-            cur_id3->elapsed = 0;
+-            cur_id3->offset = 0;
+-        }
+-
+         logf("%s: Set resume for %s to %lu %lX", __func__,
+              cur_id3->title, cur_id3->elapsed, cur_id3->offset);
+     }
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: start %s at %lu\n", autoresume_enable ? "long" : "short",
++            cur_id3->elapsed);
++#endif
+ #endif /* HAVE_TAGCACHE */
+ 
+     /* Rewind the required amount - if an autoresume was done, this also rewinds
+diff --git a/apps/tagcache.c b/apps/tagcache.c
+index 04db070c26f799996a3f5009f96b674e1052074c..1827b1cfa0b8d4960d8e8c3ddda711a260ba4c56 100644
+--- a/apps/tagcache.c
++++ b/apps/tagcache.c
+@@ -2203,7 +2203,7 @@ bool tagcache_fill_tags(struct mp3entry *id3, const char *filename)
+     if (id3->bitrate == 0)
+         id3->bitrate = 1;
+ 
+-    if (global_settings.autoresume_enable)
++    if (pod_autoresumable(id3))
+     {
+         id3->elapsed = get_tag_numeric(entry, tag_lastelapsed, idx_id);
+         logf("tagcache_fill_tags: Set elapsed for %s to %lX\n",
+diff --git a/apps/tagcache.h b/apps/tagcache.h
+index 6a16829d4de1853b28e7bcbe54e299ff09cc0a8b..9eeb079922f2740d316734abeb482fbbd039e8f3 100644
+--- a/apps/tagcache.h
++++ b/apps/tagcache.h
+@@ -193,6 +193,13 @@ bool tagcache_prepare_shutdown(void);
+ void tagcache_shutdown(void);
+ void tagcache_remove_statefile(void);
+ 
++/* A track longer than this picks up where it stopped */
++#define POD_RESUME_MIN_LENGTH (10*60*1000)
++static inline bool pod_autoresumable(const struct mp3entry *id3)
++{
++    return id3->length > POD_RESUME_MIN_LENGTH;
++}
++
+ void tagcache_screensync_event(void);
+ void tagcache_screensync_enable(bool state);
+ 
+diff --git a/apps/tagtree.c b/apps/tagtree.c
+index 9f6d7b0440c8a1c2feff09599b1863071b5f837b..8a9760c6723fea38535a0f80069fb6238130d3be 100644
+--- a/apps/tagtree.c
++++ b/apps/tagtree.c
+@@ -944,7 +944,7 @@ static void tagtree_buffer_event(unsigned short id, void *ev_data)
+     struct mp3entry *id3 = ((struct track_event *)ev_data)->id3;
+ 
+     bool runtimedb = global_settings.runtimedb;
+-    bool autoresume = global_settings.autoresume_enable;
++    bool autoresume = pod_autoresumable(id3);
+ 
+     /* Do not gather data unless proper setting has been enabled. */
+     if (!runtimedb && !autoresume)
+@@ -1016,7 +1016,7 @@ static void tagtree_track_finish_event(unsigned short id, void *ev_data)
+ 
+     bool auto_skip = te->flags & TEF_AUTO_SKIP;
+     bool runtimedb = global_settings.runtimedb;
+-    bool autoresume = global_settings.autoresume_enable;
++    bool autoresume = pod_autoresumable(id3);
+ 
+     /* Don't process unplayed tracks, or tracks interrupted within the
+        first 15 seconds but always process autoresume point */

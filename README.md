@@ -43,6 +43,9 @@ written when the disk is up anyway, so the log never spins it up.
 Unplugging the headphones pauses, and plugging them back in leaves it paused.
 pod never starts louder than −20 dB.
 
+A track longer than 10 minutes (a podcast, an audiobook, a mix) starts where
+you stopped it. PREV takes it back to the start.
+
 ## Install
 
 pod lives in `/.pod` and boots `/.pod/pod.ipod`, so it needs its own
@@ -204,6 +207,9 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       `rating` is 10, or 0 to unlove (`ACTION_WPS_LOVE`). `%pH` flashes a
       heart over the cassette for 1 s and a small one by TRK shows while a
       loved track plays. The rating survives Rescan Library (15).
+  20. a track longer than 10 minutes resumes where it stopped (tagcache
+      autoresume, `pod_autoresumable`), shorter ones start at 0, and the
+      autoresume settings are not read
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

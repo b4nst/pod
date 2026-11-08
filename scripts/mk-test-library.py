@@ -10,7 +10,11 @@ LIB = [
      ["Sub Pressure", "Concrete", "Stack Up the Bins"]),
     ("Unit Δelta", "Signal / Noise", 2019, "Ambient",
      ["Carrier", "Low Orbit", "Dropout", "Hiss"]),
+    ("Unit Δelta", "Tape Loop", 2021, "Ambient", ["Zero Hour"]),
 ]
+
+# tracks of another length than 20 s, as (secs, rate): 11 minutes of silence
+LONG = {"Zero Hour": (660, 8000)}
 
 def tone(path, freq, secs=20, rate=22050):
     with wave.open(path, "wb") as w:
@@ -25,7 +29,8 @@ for artist, album, year, genre, tracks in LIB:
     os.makedirs(d, exist_ok=True)
     for n, title in enumerate(tracks, 1):
         wav = os.path.join(d, "tmp.wav")
-        tone(wav, 220 * (1 + n / 4))
+        secs, rate = LONG.get(title, (20, 22050))
+        tone(wav, 0 if title in LONG else 220 * (1 + n / 4), secs, rate)
         subprocess.run(["flac", "-s", "-f", "-o", os.path.join(d, f"{n:02d} {title}.flac"),
                         f"--tag=ARTIST={artist}", f"--tag=ALBUM={album}",
                         f"--tag=TITLE={title}", f"--tag=TRACKNUMBER={n}",
