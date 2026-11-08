@@ -163,6 +163,8 @@ or unplugs USB and `H` the headphones.
       plugged back in, starts at no more than −20 dB
   11. double tap: `BUTTON_DOUBLE` on a second press within 300 ms of a short
       tap, for keymaps that map it. Unmapped, it is a plain press.
+  12. no [All tracks] / [Random] rows in the library lists, so an artist's
+      albums come by year (`tagnavi_user.config`)
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

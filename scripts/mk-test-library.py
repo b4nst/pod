@@ -5,9 +5,10 @@ import math, os, struct, subprocess, sys, wave
 LIB = [
     ("Neon Cassette", "Magnetic Dawn", 1984, "Synthwave",
      ["Reel to Reel", "Chrome Tape", "Night Drive", "Analog Heart"]),
+    ("Neon Cassette", "Afterglow", 1991, "Synthwave", ["Dusk", "Rewind"]),
     ("Kollektiv 7", "Warehouse Sessions", 2023, "Techno",
      ["Sub Pressure", "Concrete", "Stack Up the Bins"]),
-    ("Δelta Unit", "Signal / Noise", 2019, "Ambient",
+    ("Unit Δelta", "Signal / Noise", 2019, "Ambient",
      ["Carrier", "Low Orbit", "Dropout", "Hiss"]),
 ]
 

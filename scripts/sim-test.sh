@@ -51,3 +51,16 @@ for d in slow hold; do
   ! grep -q '^pod: double' "$out/$d/sim.log" || { echo "$d counted as a double tap" >&2; exit 1; }
 done
 echo "double tap ok"
+
+# an artist's albums come by year: the first one under Neon Cassette (1984) is
+# Magnetic Dawn, the second one in Albums (by title). Opened, they show the
+# same tracks, which they would not if the first row were Afterglow (1991) or
+# one of the [All tracks] rows.
+"$root/scripts/sim-shot.sh" "$out/artist" "W300 S W100 F1 S W100 S W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/album" "W300 F1 S W100 F1 S W100 D" >/dev/null
+for d in artist album; do
+  [ -f "$out/$d/01.png" ] || { echo "$d/01.png is missing" >&2; exit 1; }
+done
+d=$(magick compare -metric AE "$out/artist/01.png[2000x2000+0+45]" "$out/album/01.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1)
+[ "$d" = 0 ] || { echo "the first album of an artist is not the earliest one" >&2; exit 1; }
+echo "albums ok"

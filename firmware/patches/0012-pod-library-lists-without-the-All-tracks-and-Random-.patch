@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Sun, 8 Nov 2026 09:25:50 +0100
+Subject: [PATCH] pod: library lists without the All tracks and Random rows
+
+---
+ apps/tagcache.c |  8 ++++++--
+ apps/tagtree.c  | 40 ----------------------------------------
+ 2 files changed, 6 insertions(+), 42 deletions(-)
+
+diff --git a/apps/tagcache.c b/apps/tagcache.c
+index 57f0e056658ea309d63a5232369e00f795a0f845..7b92a5dafdebd21c5bba89542c8dc120e4395ea7 100644
+--- a/apps/tagcache.c
++++ b/apps/tagcache.c
+@@ -2004,7 +2004,10 @@ static bool get_next(struct tagcache_search *tcs, bool is_numeric, char *buf, lo
+             /* don't return ep->tag_data directly as it may move */
+             tcs->result_len = strlcpy(buf, ep->tag_data, bufsz) + 1;
+             tcs->result = buf;
+-            tcs->idx_id = ep->idx_id;
++            /* a relative fetch already has the first track that matched,
++               which ep->idx_id doesn't give for albums and artists */
++            if (tcs->filter_count == 0 && tcs->clause_count == 0)
++                tcs->idx_id = ep->idx_id;
+             tcs->ramresult = false; /* was true before we copied to buf too */
+ 
+             /* Increase position for the next run. This may get overwritten. */
+@@ -2053,7 +2056,8 @@ static bool get_next(struct tagcache_search *tcs, bool is_numeric, char *buf, lo
+ 
+     tcs->result = buf;
+     tcs->result_len = entry.tag_length + 1;
+-    tcs->idx_id = entry.idx_id;
++    if (tcs->filter_count == 0 && tcs->clause_count == 0)
++        tcs->idx_id = entry.idx_id;
+     tcs->ramresult = false;
+ 
+     return true;
+diff --git a/apps/tagtree.c b/apps/tagtree.c
+index 8ee6eee8df629fcc5a2b2ab8f02dc9a1c1f459cf..2f047969e12acb5332426cc816d047fe440e56d8 100644
+--- a/apps/tagtree.c
++++ b/apps/tagtree.c
+@@ -1723,46 +1723,6 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
+     tree_lock_cache(c);
+     struct tagentry *dptr = core_get_data(c->cache.entries_handle);
+ 
+-    if (tag != tag_title && tag != tag_filename)
+-    {
+-        bool show_album_sorted = (tag == tag_album);
+-        int show_album_sorted_offset = (show_album_sorted ? 1 : 0);
+-        if (offset == 0 && show_album_sorted)
+-        {
+-            dptr->newtable = TABLE_ALLSUBENTRIES_SORTED_BY_ALBUMS;
+-            dptr->name = ID2P(LANG_TAGNAVI_ALL_TRACKS_SORTED_BY_ALBUM);
+-            dptr->extraseek = 0;
+-            dptr->customaction = ONPLAY_NO_CUSTOMACTION;
+-            dptr++;
+-            current_entry_count++;
+-            c->special_entry_count++;
+-        }
+-        if (offset <= (show_album_sorted_offset))
+-        {
+-            dptr->newtable = TABLE_ALLSUBENTRIES;
+-            dptr->name = ID2P(LANG_TAGNAVI_ALL_TRACKS);
+-            dptr->extraseek = 0;
+-            dptr->customaction = ONPLAY_NO_CUSTOMACTION;
+-            dptr++;
+-            current_entry_count++;
+-            c->special_entry_count++;
+-        }
+-        if (offset <= (1 + show_album_sorted_offset))
+-        {
+-            dptr->newtable = TABLE_NAVIBROWSE;
+-            dptr->name = ID2P(LANG_TAGNAVI_RANDOM);
+-            dptr->extraseek = -1;
+-            dptr->customaction = ONPLAY_NO_CUSTOMACTION;
+-            dptr++;
+-            current_entry_count++;
+-            c->special_entry_count++;
+-        }
+-
+-        total_count += 2;
+-        if (show_album_sorted)
+-            total_count++;
+-    }
+-
+     while (tagcache_get_next(&tcs, tcs_buf, tcs_bufsz))
+     {
+         if (total_count++ < offset)
