@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pod <pod@localhost>
+Date: Sun, 8 Nov 2026 12:19:54 +0100
+Subject: [PATCH] pod: Rescan Library keeps the play stats
+
+---
+ apps/tagcache.c | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/apps/tagcache.c b/apps/tagcache.c
+index 7b92a5dafdebd21c5bba89542c8dc120e4395ea7..04db070c26f799996a3f5009f96b674e1052074c 100644
+--- a/apps/tagcache.c
++++ b/apps/tagcache.c
+@@ -3889,6 +3889,10 @@ static bool read_tag(char *dest, long size,
+     return false;
+ }
+ 
++#ifdef SIMULATOR
++static int imported_count;
++#endif
++
+ static int parse_changelog_line(int line_n, char *buf, void *parameters)
+ {
+     struct index_entry idx;
+@@ -3954,6 +3958,9 @@ static int parse_changelog_line(int line_n, char *buf, void *parameters)
+             current_tcmh.commitid = data + 1;
+     }
+ 
++#ifdef SIMULATOR
++    imported_count++;
++#endif
+     return write_index(masterfd, idx_id, &idx) ? 0 : -5;
+ }
+ 
+@@ -3989,6 +3996,9 @@ bool tagcache_import_changelog(void)
+ 
+     filenametag_fd = open_tag_fd(&tch, tag_filename, false);
+ 
++#ifdef SIMULATOR
++    imported_count = 0;
++#endif
+     fast_readline(clfd, buf, bufsz, (void *)(intptr_t)masterfd,
+                   parse_changelog_line);
+ 
+@@ -4005,6 +4015,9 @@ bool tagcache_import_changelog(void)
+ 
+     update_master_header();
+ 
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: stats imported for %d tracks\n", imported_count);
++#endif
+     return true;
+ }
+ 
+@@ -5305,6 +5318,9 @@ static void tagcache_thread(void)
+             allocate_tempbuf();
+             commit();
+             free_tempbuf();
++            /* a rescan put its commit off to this boot: get the stats back */
++            if (tc_stat.ready)
++                tagcache_import_changelog();
+         }
+     }
+ 
+@@ -5347,9 +5363,20 @@ static void tagcache_thread(void)
+                 break;
+ 
+             case Q_REBUILD:
++                /* keep the play stats through the rebuild: the changelog is
++                 * written before the database goes and read back after it
++                 * is committed (or at the next boot if the commit waits) */
++                run_command_queue(true);
++                if (tc_stat.ready)
++                {
++                    struct tagcache_search tcs;
++                    tagcache_create_changelog(&tcs);
++                }
+                 remove_files();
+                 remove_db_file(TAGCACHE_FILE_TEMP);
+                 tagcache_build();
++                if (tc_stat.ready)
++                    tagcache_import_changelog();
+                 break;
+ 
+             case Q_UPDATE:

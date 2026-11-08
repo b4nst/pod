@@ -106,3 +106,14 @@ areadiff() {
 [ -f "$out/letters-fast/02.png" ] || { echo "letters-fast/02.png is missing" >&2; exit 1; }
 [ "$(areadiff letters-fast/01 letters-fast/02)" != 0 ] || { echo "a fast wheel did not show the letter" >&2; exit 1; }
 echo "letters ok"
+
+# Rescan Library keeps the play stats: the first track plays to the end (20 s),
+# then the rescan exports its count to the changelog and imports it after the
+# rebuild, now or at the next boot (stats still queued when the simulator
+# exits are lost, so this is one run)
+cl=$root/build/sim/simdisk/.pod/database_changelog.txt
+"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F1 S W100 F2 S W100 S W3500 MM W100 F5 W50 D S W1500 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/rescan-boot" "W1500" >/dev/null
+grep -q 'playcount="[1-9]' "$cl" || { echo "the changelog has no play count" >&2; exit 1; }
+cat "$out"/rescan/sim.log "$out"/rescan-boot/sim.log | grep -q '^pod: stats imported for [1-9]' || { echo "the stats were not imported" >&2; exit 1; }
+echo "stats ok"

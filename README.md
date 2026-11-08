@@ -174,6 +174,8 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       (`ACTION_TREE_LETTER_*`), a fast wheel or a jump shows the letter in a
       box over the list for 600 ms (`apps/gui/pod_letter.c`), and lists of
       more than 64 rows scroll twice as fast
+  15. Rescan Library keeps the play stats: exported to the changelog before
+      the rebuild, imported after
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,
@@ -282,4 +284,5 @@ Font License (`firmware/licenses/`).
   configure warns about it. It runs on a 1G mini.
 - Peak meters stay empty in the simulator because its dummy audio driver feeds
   no samples. They should move on the device.
+- Play counts are kept per file path: a renamed file starts again from zero.
 - Removed codecs still let those files into the library, but they won't play.
