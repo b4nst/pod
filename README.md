@@ -13,13 +13,15 @@ settings menu, and you open it by holding MENU.
 | Where        | Button            | Action                                    |
 |--------------|-------------------|-------------------------------------------|
 | Library      | wheel / SELECT    | move / open, play                         |
-|              | MENU              | back (does nothing at the library root)   |
+|              | MENU              | back (at the library root: now playing)   |
+|              | << / >>           | nothing                                   |
 |              | hold MENU         | settings                                  |
 |              | PLAY              | now playing (resumes the last playlist)   |
 |              | hold SELECT       | play shuffled / play next / play last / info |
 | Player       | wheel             | volume (the counter shows the dB value)   |
+|              | SELECT            | scrub: wheel seeks (SEEK), ends after 3 s or SELECT |
 |              | PREV / NEXT       | skip, hold to seek                        |
-|              | MENU or SELECT    | back to the library                       |
+|              | MENU              | the playing track in its album            |
 |              | hold MENU         | settings                                  |
 |              | hold SELECT       | track info / reshuffle                    |
 | Equalizer    | wheel             | gain of the selected band (±12 dB)        |
@@ -145,9 +147,9 @@ or unplugs USB and `H` the headphones.
   3. the EQ screen (`apps/gui/pod_eq.c`): five DSP bands pinned to a low
      shelf, three peaks and a high shelf. The plot is the actual biquad
      magnitude response.
-  4. navigation: the library is the root, MENU is back, hold MENU opens the
-     settings menu, the context menus are cut down, the first scan reboots
-     by itself
+  4. navigation: the library is the root, MENU is back (at the root: now
+     playing), `<<`/`>>` do nothing in lists, hold MENU opens the settings
+     menu, the context menus are cut down, the first scan reboots by itself
   5. full-screen splash, codecs: MP3, AAC/ALAC, FLAC, Vorbis, Opus, WAV, AIFF,
      WavPack, APE
   6. full-screen "DATA LINK" USB screen in place of the stock logo
@@ -165,6 +167,8 @@ or unplugs USB and `H` the headphones.
       tap, for keymaps that map it. Unmapped, it is a plain press.
   12. no [All tracks] / [Random] rows in the library lists, so an artist's
       albums come by year (`tagnavi_user.config`)
+  13. player SELECT scrubs the track (`%pS` skin tag: SEEK in the status row),
+      MENU opens the playing track in its album (`tagtree_goto_current`)
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

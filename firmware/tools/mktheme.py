@@ -224,7 +224,7 @@ wps = f"""# pod - cassette deck WPS for the iPod mini (bΔnst ⧉ design)
 
 # status row
 %V(10,3,40,6,4)%Vf({lcd(INK)})
-%?mp<STOP|PLAY|PAUSE|FFWD|REW>
+%?pS<SEEK|%?mp<STOP|PLAY|PAUSE|FFWD|REW>>
 %V(52,3,34,6,4)%Vf({lcd(MID)})
 %ac%?cc<%cH:%cM|>
 %V(84,3,32,6,4)%Vf({lcd(MID)})

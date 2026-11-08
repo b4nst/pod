@@ -64,3 +64,24 @@ done
 d=$(magick compare -metric AE "$out/artist/01.png[2000x2000+0+45]" "$out/album/01.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1)
 [ "$d" = 0 ] || { echo "the first album of an artist is not the earliest one" >&2; exit 1; }
 echo "albums ok"
+
+# MENU in the player opens the playing track in its album (Albums, level 2,
+# the second track), and MENU backs out of there one level at a time up to
+# the library root, where one more goes to the player
+"$root/scripts/sim-shot.sh" "$out/goto" "W300 F1 S W100 F2 S W100 F1 S W200 D M W100 D M W100 D M W100 D M W200 D" >/dev/null
+grep -q '^pod: current track level 2 item 1' "$out/goto/sim.log" || { echo "MENU did not open the playing track" >&2; exit 1; }
+for i in 01 02 03 04 05; do
+  [ -f "$out/goto/$i.png" ] || { echo "goto/$i.png is missing" >&2; exit 1; }
+done
+echo "goto ok"
+
+# SELECT in the player scrubs: the wheel moves the position (the counter
+# changes) and no longer the volume
+"$root/scripts/sim-shot.sh" "$out/scrub" "W300 F2 S W100 S W200 S W20 D F8 W20 D S W20 D" >/dev/null
+for i in 01 02 03; do
+  [ -f "$out/scrub/$i.png" ] || { echo "scrub/$i.png is missing" >&2; exit 1; }
+done
+[ "$(magick compare -metric AE "$out/scrub/01.png[2000x2000+0+45]" "$out/scrub/02.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1)" != 0 ] || { echo "the wheel did not scrub" >&2; exit 1; }
+# SELECT again ends the scrub: SEEK is gone from the status row
+[ "$(magick compare -metric AE "$out/scrub/02.png[2000x2000+0+45]" "$out/scrub/03.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1)" != 0 ] || { echo "SELECT did not end the scrub" >&2; exit 1; }
+echo "scrub ok"

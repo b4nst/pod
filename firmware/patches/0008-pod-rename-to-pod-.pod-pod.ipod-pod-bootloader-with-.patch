@@ -105,7 +105,7 @@ index 3c333ffc459214ab4d6434cd0adc4444ec3c4dee..6bf885b1817b0ba6744e4648aa1c378a
  #
  # === Begin of "First Letter" sub menus
 diff --git a/apps/tree.c b/apps/tree.c
-index b3c93e0e88c35b4b781bef647479f1ff3c55e3a5..25b6c0f361ba74ac52273f82f29a411724f509d2 100644
+index cd42927f4751c03751b9f7d7ac778027a2cb4a71..888296fee11d1b38b8ab2c7bcd36e8d6572fff8d 100644
 --- a/apps/tree.c
 +++ b/apps/tree.c
 @@ -329,10 +329,10 @@ bool check_rockboxdir(void)

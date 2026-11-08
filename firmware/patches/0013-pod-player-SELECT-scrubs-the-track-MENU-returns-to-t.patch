@@ -1,0 +1,347 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Sun, 8 Nov 2026 10:15:13 +0100
+Subject: [PATCH] pod: player SELECT scrubs the track, MENU returns to the
+ playing track in its album
+
+---
+ apps/gui/skin_engine/skin_tokens.c |  4 ++
+ apps/gui/wps.c                     | 99 ++++++++++++++++++++++++++++++
+ apps/gui/wps.h                     |  1 +
+ apps/root_menu.c                   |  8 ++-
+ apps/tagtree.c                     | 90 +++++++++++++++++++++++++++
+ apps/tagtree.h                     |  1 +
+ lib/skin_parser/tag_table.c        |  1 +
+ lib/skin_parser/tag_table.h        |  1 +
+ 8 files changed, 203 insertions(+), 2 deletions(-)
+
+diff --git a/apps/gui/skin_engine/skin_tokens.c b/apps/gui/skin_engine/skin_tokens.c
+index b18eedc99cdb61e9ca89e2e7d045ea8a8aa61372..0e3a04d5e3c935c2aa79c7aa991b08e7cde70b9d 100644
+--- a/apps/gui/skin_engine/skin_tokens.c
++++ b/apps/gui/skin_engine/skin_tokens.c
+@@ -480,6 +480,10 @@ const char *get_id3_token(struct wps_token *token, struct mp3entry *id3,
+                 itoa_buf(buf, buf_size, (elapsed / 200) % 4);
+                 return buf;
+ 
++            case SKIN_TOKEN_TRACK_SCRUBBING:
++                /* set while SELECT has the wheel scrubbing the track */
++                return state->scrubbing ? "s" : NULL;
++
+             case SKIN_TOKEN_TRACK_TIME_ELAPSED:
+                 if (intval && limit == TOKEN_VALUE_ONLY)
+                     *intval = elapsed/1000;
+diff --git a/apps/gui/wps.c b/apps/gui/wps.c
+index 51285d8acea7e388d074c97161c8210451efcdc5..82398ab1b18a1d396ce4fec9fd102f50d8519c70 100644
+--- a/apps/gui/wps.c
++++ b/apps/gui/wps.c
+@@ -356,6 +356,46 @@ static bool ffwd_rew(int button, bool seek_from_end)
+     return usb;
+ }
+ 
++/* pod: SELECT makes the wheel scrub the track. The wheel moves
++ * ff_rewind_count and the seek is done once it has stopped. */
++static void scrub_move(struct wps_state *state, int direction, bool *moved)
++{
++    struct mp3entry *id3 = state->id3;
++    int step = MAX(1000, (int)(id3->length / 100));
++
++    if (!*moved)
++    {
++        audio_pre_ff_rewind();
++        *moved = true;
++    }
++    state->ff_rewind_count += step * direction;
++
++    if (direction > 0)
++    {
++        if ((id3->elapsed + state->ff_rewind_count) > id3->length)
++            state->ff_rewind_count = id3->length - id3->elapsed;
++    }
++    else
++    {
++        if ((int)(id3->elapsed + state->ff_rewind_count) < 0)
++            state->ff_rewind_count = -id3->elapsed;
++    }
++}
++
++/* seek to the scrubbed position, or back to where it was when !keep */
++static void scrub_seek(struct wps_state *state, bool *moved, bool keep)
++{
++    if (*moved)
++    {
++        struct mp3entry *id3 = state->id3;
++        if (keep)
++            id3->elapsed += state->ff_rewind_count;
++        audio_ff_rewind(id3->elapsed);
++        *moved = false;
++    }
++    state->ff_rewind_count = 0;
++}
++
+ static void gwps_caption_backlight(struct wps_state *state)
+ {
+ #if defined(HAVE_BACKLIGHT) || defined(HAVE_REMOTE_LCD)
+@@ -734,6 +774,9 @@ long gui_wps_show(void)
+     bool theme_enabled = true;
+     long last_left = 0, last_right = 0;
+     long next_idle_refresh = 0;
++    bool scrub_moved = false;
++    long scrub_until = 0, scrub_seek_at = 0;
++    struct mp3entry *scrub_id3 = NULL;
+     struct wps_state *state = get_wps_state();
+ 
+     ab_reset_markers();
+@@ -827,6 +870,23 @@ long gui_wps_show(void)
+ 
+         button = action_wpsab_single(button); /* iPods/X5/M5 */
+ 
++        if (scrub_moved && state->id3 != scrub_id3)
++        {   /* the track changed under the wheel: the count is stale */
++            scrub_moved = false;
++            state->ff_rewind_count = 0;
++        }
++        /* any other key ends the scrub first: skipping drops the count */
++        if (state->scrubbing && button != ACTION_NONE
++            && button != ACTION_UNKNOWN && !IS_SYSEVENT(button)
++            && button != ACTION_WPS_SCRUB
++            && button != ACTION_WPS_VOLUP && button != ACTION_WPS_VOLDOWN)
++        {
++            scrub_seek(state, &scrub_moved, button != ACTION_WPS_SKIPPREV
++                                            && button != ACTION_WPS_SKIPNEXT);
++            state->scrubbing = false;
++            update = true;
++        }
++
+         switch(button)
+         {
+ #ifdef HAVE_HOTKEY
+@@ -889,8 +949,33 @@ long gui_wps_show(void)
+                 wps_do_action(WPS_PLAYPAUSE, true);
+                 break;
+ 
++            case ACTION_WPS_SCRUB:
++                if (state->scrubbing)
++                {
++                    scrub_seek(state, &scrub_moved, true);
++                    state->scrubbing = false;
++                }
++                else if ((audio_status() & AUDIO_STATUS_PLAY) && state->id3
++                         && state->id3->length)
++                {
++                    state->scrubbing = true;
++                    scrub_until = current_tick + 3*HZ;
++                }
++                update = true;
++                break;
++
+             case ACTION_WPS_VOLUP: /* fall through */
+             case ACTION_WPS_VOLDOWN:
++                if (state->scrubbing)
++                {
++                    scrub_move(state, button == ACTION_WPS_VOLUP ? 1 : -1,
++                               &scrub_moved);
++                    scrub_id3 = state->id3;
++                    scrub_seek_at = current_tick + HZ/2;
++                    scrub_until = current_tick + 3*HZ;
++                    update = true;
++                    break;
++                }
+                 if (button == ACTION_WPS_VOLUP)
+                     adjust_volume(1);
+                 else
+@@ -1122,6 +1207,18 @@ long gui_wps_show(void)
+                 update = true;
+                 break;
+         }
++
++        if (state->scrubbing)
++        {
++            if (scrub_moved && TIME_AFTER(current_tick, scrub_seek_at))
++                scrub_seek(state, &scrub_moved, true);
++            if (TIME_AFTER(current_tick, scrub_until))
++            {
++                scrub_seek(state, &scrub_moved, true);
++                state->scrubbing = false;
++                update = true;
++            }
++        }
+     }
+     return GO_TO_ROOT; /* unreachable - just to reduce compiler warnings */
+ }
+@@ -1159,6 +1256,8 @@ static void wps_state_init(void)
+ {
+     struct wps_state *state = get_wps_state();
+     state->paused = false;
++    state->scrubbing = false;
++    state->ff_rewind_count = 0;
+     if(audio_status() & AUDIO_STATUS_PLAY)
+     {
+         state->id3 = audio_current_track();
+diff --git a/apps/gui/wps.h b/apps/gui/wps.h
+index 36dc77e4938ababcf07353753b1bf6624d20fcb3..7f5a207f784d0f08d46514c57a1da1387ba75395 100644
+--- a/apps/gui/wps.h
++++ b/apps/gui/wps.h
+@@ -30,6 +30,7 @@ struct wps_state
+     struct mp3entry *id3;
+     struct mp3entry *nid3;
+     int ff_rewind_count;
++    bool scrubbing;
+     bool paused;
+ };
+ 
+diff --git a/apps/root_menu.c b/apps/root_menu.c
+index 04b4dd26d301756aceb51120312de3d8014f7328..8929b94cffaa7b9fdae5d632ef7b067e9c2beefd 100644
+--- a/apps/root_menu.c
++++ b/apps/root_menu.c
+@@ -275,8 +275,12 @@ static int browser(void* param)
+             }
+             filter = SHOW_ID3DB;
+             last_ft_dirlevel = tc->dirlevel;
+-            tc->dirlevel = last_db_dirlevel;
+-            tc->selected_item = last_db_selection;
++            /* from the player, MENU opens the playing track in its album */
++            if (!(last_screen == GO_TO_WPS && tagtree_goto_current(tc)))
++            {
++                tc->dirlevel = last_db_dirlevel;
++                tc->selected_item = last_db_selection;
++            }
+             push_current_activity(ACTIVITY_DATABASEBROWSER);
+         break;
+ #endif /*HAVE_TAGCACHE*/
+diff --git a/apps/tagtree.c b/apps/tagtree.c
+index 2f047969e12acb5332426cc816d047fe440e56d8..e0f7f5a1ef0e9912a663c9f1cfeb0c0eb20e1b58 100644
+--- a/apps/tagtree.c
++++ b/apps/tagtree.c
+@@ -2300,6 +2300,96 @@ int tagtree_enter(struct tree_context* c, bool is_visible)
+     return rc;
+ }
+ 
++/* pod: open the album of the playing track with the track selected, as if
++ * walked to from the root: Albums, the album, the track. When a step fails
++ * the browser is left at the root. Returns false only if it didn't move. */
++bool tagtree_goto_current(struct tree_context *c)
++{
++    struct mp3entry *id3 = audio_current_track();
++    struct tagcache_search tcs;
++    char album[MAX_PATH], name[MAX_PATH];
++    int idx, i;
++    bool found;
++
++    if (!id3 || !tagcache_find_index(&tcs, id3->path))
++        return false;
++    idx = tcs.idx_id;
++    found = tagcache_retrieve(&tcs, idx, tag_album, album, sizeof(album));
++    tagcache_search_finish(&tcs);
++    if (!found)
++        return false;
++
++    c->dirlevel = 0;
++    c->currtable = TABLE_ROOT;
++    c->currextra = rootmenu;
++    c->selected_item = 0;
++    max_history_level = 0;
++    tagtree_load(c);
++
++    /* Albums is the root item listing albums then titles, with no filter */
++    for (i = 0; i < c->filesindir; i++)
++    {
++        struct tagentry *e = tagtree_get_entry(c, i);
++        struct search_instruction *si;
++
++        if (!e || e->newtable != TABLE_NAVIBROWSE)
++            continue;
++        si = &menu->items[e->extraseek]->si;
++        if (si->tagorder_count == 2 && si->tagorder[0] == tag_album
++            && si->tagorder[1] == tag_title
++            && !si->clause_count[0] && !si->clause_count[1])
++            break;
++    }
++    if (i == c->filesindir)
++        goto fail;
++
++    c->selected_item = i;
++    tagtree_enter(c, true);
++    tagtree_load(c);
++
++    /* the list shows untagged albums under another name */
++    if (!strcmp(album, UNTAGGED))
++        strlcpy(album, str(LANG_TAGNAVI_UNTAGGED), sizeof(album));
++    for (i = c->special_entry_count; i < c->filesindir; i++)
++    {
++        char *n = tagtree_get_entry_name(c, i, name, sizeof(name));
++        if (!n)
++            goto fail;
++        if (!strcmp(n, album))
++            break;
++    }
++    if (i == c->filesindir)
++        goto fail;
++
++    c->selected_item = i;
++    tagtree_enter(c, true);
++    tagtree_load(c);
++
++    for (i = c->special_entry_count; i < c->filesindir; i++)
++    {
++        struct tagentry *e = tagtree_get_entry(c, i);
++        if (e && e->extraseek == idx)
++            break;
++    }
++    if (i == c->filesindir)
++        goto fail;
++
++    c->selected_item = i;
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: current track level %d item %d\n", c->dirlevel, i);
++#endif
++    return true;
++
++fail:
++    c->dirlevel = 0;
++    c->currtable = TABLE_ROOT;
++    c->currextra = rootmenu;
++    c->selected_item = 0;
++    max_history_level = 0;
++    tagtree_load(c);
++    return true;
++}
++
+ /* Exits current database menu or table */
+ void tagtree_exit(struct tree_context* c, bool is_visible)
+ {
+diff --git a/apps/tagtree.h b/apps/tagtree.h
+index b96b4fdf82770ea2b80b5a7eea2d5759ac19066e..db305a68ef79e5f8edc807beb8026d1fae43e069 100644
+--- a/apps/tagtree.h
++++ b/apps/tagtree.h
+@@ -37,6 +37,7 @@ bool tagtree_ready(void);
+ int tagtree_enter(struct tree_context* c, bool is_visible);
+ void tagtree_exit(struct tree_context* c, bool is_visible);
+ int tagtree_load(struct tree_context* c);
++bool tagtree_goto_current(struct tree_context *c);
+ char* tagtree_get_entry_name(struct tree_context *c, int id,
+                                     char* buf, size_t bufsize);
+ bool tagtree_current_playlist_insert(int position, bool queue);
+diff --git a/lib/skin_parser/tag_table.c b/lib/skin_parser/tag_table.c
+index 03834aa63b4f0e3f7672c1ddbbcabe13335ba432..a29a873d321a7783fc32dc72ae10a3f2ff307478 100644
+--- a/lib/skin_parser/tag_table.c
++++ b/lib/skin_parser/tag_table.c
+@@ -156,6 +156,7 @@ static const struct tag_info legal_tags[] =
+     TAG(SKIN_TOKEN_VOLUME,                "pv" , BAR_PARAMS, SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_ELAPSED_PERCENT, "px", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_REEL_FRAME,      "pW", "", SKIN_REFRESH_DYNAMIC),
++    TAG(SKIN_TOKEN_TRACK_SCRUBBING,       "pS", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_TIME_ELAPSED,    "pc", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_TIME_REMAINING,  "pr", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_LENGTH,          "pt", "", SKIN_REFRESH_STATIC),
+diff --git a/lib/skin_parser/tag_table.h b/lib/skin_parser/tag_table.h
+index b630c9975167cad43869d532a0d252f9c3c3619f..1904637fce88b95a8e244fe5183ba5ec608c12ab 100644
+--- a/lib/skin_parser/tag_table.h
++++ b/lib/skin_parser/tag_table.h
+@@ -201,6 +201,7 @@ enum skin_token_type {
+     /* Current track */
+     SKIN_TOKEN_TRACK_ELAPSED_PERCENT,
+     SKIN_TOKEN_TRACK_REEL_FRAME,
++    SKIN_TOKEN_TRACK_SCRUBBING,
+     SKIN_TOKEN_TRACK_TIME_ELAPSED,
+     SKIN_TOKEN_TRACK_TIME_REMAINING,
+     SKIN_TOKEN_TRACK_LENGTH,

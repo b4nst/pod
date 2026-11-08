@@ -6,14 +6,27 @@ Subject: [PATCH] pod: library is home, MENU goes back, hold MENU for the only
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
 ---
+ apps/action.h              |  1 +
  apps/gui/wps.c             |  2 +-
- apps/keymaps/keymap-ipod.c | 28 ++++++++++++++++++++++++----
+ apps/keymaps/keymap-ipod.c | 32 +++++++++++++++++++++++++++-----
  apps/menus/main_menu.c     | 34 ++++++++++++++++++++++++++--------
  apps/onplay.c              | 29 +++--------------------------
  apps/root_menu.c           | 36 ++++++++++++------------------------
  apps/tree.c                |  8 +++++---
- 6 files changed, 71 insertions(+), 66 deletions(-)
+ 7 files changed, 75 insertions(+), 67 deletions(-)
 
+diff --git a/apps/action.h b/apps/action.h
+index 03a3a084c420963ec0665fdeeb50baa52fbaec94..ea02716dabbd35bd63f5a910fcbc3e43314950c3 100644
+--- a/apps/action.h
++++ b/apps/action.h
+@@ -164,6 +164,7 @@ enum {
+ 
+     /* WPS codes */
+     ACTION_WPS_BROWSE,
++    ACTION_WPS_SCRUB,
+     ACTION_WPS_PLAY,
+     ACTION_WPS_SEEKBACK,
+     ACTION_WPS_SEEKFWD,
 diff --git a/apps/gui/wps.c b/apps/gui/wps.c
 index 12fda6882460a9bff8a3dd54bd6ded8de9c56b4c..a928dc8d33267c3ae15fa37ce6b8e1f76ee1879a 100644
 --- a/apps/gui/wps.c
@@ -28,7 +41,7 @@ index 12fda6882460a9bff8a3dd54bd6ded8de9c56b4c..a928dc8d33267c3ae15fa37ce6b8e1f7
  
  
 diff --git a/apps/keymaps/keymap-ipod.c b/apps/keymaps/keymap-ipod.c
-index 787d930468a22c1ff032b6f2a1b38d1fc8b00a0c..d6eb81c8fed6ebe586599ab0e08e9d882458be7f 100644
+index 787d930468a22c1ff032b6f2a1b38d1fc8b00a0c..5652bf6f3913ea5cc18a15d3a1d4b6f1d63dc143 100644
 --- a/apps/keymaps/keymap-ipod.c
 +++ b/apps/keymaps/keymap-ipod.c
 @@ -47,8 +47,8 @@ static const struct button_mapping button_context_standard[]  = {
@@ -42,8 +55,21 @@ index 787d930468a22c1ff032b6f2a1b38d1fc8b00a0c..d6eb81c8fed6ebe586599ab0e08e9d88
      { ACTION_STD_CONTEXT,       BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
      { ACTION_STD_CANCEL,        BUTTON_PLAY|BUTTON_REPEAT,          BUTTON_NONE },
  
-@@ -90,8 +90,8 @@ static const struct button_mapping button_context_wps[]  = {
-     { ACTION_WPS_BROWSE,    BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
+@@ -59,6 +59,8 @@ static const struct button_mapping button_context_tree[]  = {
+     { ACTION_TREE_WPS,          BUTTON_PLAY|BUTTON_REL,      BUTTON_PLAY },
+     { ACTION_TREE_STOP,         BUTTON_PLAY|BUTTON_REPEAT,   BUTTON_PLAY },
+     { ACTION_TREE_HOTKEY,       BUTTON_SELECT|BUTTON_PLAY,   BUTTON_NONE },
++    { ACTION_NONE,              BUTTON_LEFT,                 BUTTON_NONE },
++    { ACTION_NONE,              BUTTON_RIGHT,                BUTTON_NONE },
+ 
+     LAST_ITEM_IN_LIST__NEXTLIST(CONTEXT_STD)
+ }; /* button_context_tree */
+@@ -87,11 +89,11 @@ static const struct button_mapping button_context_wps[]  = {
+     { ACTION_WPS_VOLDOWN,   BUTTON_SCROLL_BACK|BUTTON_REPEAT,   BUTTON_NONE },
+     { ACTION_WPS_VOLUP,     BUTTON_SCROLL_FWD,                  BUTTON_NONE },
+     { ACTION_WPS_VOLUP,     BUTTON_SCROLL_FWD|BUTTON_REPEAT,    BUTTON_NONE },
+-    { ACTION_WPS_BROWSE,    BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
++    { ACTION_WPS_SCRUB,     BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
      { ACTION_WPS_CONTEXT,   BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
      { ACTION_WPS_HOTKEY,        BUTTON_SELECT|BUTTON_PLAY,      BUTTON_NONE },
 -    { ACTION_WPS_MENU,          BUTTON_MENU|BUTTON_REL,         BUTTON_MENU },
@@ -53,7 +79,7 @@ index 787d930468a22c1ff032b6f2a1b38d1fc8b00a0c..d6eb81c8fed6ebe586599ab0e08e9d88
  
      LAST_ITEM_IN_LIST,
  }; /* button_context_wps */
-@@ -111,6 +111,25 @@ static const struct button_mapping button_context_settings[]  = {
+@@ -111,6 +113,25 @@ static const struct button_mapping button_context_settings[]  = {
      LAST_ITEM_IN_LIST__NEXTLIST(CONTEXT_STD)
  }; /* button_context_settings */
  
@@ -79,7 +105,7 @@ index 787d930468a22c1ff032b6f2a1b38d1fc8b00a0c..d6eb81c8fed6ebe586599ab0e08e9d88
  static const struct button_mapping button_context_yesno[]  = {
      { ACTION_YESNO_ACCEPT,          BUTTON_SELECT,                  BUTTON_NONE },
      { ACTION_STD_CANCEL,          BUTTON_PLAY,                  BUTTON_NONE },
-@@ -458,6 +477,7 @@ const struct button_mapping* get_context_mapping(int context)
+@@ -458,6 +479,7 @@ const struct button_mapping* get_context_mapping(int context)
              return button_context_standard;
  
          case CONTEXT_SETTINGS_EQ:
@@ -289,7 +315,7 @@ index 918669b24568c2effe708714c5c30bb2ddf21f3f..04b4dd26d301756aceb51120312de3d8
  #ifdef HAVE_TAGCACHE
              case GO_TO_DBBROWSER:
 diff --git a/apps/tree.c b/apps/tree.c
-index 450226961b40ed56e43c3844d1e49190c1c57ae8..b3c93e0e88c35b4b781bef647479f1ff3c55e3a5 100644
+index 450226961b40ed56e43c3844d1e49190c1c57ae8..cd42927f4751c03751b9f7d7ac778027a2cb4a71 100644
 --- a/apps/tree.c
 +++ b/apps/tree.c
 @@ -831,8 +831,10 @@ static int dirbrowse(void)
@@ -298,9 +324,9 @@ index 450226961b40ed56e43c3844d1e49190c1c57ae8..b3c93e0e88c35b4b781bef647479f1ff
                  }
 -                if ((*tc.dirfilter == SHOW_ID3DB && tc.dirlevel == 0) ||
 -                    ((*tc.dirfilter != SHOW_ID3DB && !strcmp(currdir,"/"))))
-+                /* The library root is home: there is nothing above it */
++                /* The library root is home: MENU goes on to Now Playing */
 +                if (*tc.dirfilter == SHOW_ID3DB && tc.dirlevel == 0)
-+                    break;
++                    return exit_to_new_screen(GO_TO_PREVIOUS_MUSIC);
 +                if (*tc.dirfilter != SHOW_ID3DB && !strcmp(currdir,"/"))
                  {
                      if (oldbutton == ACTION_TREE_PGLEFT)
