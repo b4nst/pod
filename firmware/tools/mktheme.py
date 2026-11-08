@@ -324,7 +324,7 @@ sbs = f"""# pod - library chrome for the iPod mini (bΔnst ⧉ design)
 %xl(Sl,knob.bmp,0,0)
 %Vi(-,0,{LIST_Y},{LCD_W - 4},{LIST_H},1)
 %Lb(item,{LCD_W - 4},{UI_H})
-%xd(S,%mp)
+%?mp<|%xd(S,%mp)|%xd(S,%mp)|%xd(S,%mp)|%xd(S,%mp)>
 
 %V(13,2,103,{orb.height},2)%Vf({lcd(PAPER)})%Vb({lcd(INK)})
 %s%Lt
@@ -339,10 +339,8 @@ sbs = f"""# pod - library chrome for the iPod mini (bΔnst ⧉ design)
 %V({LCD_W - 2},{LIST_Y},2,{LIST_H},1)
 %?LB<%LB(0,0,2,{LIST_H},noborder,slider,Sl)|>
 
-%V(10,{FOOT_Y + 2},92,6,4)%Vf({lcd(MID)})
-%?mp<NO TAPE|%s%it|%s%it|%s%it|%s%it>
-%V(102,{FOOT_Y + 2},34,6,4)%Vf({lcd(MID)})
-%?mp<|%ar%pc|%ar%pc|%ar%pc|%ar%pc>
+%V(10,{FOOT_Y + 2},{LCD_W - 10},6,4)%Vf({lcd(MID)})
+%?mp<|%s%?ia<%ia - |>%it|%s%?ia<%ia - |>%it|%s%?ia<%ia - |>%it|%s%?ia<%ia - |>%it>
 %V(0,{LCD_H - 1},{LCD_W},1,1)
 %?mp<|%pb(0,0,{LCD_W},1,image,foot_prog.bmp)|%pb(0,0,{LCD_W},1,image,foot_prog.bmp)|%pb(0,0,{LCD_W},1,image,foot_prog.bmp)|%pb(0,0,{LCD_W},1,image,foot_prog.bmp)>
 """

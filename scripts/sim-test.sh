@@ -230,3 +230,17 @@ sleepdiff() {
 [ "$(sleepdiff sleep/02 sleep/03)" != 0 ] || { echo "the time left stayed after the pause" >&2; exit 1; }
 [ "$(sleepdiff sleep-album/01 sleep-album/02)" != 0 ] || { echo "the album timer stayed after the pause" >&2; exit 1; }
 echo "sleep ok"
+
+# the library footer says Artist - Title while a track plays and nothing when
+# stopped (no NO TAPE, no icon): the footer text is the 414x21 box at 3x
+"$root/scripts/sim-shot.sh" "$out/np-stop" "W300 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/np-play" "W300 F2 S W100 S W200 M W100 D W300 D" >/dev/null
+for f in np-stop/01 np-play/01; do
+  [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
+done
+footcolors() {
+  magick "$out/$1.png[414x21+0+306]" -format '%k' info:
+}
+[ "$(footcolors np-stop/01)" = 1 ] || { echo "the footer is not empty when stopped" >&2; exit 1; }
+[ "$(footcolors np-play/01)" -gt 1 ] || { echo "the footer shows nothing while playing" >&2; exit 1; }
+echo "now playing ok"
