@@ -1,0 +1,176 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <cycles@banst.ch>
+Date: Sun, 8 Nov 2026 16:52:38 +0100
+Subject: [PATCH] pod: love a track with double SELECT
+
+---
+ apps/action.h                      |  1 +
+ apps/gui/skin_engine/skin_tokens.c |  8 +++++++
+ apps/gui/wps.c                     | 35 +++++++++++++++++++++++++++++-
+ apps/gui/wps.h                     |  2 ++
+ apps/keymaps/keymap-ipod.c         |  1 +
+ lib/skin_parser/tag_table.c        |  1 +
+ lib/skin_parser/tag_table.h        |  1 +
+ 7 files changed, 48 insertions(+), 1 deletion(-)
+
+diff --git a/apps/action.h b/apps/action.h
+index 83575e2ddbf2159de91996863d7148e35c941118..fe03542325dc2b2c4586463d5ec94b4a3b4ca9c4 100644
+--- a/apps/action.h
++++ b/apps/action.h
+@@ -165,6 +165,7 @@ enum {
+     /* WPS codes */
+     ACTION_WPS_BROWSE,
+     ACTION_WPS_SCRUB,
++    ACTION_WPS_LOVE,
+     ACTION_WPS_PLAY,
+     ACTION_WPS_SEEKBACK,
+     ACTION_WPS_SEEKFWD,
+diff --git a/apps/gui/skin_engine/skin_tokens.c b/apps/gui/skin_engine/skin_tokens.c
+index 0e3a04d5e3c935c2aa79c7aa991b08e7cde70b9d..70926f5e9e8033101932565e5fff2faf2d5b0a9c 100644
+--- a/apps/gui/skin_engine/skin_tokens.c
++++ b/apps/gui/skin_engine/skin_tokens.c
+@@ -484,6 +484,14 @@ const char *get_id3_token(struct wps_token *token, struct mp3entry *id3,
+                 /* set while SELECT has the wheel scrubbing the track */
+                 return state->scrubbing ? "s" : NULL;
+ 
++            case SKIN_TOKEN_TRACK_LOVE_FLASH:
++                /* the case to show for 1s: 1 after a love, 2 after an unlove */
++                if (!state->love_flash)
++                    return NULL;
++                if (intval)
++                    *intval = state->love_flash;
++                return "h";
++
+             case SKIN_TOKEN_TRACK_TIME_ELAPSED:
+                 if (intval && limit == TOKEN_VALUE_ONLY)
+                     *intval = elapsed/1000;
+diff --git a/apps/gui/wps.c b/apps/gui/wps.c
+index 82398ab1b18a1d396ce4fec9fd102f50d8519c70..e9d3d3d2b01eba106bef26fb13158082e797d548 100644
+--- a/apps/gui/wps.c
++++ b/apps/gui/wps.c
+@@ -46,6 +46,7 @@
+ #include "onplay.h"
+ #include "abrepeat.h"
+ #include "playback.h"
++#include "tagcache.h"
+ #include "splash.h"
+ #include "cuesheet.h"
+ #include "ata_idle_notify.h"
+@@ -396,6 +397,25 @@ static void scrub_seek(struct wps_state *state, bool *moved, bool keep)
+     state->ff_rewind_count = 0;
+ }
+ 
++/* pod: double SELECT loves the playing track: rating 10, or 0 to unlove */
++static void wps_love(struct wps_state *state)
++{
++    struct mp3entry *id3 = state->id3;
++
++    if (!id3 || !id3->tagcache_idx || !global_settings.runtimedb)
++    {
++        splash(HZ, ID2P(LANG_ID3_NO_INFO));
++        return;
++    }
++    id3->rating = id3->rating ? 0 : 10;
++    tagcache_update_numeric(id3->tagcache_idx - 1, tag_rating, id3->rating);
++    state->love_flash = id3->rating ? 1 : 2;
++    state->love_until = current_tick + HZ;
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: love %d\n", id3->rating);
++#endif
++}
++
+ static void gwps_caption_backlight(struct wps_state *state)
+ {
+ #if defined(HAVE_BACKLIGHT) || defined(HAVE_REMOTE_LCD)
+@@ -882,7 +902,8 @@ long gui_wps_show(void)
+             && button != ACTION_WPS_VOLUP && button != ACTION_WPS_VOLDOWN)
+         {
+             scrub_seek(state, &scrub_moved, button != ACTION_WPS_SKIPPREV
+-                                            && button != ACTION_WPS_SKIPNEXT);
++                                            && button != ACTION_WPS_SKIPNEXT
++                                            && button != ACTION_WPS_LOVE);
+             state->scrubbing = false;
+             update = true;
+         }
+@@ -964,6 +985,11 @@ long gui_wps_show(void)
+                 update = true;
+                 break;
+ 
++            case ACTION_WPS_LOVE:
++                wps_love(state);
++                update = true;
++                break;
++
+             case ACTION_WPS_VOLUP: /* fall through */
+             case ACTION_WPS_VOLDOWN:
+                 if (state->scrubbing)
+@@ -1208,6 +1234,12 @@ long gui_wps_show(void)
+                 break;
+         }
+ 
++        if (state->love_flash && TIME_AFTER(current_tick, state->love_until))
++        {
++            state->love_flash = 0;
++            update = true;
++        }
++
+         if (state->scrubbing)
+         {
+             if (scrub_moved && TIME_AFTER(current_tick, scrub_seek_at))
+@@ -1257,6 +1289,7 @@ static void wps_state_init(void)
+     struct wps_state *state = get_wps_state();
+     state->paused = false;
+     state->scrubbing = false;
++    state->love_flash = 0;
+     state->ff_rewind_count = 0;
+     if(audio_status() & AUDIO_STATUS_PLAY)
+     {
+diff --git a/apps/gui/wps.h b/apps/gui/wps.h
+index 7f5a207f784d0f08d46514c57a1da1387ba75395..21dccdd002d0ebda672d441f81e4298093033aff 100644
+--- a/apps/gui/wps.h
++++ b/apps/gui/wps.h
+@@ -31,6 +31,8 @@ struct wps_state
+     struct mp3entry *nid3;
+     int ff_rewind_count;
+     bool scrubbing;
++    long love_until;
++    int love_flash;     /* 1 loved, 2 unloved, 0 none */
+     bool paused;
+ };
+ 
+diff --git a/apps/keymaps/keymap-ipod.c b/apps/keymaps/keymap-ipod.c
+index 2cc40e419b210c4f110b63671bea086d4cb97fe9..bbcd1390fde212d659ea3da2cd7f42783b084eae 100644
+--- a/apps/keymaps/keymap-ipod.c
++++ b/apps/keymaps/keymap-ipod.c
+@@ -101,6 +101,7 @@ static const struct button_mapping button_context_wps[]  = {
+     { ACTION_WPS_VOLUP,     BUTTON_SCROLL_FWD,                  BUTTON_NONE },
+     { ACTION_WPS_VOLUP,     BUTTON_SCROLL_FWD|BUTTON_REPEAT,    BUTTON_NONE },
+     { ACTION_WPS_SCRUB,     BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
++    { ACTION_WPS_LOVE,      BUTTON_SELECT|BUTTON_DOUBLE,        BUTTON_NONE },
+     { ACTION_WPS_CONTEXT,   BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
+     { ACTION_WPS_HOTKEY,        BUTTON_SELECT|BUTTON_PLAY,      BUTTON_NONE },
+     { ACTION_WPS_BROWSE,        BUTTON_MENU|BUTTON_REL,         BUTTON_MENU },
+diff --git a/lib/skin_parser/tag_table.c b/lib/skin_parser/tag_table.c
+index a29a873d321a7783fc32dc72ae10a3f2ff307478..3077859df03bfaee41f0494e480559195b9d88d0 100644
+--- a/lib/skin_parser/tag_table.c
++++ b/lib/skin_parser/tag_table.c
+@@ -157,6 +157,7 @@ static const struct tag_info legal_tags[] =
+     TAG(SKIN_TOKEN_TRACK_ELAPSED_PERCENT, "px", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_REEL_FRAME,      "pW", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_SCRUBBING,       "pS", "", SKIN_REFRESH_DYNAMIC),
++    TAG(SKIN_TOKEN_TRACK_LOVE_FLASH,      "pH", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_TIME_ELAPSED,    "pc", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_TIME_REMAINING,  "pr", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_LENGTH,          "pt", "", SKIN_REFRESH_STATIC),
+diff --git a/lib/skin_parser/tag_table.h b/lib/skin_parser/tag_table.h
+index 1904637fce88b95a8e244fe5183ba5ec608c12ab..7f7b201b779612a987de466c2944ac98f6ca54cf 100644
+--- a/lib/skin_parser/tag_table.h
++++ b/lib/skin_parser/tag_table.h
+@@ -202,6 +202,7 @@ enum skin_token_type {
+     SKIN_TOKEN_TRACK_ELAPSED_PERCENT,
+     SKIN_TOKEN_TRACK_REEL_FRAME,
+     SKIN_TOKEN_TRACK_SCRUBBING,
++    SKIN_TOKEN_TRACK_LOVE_FLASH,
+     SKIN_TOKEN_TRACK_TIME_ELAPSED,
+     SKIN_TOKEN_TRACK_TIME_REMAINING,
+     SKIN_TOKEN_TRACK_LENGTH,

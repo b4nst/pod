@@ -26,6 +26,7 @@ settings menu, and you open it by holding MENU.
 |              | PREV / NEXT       | skip, hold to seek                        |
 |              | MENU              | the playing track in its album            |
 |              | hold MENU         | settings                                  |
+|              | double SELECT     | love / unlove the track (heart)           |
 |              | hold SELECT       | track info / reshuffle                    |
 | Equalizer    | wheel             | gain of the selected band (±12 dB)        |
 |              | PREV / NEXT       | select band (60, 250, 1K, 4K, 12K)        |
@@ -199,6 +200,10 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       an artist's tracks by album) and opens the player, a second tap within
       300 ms reshuffles it (`ACTION_TREE_SHUFFLE`), and the Shuffle setting
       is gone
+  19. double SELECT in the player loves the playing track: its tagcache
+      `rating` is 10, or 0 to unlove (`ACTION_WPS_LOVE`). `%pH` flashes a
+      heart over the cassette for 1 s and a small one by TRK shows while a
+      loved track plays. The rating survives Rescan Library (15).
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

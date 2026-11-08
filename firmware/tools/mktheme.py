@@ -195,6 +195,40 @@ prog = Canvas(PROG[2], PROG[3])
 segments(prog, 0, 0, prog.w, prog.h, INK)
 save(prog, "progress.bmp")
 
+# hearts: loved (filled) and unloved (outline) flashed over the cassette, and
+# a 5x5 mark in the HUD while a loved track plays
+HEART = ("..##...##..",
+         ".####.####.",
+         "###########",
+         "###########",
+         "###########",
+         ".#########.",
+         "..#######..",
+         "...#####...",
+         "....###....",
+         ".....#.....")
+flash = []
+for hollow in (False, True):
+    h = Canvas(15, 14)
+    for yy, row in enumerate(HEART):
+        for xx, ch in enumerate(row):
+            if ch != "#":
+                continue
+            edge = any(not (0 <= yy + dy < len(HEART) and 0 <= xx + dx < len(row))
+                       or HEART[yy + dy][xx + dx] != "#"
+                       for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            if edge or not hollow:
+                h.set(2 + xx, 2 + yy, INK)
+    flash.append(h)
+save(vstack(flash), "heart.bmp")
+mark = Canvas(5, 5)
+for yy, row in enumerate((".#.#.", "#####", "#####", ".###.", "..#..")):
+    for xx, ch in enumerate(row):
+        if ch == "#":
+            mark.set(xx, yy, INK)
+save(mark, "loved.bmp")
+HEART_XY = ((WBOX[0] + WBOX[2] - 15) // 2, (WBOX[1] + WBOX[3] - 14) // 2)
+
 # one strip per tape level, one subimage per hub angle, cropped from a full
 # render so the edges line up with the backdrop
 bx0, by0, bx1, by1 = WBOX
@@ -219,8 +253,12 @@ wps = f"""# pod - cassette deck WPS for the iPod mini (bΔnst ⧉ design)
 """ + "".join(
     f"%xl(T{i},tape{i}.bmp,{bx0},{by0},{REEL_FRAMES})\n"
     for i in range(TAPE_LEVELS)) + f"""
+%xl(H,heart.bmp,{HEART_XY[0]},{HEART_XY[1]},2)
+%xl(h,loved.bmp,{COL_X + 22},44)
 %xd(S,%mp)
 %?px<{tapes}>
+%?pH<%xd(H,1)|%xd(H,2)|>
+%?if(%rr,>,1)<%xd(h)|>
 
 # status row
 %V(10,3,40,6,4)%Vf({lcd(INK)})

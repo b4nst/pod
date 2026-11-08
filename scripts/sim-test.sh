@@ -171,3 +171,24 @@ done
 [ "$(areadiff play/01 play-all/01)" != 0 ] || { echo "Shuffle All did not open the player" >&2; exit 1; }
 ! grep -q '^pod: play shuffled' "$out/play-root/sim.log" || { echo "PLAY on Artists played" >&2; exit 1; }
 echo "play ok"
+
+# double SELECT in the player loves the playing track (rating 10) and does it
+# again to unlove (0). A loved track has a small heart by TRK, also after
+# skipping away and back, so the rating went through the tagcache. The heart
+# is the 21x15 box at 3x, clear of the counter and the reels.
+"$root/scripts/sim-shot.sh" "$out/love" "W300 F2 S W100 S W100 2S W20 D W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/unlove" "W300 F2 S W100 S W100 2S W200 2S W20 D W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/love-keep" "W300 F2 S W100 S W100 2S W100 R W100 L W100 D" >/dev/null
+grep -q '^pod: love 10' "$out/love/sim.log" || { echo "double SELECT did not love" >&2; exit 1; }
+grep -q '^pod: love 0' "$out/unlove/sim.log" || { echo "double SELECT did not unlove" >&2; exit 1; }
+markdiff() {
+  magick compare -metric AE "$out/$1.png[21x15+393+132]" "$out/$2.png[21x15+393+132]" null: 2>&1 | cut -d' ' -f1
+}
+for f in love/01 love/02 unlove/01 unlove/02 love-keep/01; do
+  [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
+done
+[ "$(markdiff love/02 unlove/02)" != 0 ] || { echo "the loved mark is not shown" >&2; exit 1; }
+[ "$(markdiff love/01 love/02)" = 0 ] || { echo "the mark went away" >&2; exit 1; }
+[ "$(markdiff love/02 love-keep/01)" = 0 ] || { echo "the love was lost on a skip" >&2; exit 1; }
+[ "$(areadiff love/01 love/02)" != 0 ] || { echo "the heart flash is not shown" >&2; exit 1; }
+echo "love ok"
