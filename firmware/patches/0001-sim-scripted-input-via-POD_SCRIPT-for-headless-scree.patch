@@ -5,14 +5,14 @@ Subject: [PATCH] sim: scripted input via POD_SCRIPT for headless screenshots
 
 Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
 ---
- firmware/target/hosted/sdl/button-sdl.c | 91 +++++++++++++++++++++++++
- 1 file changed, 91 insertions(+)
+ firmware/target/hosted/sdl/button-sdl.c | 106 ++++++++++++++++++++++++
+ 1 file changed, 106 insertions(+)
 
 diff --git a/firmware/target/hosted/sdl/button-sdl.c b/firmware/target/hosted/sdl/button-sdl.c
-index a329bb6fc1791b82bc1c9aee199efdbb5f35ac33..22de113b1493d184005628a9aac28cb376805686 100644
+index a329bb6fc1791b82bc1c9aee199efdbb5f35ac33..9ed0131032e94a6c91481cd2a5640b9bd66978bd 100644
 --- a/firmware/target/hosted/sdl/button-sdl.c
 +++ b/firmware/target/hosted/sdl/button-sdl.c
-@@ -655,6 +655,94 @@ static void button_event(int key, bool pressed)
+@@ -655,6 +655,109 @@ static void button_event(int key, bool pressed)
      else
          btn &= ~new_btn;
  }
@@ -20,13 +20,14 @@ index a329bb6fc1791b82bc1c9aee199efdbb5f35ac33..22de113b1493d184005628a9aac28cb3
 +/* Scripted input for headless UI checks.  POD_SCRIPT is a space separated
 + * list of steps:  W<ticks> wait, D screendump, X exit, and button steps
 + * M S P L R (menu, select, play, left, right; doubled = long press),
-+ * F<n>/B<n> wheel forward/back n clicks. */
++ * F<n>/B<n> wheel forward/back n clicks, and 2<letter> a double tap. */
 +static void script_step(void)
 +{
 +    static const char *script = NULL;
 +    static bool started = false;
 +    static long next_tick = 0;
 +    static int held = 0;
++    static int again = 0;
 +    static const char *p;
 +
 +    if (!started)
@@ -43,7 +44,16 @@ index a329bb6fc1791b82bc1c9aee199efdbb5f35ac33..22de113b1493d184005628a9aac28cb3
 +    {
 +        btn &= ~held;
 +        held = 0;
-+        next_tick = current_tick + HZ/5;
++        next_tick = current_tick + (again ? HZ/10 : HZ/5);
++        return;
++    }
++
++    if (again)
++    {
++        btn |= again;
++        held = again;
++        again = 0;
++        next_tick = current_tick + HZ/10;
 +        return;
 +    }
 +
@@ -52,6 +62,9 @@ index a329bb6fc1791b82bc1c9aee199efdbb5f35ac33..22de113b1493d184005628a9aac28cb3
 +    if (!*p)
 +        return;
 +
++    bool tap2 = (*p == '2');
++    if (tap2)
++        p++;
 +    char c = *p++;
 +    bool dbl = (*p == c);
 +    if (dbl)
@@ -100,6 +113,8 @@ index a329bb6fc1791b82bc1c9aee199efdbb5f35ac33..22de113b1493d184005628a9aac28cb3
 +    }
 +    btn |= b;
 +    held = b;
++    if (tap2)
++        again = b;
 +    next_tick = current_tick + (dbl ? HZ*3/2 : HZ/10);
 +}
 +#endif
@@ -107,7 +122,7 @@ index a329bb6fc1791b82bc1c9aee199efdbb5f35ac33..22de113b1493d184005628a9aac28cb3
  #if defined(HAVE_BUTTON_DATA)
  int button_read_device(int* data)
  {
-@@ -685,6 +773,9 @@ int button_read_device(void)
+@@ -685,6 +788,9 @@ int button_read_device(void)
      else
  #endif
  

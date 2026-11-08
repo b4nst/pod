@@ -1,0 +1,136 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pod <pod@localhost>
+Date: Sun, 8 Nov 2026 02:50:34 +0100
+Subject: [PATCH] pod: double tap in the action system
+
+---
+ apps/action.c            | 71 ++++++++++++++++++++++++++++++++++++++++
+ firmware/export/button.h |  3 ++
+ 2 files changed, 74 insertions(+)
+
+diff --git a/apps/action.c b/apps/action.c
+index a9029457f865798f87fe822de310af4e4c64358f..edd962a1aea4941d882ccae5d99fadd7739a6610 100644
+--- a/apps/action.c
++++ b/apps/action.c
+@@ -58,6 +58,9 @@
+ #define REPEAT_WINDOW_TICKS HZ/4
+ #define ACTION_FILTER_TICKS HZ/2 /* timeout between filtered actions SL/BL */
+ 
++/* a second press this soon after a short tap's release is a double tap */
++#define DOUBLE_TAP_TICKS (HZ*3/10)
++
+ /* act_cur holds action state during get_action() call */
+ typedef struct
+ {
+@@ -96,6 +99,11 @@ typedef struct
+     bool          repeated;
+     bool          wait_for_release;
+ 
++    /* double tap: the button being tapped, the one just tapped, and when */
++    int           dt_down;
++    int           dt_button;
++    long          dt_tick;
++
+ #ifndef DISABLE_ACTION_REMAP
+     int     key_remap;
+ #endif
+@@ -119,6 +127,9 @@ static action_last_t action_last =
+     .repeated         = false,
+     .tick             = 0,
+     .wait_for_release = false,
++    .dt_down          = BUTTON_NONE,
++    .dt_button        = BUTTON_NONE,
++    .dt_tick          = 0,
+ 
+ #ifndef DISABLE_ACTION_REMAP
+     .key_remap = 0,
+@@ -397,6 +408,49 @@ static inline bool action_poll_button(action_last_t *last, action_cur_t *cur)
+     return ret;
+ }
+ 
++/*********************************************
++* action_double_tap sets BUTTON_DOUBLE on the
++* second press of a quick double tap: a press
++* within DOUBLE_TAP_TICKS of the release of a
++* short tap of the same button. Holds and the
++* wheel never count.
++*/
++static inline void action_double_tap(action_last_t *last, action_cur_t *cur)
++{
++    int b = cur->button;
++
++    if (b & (BUTTON_SCROLL_FWD|BUTTON_SCROLL_BACK))
++        return;
++
++    if (b & BUTTON_REPEAT)
++    {   /* a hold is not a first tap */
++        last->dt_down = BUTTON_NONE;
++    }
++    else if (b & BUTTON_REL)
++    {
++        int x = b & ~BUTTON_REL;
++        if (x == last->dt_down)
++        {
++            last->dt_button = x;
++            last->dt_tick = current_tick;
++        }
++        else
++            last->dt_button = BUTTON_NONE;
++    }
++    else
++    {
++        if (b == last->dt_button &&
++            TIME_BEFORE(current_tick, last->dt_tick + DOUBLE_TAP_TICKS))
++        {
++            cur->button |= BUTTON_DOUBLE;
++            last->dt_down = BUTTON_NONE;
++        }
++        else
++            last->dt_down = b;
++        last->dt_button = BUTTON_NONE;
++    }
++}
++
+ /*********************************************
+ * update_screen_has_lock sets screen_has_lock
+ * if passed context contains ALLOW_SOFTLOCK
+@@ -1132,8 +1186,25 @@ static int get_action_worker(action_last_t *last, action_cur_t *cur)
+ 
+     button_flip_horizontally(cur->context, &cur->button);
+ 
++    action_double_tap(last, cur);
++
+     action_code_lookup(last, cur);
+ 
++    if (cur->button & BUTTON_DOUBLE)
++    {
++#ifdef SIMULATOR
++        fprintf(stderr, "pod: double 0x%x %s\n", cur->button & ~BUTTON_DOUBLE,
++                cur->action == ACTION_UNKNOWN ? "unmapped" : "mapped");
++#endif
++        if (cur->action == ACTION_UNKNOWN)
++        {   /* nothing maps it: the plain press */
++            cur->button &= ~BUTTON_DOUBLE;
++            action_code_lookup(last, cur);
++        }
++        else /* eat the second tap's repeat and release */
++            last->wait_for_release = true;
++    }
++
+     do_softlock(last, cur);
+ 
+     return update_action_last(last, cur);
+diff --git a/firmware/export/button.h b/firmware/export/button.h
+index 479fd95679467d2a376f7058a72a3b0bc38038d6..793a7dadb4f244a5072c99e73585bfd3cc499b38 100644
+--- a/firmware/export/button.h
++++ b/firmware/export/button.h
+@@ -95,6 +95,9 @@ int button_apply_acceleration(const unsigned int data);
+ /* Button modifiers */
+ #define BUTTON_REL          0x02000000
+ #define BUTTON_REPEAT       0x04000000
++/* pod: set on the second press of a quick double tap (see action.c). A
++ * keymap maps it as X|BUTTON_DOUBLE with a BUTTON_NONE pre-button. */
++#define BUTTON_DOUBLE       0x40000000
+ /* Special buttons */
+ #define BUTTON_TOUCHSCREEN  0x08000000
+ #define BUTTON_MULTIMEDIA   0x10000000

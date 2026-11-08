@@ -131,8 +131,8 @@ screens and fails if a screendump is missing or blank.
 `sim-shot.sh` runs the simulator headless and saves screendumps as PNG. The
 script is a list of steps: `W<ticks>` wait (100 ticks = 1 s), `D` screendump,
 `M S P L R` press MENU/SELECT/PLAY/PREV/NEXT, a doubled letter is a long
-press, `F<n>`/`B<n>` turn the wheel, `U` plugs or unplugs USB and `H` the
-headphones.
+press and `2<letter>` a double tap, `F<n>`/`B<n>` turn the wheel, `U` plugs
+or unplugs USB and `H` the headphones.
 
 ## Layout
 
@@ -161,6 +161,8 @@ headphones.
   9. tagtree buffer pinned so the library labels can't go stale
   10. pauses when the headphones are unplugged and stays paused when they're
       plugged back in, starts at no more than −20 dB
+  11. double tap: `BUTTON_DOUBLE` on a second press within 300 ms of a short
+      tap, for keymaps that map it. Unmapped, it is a plain press.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

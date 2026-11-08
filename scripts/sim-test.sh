@@ -40,3 +40,14 @@ for i in 03 04; do
   [ "$(diffpx 02 $i)" = 0 ] || { echo "playback moved after the unplug ($i.png)" >&2; exit 1; }
 done
 echo "unplug ok"
+
+# a second press within 300 ms of a short tap is a double tap, a slower one
+# or a hold is not (the simulator logs it, whether or not a keymap maps it)
+"$root/scripts/sim-shot.sh" "$out/double" "W300 2M W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/slow" "W300 M W60 M W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/hold" "W300 MM W20 M W100 D" >/dev/null
+grep -q '^pod: double 0x2 unmapped' "$out/double/sim.log" || { echo "double tap not detected" >&2; exit 1; }
+for d in slow hold; do
+  ! grep -q '^pod: double' "$out/$d/sim.log" || { echo "$d counted as a double tap" >&2; exit 1; }
+done
+echo "double tap ok"
