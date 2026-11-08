@@ -14,7 +14,8 @@ settings menu, and you open it by holding MENU.
 |--------------|-------------------|-------------------------------------------|
 | Library      | wheel / SELECT    | move / open, play                         |
 |              | MENU              | back (at the library root: now playing)   |
-|              | << / >>           | nothing                                   |
+|              | << / >>           | previous / next letter (hold repeats)     |
+|              | fast wheel        | shows the letter you are on               |
 |              | hold MENU         | settings                                  |
 |              | PLAY              | now playing (resumes the last playlist)   |
 |              | hold SELECT       | play shuffled / play next / play last / info |
@@ -133,8 +134,8 @@ screens and fails if a screendump is missing or blank.
 `sim-shot.sh` runs the simulator headless and saves screendumps as PNG. The
 script is a list of steps: `W<ticks>` wait (100 ticks = 1 s), `D` screendump,
 `M S P L R` press MENU/SELECT/PLAY/PREV/NEXT, a doubled letter is a long
-press and `2<letter>` a double tap, `F<n>`/`B<n>` turn the wheel, `U` plugs
-or unplugs USB and `H` the headphones.
+press and `2<letter>` a double tap, `F<n>`/`B<n>` turn the wheel (`f<n>`/`b<n>`:
+fast), `U` plugs or unplugs USB and `H` the headphones.
 
 ## Layout
 
@@ -169,6 +170,10 @@ or unplugs USB and `H` the headphones.
       albums come by year (`tagnavi_user.config`)
   13. player SELECT scrubs the track (`%pS` skin tag: SEEK in the status row),
       MENU opens the playing track in its album (`tagtree_goto_current`)
+  14. library letters: `<<`/`>>` jump to the previous/next initial
+      (`ACTION_TREE_LETTER_*`), a fast wheel or a jump shows the letter in a
+      box over the list for 600 ms (`apps/gui/pod_letter.c`), and lists of
+      more than 64 rows scroll twice as fast
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

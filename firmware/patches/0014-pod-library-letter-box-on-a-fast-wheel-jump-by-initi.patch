@@ -1,0 +1,366 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Sun, 8 Nov 2026 11:20:11 +0100
+Subject: [PATCH] pod: library letter box on a fast wheel, << >> jump by
+ initial
+
+---
+ apps/SOURCES                            |  1 +
+ apps/action.h                           |  2 +
+ apps/gui/list.c                         |  4 ++
+ apps/gui/pod_letter.c                   | 81 +++++++++++++++++++++++
+ apps/gui/pod_letter.h                   | 29 +++++++++
+ apps/keymaps/keymap-ipod.c              | 11 ++++
+ apps/tree.c                             | 85 ++++++++++++++++++++++++-
+ firmware/target/hosted/sdl/button-sdl.c | 11 +++-
+ 8 files changed, 222 insertions(+), 2 deletions(-)
+ create mode 100644 apps/gui/pod_letter.c
+ create mode 100644 apps/gui/pod_letter.h
+
+diff --git a/apps/SOURCES b/apps/SOURCES
+index c7fc583478e4cd00dffc82c12ed2f4e68734bb6a..d7e904c36a717f04c0475e8f861bb943e7e1c28f 100644
+--- a/apps/SOURCES
++++ b/apps/SOURCES
+@@ -78,6 +78,7 @@ iap/iap-lingo7.c
+ screen_access.c
+ gui/icon.c
+ gui/pod_eq.c
++gui/pod_letter.c
+ gui/list.c
+ gui/line.c
+ gui/bitmap/list.c
+diff --git a/apps/action.h b/apps/action.h
+index ea02716dabbd35bd63f5a910fcbc3e43314950c3..7a5df6895cc666f4b12e2e33d4679616151c0fa8 100644
+--- a/apps/action.h
++++ b/apps/action.h
+@@ -208,6 +208,8 @@ enum {
+     ACTION_TREE_STOP,
+     ACTION_TREE_WPS,
+     ACTION_TREE_HOTKEY,
++    ACTION_TREE_LETTER_PREV,
++    ACTION_TREE_LETTER_NEXT,
+ 
+     /* radio */
+     ACTION_FM_MENU,
+diff --git a/apps/gui/list.c b/apps/gui/list.c
+index 12f17cefef88e329ebca8687eff3e564d0c40fc5..a3568ddd223afbe0c1003da8408e61bc312c6bae 100644
+--- a/apps/gui/list.c
++++ b/apps/gui/list.c
+@@ -610,6 +610,10 @@ bool gui_synclist_do_button(struct gui_synclist * lists, int *actionptr)
+ 
+ #ifdef HAVE_WHEEL_ACCELERATION
+     int next_item_modifier = button_apply_acceleration(get_action_data());
++
++    /* long lists: a turn of the wheel goes twice as far */
++    if (next_item_modifier > 1 && lists->nb_items > 64)
++        next_item_modifier *= 2;
+ #else
+     static int next_item_modifier = 1;
+     static int last_accel_tick = 0;
+diff --git a/apps/gui/pod_letter.c b/apps/gui/pod_letter.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..7da1d445087382f29f0a7e8d9c44ba0adc66fa54
+--- /dev/null
++++ b/apps/gui/pod_letter.c
+@@ -0,0 +1,81 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++/*
++ * The letter box shown over the library while the wheel spins fast or << >>
++ * jump by initial: a cassette label with the letter in Deck.
++ */
++
++#include "config.h"
++#include <stdbool.h>
++#include <ctype.h>
++#include "system.h"
++#include "rbpaths.h"
++#include "font.h"
++#include "screen_access.h"
++#include "pod_letter.h"
++
++#define FONT_LETTER     FONT_DIR "/40-Deck-Letter.fnt"
++
++#define BOX_SIZE    60
++#define BOX_FRAME   3       /* inset of the label's frame */
++
++char pod_letter_initial(const char *name)
++{
++    unsigned char c = name[0];
++
++    return (c < 0x80 && isalpha(c)) ? toupper(c) : '#';
++}
++
++void pod_letter_show(char c)
++{
++    static int font = -1;   /* loaded once, so a fast scroll doesn't read the disk */
++    struct screen *d = &screens[SCREEN_MAIN];
++    char s[2] = { c, '\0' };
++    int x = (LCD_WIDTH - BOX_SIZE) / 2;
++    int y = (LCD_HEIGHT - BOX_SIZE) / 2;
++    int w, h;
++
++    if (font < 0)
++    {
++        font = font_load(FONT_LETTER);
++        if (font < 0)
++            font = FONT_UI;
++    }
++
++    /* the selected row would scroll through the box */
++    d->scroll_stop();
++    d->set_viewport(NULL);
++    d->set_drawmode(DRMODE_SOLID);
++    d->set_foreground(LCD_BLACK);
++    d->fillrect(x, y, BOX_SIZE, BOX_SIZE);
++    d->set_foreground(LCD_LIGHTGRAY);
++    d->drawrect(x + BOX_FRAME, y + BOX_FRAME,
++                BOX_SIZE - 2*BOX_FRAME, BOX_SIZE - 2*BOX_FRAME);
++    d->set_foreground(LCD_WHITE);
++    d->setfont(font);
++    font_getstringsize(s, &w, &h, font);
++    d->set_drawmode(DRMODE_FG);
++    d->putsxy(x + (BOX_SIZE - w) / 2, y + (BOX_SIZE - h) / 2, s);
++    d->set_drawmode(DRMODE_SOLID);
++    d->setfont(FONT_UI);
++    d->set_foreground(LCD_DEFAULT_FG);
++    d->set_background(LCD_DEFAULT_BG);
++    d->update_rect(x, y, BOX_SIZE, BOX_SIZE);
++}
+diff --git a/apps/gui/pod_letter.h b/apps/gui/pod_letter.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..cf1c6c1876744bcd90d1d52c5e199d5f2b57818e
+--- /dev/null
++++ b/apps/gui/pod_letter.h
+@@ -0,0 +1,29 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++#ifndef _POD_LETTER_H_
++#define _POD_LETTER_H_
++
++/* The initial the library groups an entry under: A-Z, or '#' */
++char pod_letter_initial(const char *name);
++
++/* Draw a big letter in a box over the list, for a fast wheel or a jump */
++void pod_letter_show(char c);
++
++#endif /* _POD_LETTER_H_ */
+diff --git a/apps/keymaps/keymap-ipod.c b/apps/keymaps/keymap-ipod.c
+index 5652bf6f3913ea5cc18a15d3a1d4b6f1d63dc143..68c25939dd43637b737c5a3ef0d446bf23635194 100644
+--- a/apps/keymaps/keymap-ipod.c
++++ b/apps/keymaps/keymap-ipod.c
+@@ -65,6 +65,16 @@ static const struct button_mapping button_context_tree[]  = {
+     LAST_ITEM_IN_LIST__NEXTLIST(CONTEXT_STD)
+ }; /* button_context_tree */
+ 
++/* the library: << and >> jump to the previous / next initial */
++static const struct button_mapping button_context_library[]  = {
++    { ACTION_TREE_LETTER_PREV,  BUTTON_LEFT,                 BUTTON_NONE },
++    { ACTION_TREE_LETTER_PREV,  BUTTON_LEFT|BUTTON_REPEAT,   BUTTON_NONE },
++    { ACTION_TREE_LETTER_NEXT,  BUTTON_RIGHT,                BUTTON_NONE },
++    { ACTION_TREE_LETTER_NEXT,  BUTTON_RIGHT|BUTTON_REPEAT,  BUTTON_NONE },
++
++    LAST_ITEM_IN_LIST__NEXTLIST(CONTEXT_CUSTOM|CONTEXT_TREE)
++}; /* button_context_library */
++
+ static const struct button_mapping button_context_tree_scroll_lr[]  = {
+     { ACTION_NONE,              BUTTON_LEFT,                BUTTON_NONE },
+     { ACTION_STD_CANCEL,        BUTTON_LEFT|BUTTON_REL,     BUTTON_LEFT },
+@@ -468,6 +478,7 @@ const struct button_mapping* get_context_mapping(int context)
+             return button_context_wps;
+ 
+         case CONTEXT_TREE:
++            return button_context_library;
+         case CONTEXT_MAINMENU:
+             if (global_settings.hold_lr_for_scroll_in_list)
+                 return button_context_tree_scroll_lr;
+diff --git a/apps/tree.c b/apps/tree.c
+index 888296fee11d1b38b8ab2c7bcd36e8d6572fff8d..4ada06a1439958bf41ff5b7a50f562ebc04754ee 100644
+--- a/apps/tree.c
++++ b/apps/tree.c
+@@ -69,6 +69,7 @@
+ 
+ /* gui api */
+ #include "list.h"
++#include "pod_letter.h"
+ #include "splash.h"
+ #include "quickscreen.h"
+ #include "shortcuts.h"
+@@ -174,6 +175,60 @@ static const char* tree_get_filename(int selected_item, void *data,
+     return(name);
+ }
+ 
++static char tree_get_initial(int item)
++{
++    char buf[MAX_PATH];
++    unsigned char *name = (unsigned char *)tree_get_filename(item, &tc, buf,
++                                                              sizeof(buf));
++
++    /* in the database, a lang string comes back as a virtual pointer */
++    return name ? pod_letter_initial(P2STR(name)) : '#';
++}
++
++/* Select the first row of the next initial (dir > 0) or of the current one,
++ * the previous one when already on it (dir < 0). The ends stay put. */
++static void letter_jump(int dir)
++{
++    int first = tc.special_entry_count;
++    int count = gui_synclist_get_nb_items(&tree_lists);
++    int sel = gui_synclist_get_sel_pos(&tree_lists);
++    int i = sel;
++
++    if (count <= first)
++        return;
++    if (sel < first)
++    {
++        if (dir < 0)
++            return;
++        i = first;
++    }
++    else if (dir > 0)
++    {
++        char cur = tree_get_initial(sel);
++        while (++i < count && tree_get_initial(i) == cur)
++            ;
++        if (i == count)
++            return;
++    }
++    else
++    {
++        char cur = tree_get_initial(sel);
++        while (i > first && tree_get_initial(i - 1) == cur)
++            i--;
++        if (i == sel)
++        {
++            if (i == first)
++                return;
++            cur = tree_get_initial(--i);
++            while (i > first && tree_get_initial(i - 1) == cur)
++                i--;
++        }
++    }
++    gui_synclist_select_item(&tree_lists, i);
++    gui_synclist_draw(&tree_lists);
++    tc.selected_item = i;
++}
++
+ #ifdef HAVE_LCD_COLOR
+ static int tree_get_filecolor(int selected_item, void * data)
+ {
+@@ -731,6 +786,7 @@ static int dirbrowse(void)
+     int lastfilter = *tc.dirfilter;
+     bool lastsortcase = global_settings.sort_case;
+     bool exit_func = false;
++    long letter_until = 0;  /* tick the letter box goes away, 0 = not shown */
+ 
+     char* currdir = tc.currdir; /* just a shortcut */
+ #ifdef HAVE_TAGCACHE
+@@ -768,10 +824,28 @@ static int dirbrowse(void)
+ 
+         keyclick_set_callback(gui_synclist_keyclick_callback, &tree_lists);
+         button = get_action(CONTEXT_TREE|ALLOW_SOFTLOCK,
+-                            list_do_action_timeout(&tree_lists, HZ/2));
++                            letter_until ? HZ/20
++                                         : list_do_action_timeout(&tree_lists, HZ/2));
+         oldbutton = button;
++        if (letter_until && TIME_AFTER(current_tick, letter_until))
++        {
++            letter_until = 0;
++            gui_synclist_draw(&tree_lists);
++        }
++        /* a fast wheel shows the initial of the row it lands on */
++        bool fast = false;
++#ifdef HAVE_WHEEL_ACCELERATION
++        if (button == ACTION_STD_NEXT || button == ACTION_STD_NEXTREPEAT ||
++            button == ACTION_STD_PREV || button == ACTION_STD_PREVREPEAT)
++            fast = button_apply_acceleration(get_action_data()) > 1;
++#endif
+         gui_synclist_do_button(&tree_lists, &button);
+         tc.selected_item = gui_synclist_get_sel_pos(&tree_lists);
++        if (fast && numentries)
++        {
++            pod_letter_show(tree_get_initial(tc.selected_item));
++            letter_until = current_tick + HZ*6/10;
++        }
+         int customaction = ONPLAY_NO_CUSTOMACTION;
+         bool do_restore_display = true;
+         #ifdef HAVE_TAGCACHE
+@@ -853,6 +927,15 @@ static int dirbrowse(void)
+                 restore = do_restore_display;
+                 break;
+ 
++            case ACTION_TREE_LETTER_PREV:
++            case ACTION_TREE_LETTER_NEXT:
++                if (numentries == 0)
++                    break;
++                letter_jump(button == ACTION_TREE_LETTER_NEXT ? 1 : -1);
++                pod_letter_show(tree_get_initial(tc.selected_item));
++                letter_until = current_tick + HZ*6/10;
++                break;
++
+             case ACTION_TREE_STOP:
+                 if (list_stop_handler())
+                     restore = do_restore_display;
+diff --git a/firmware/target/hosted/sdl/button-sdl.c b/firmware/target/hosted/sdl/button-sdl.c
+index 9ed0131032e94a6c91481cd2a5640b9bd66978bd..0351aa9f694682d9dc89a329b9f3b618acb2c845 100644
+--- a/firmware/target/hosted/sdl/button-sdl.c
++++ b/firmware/target/hosted/sdl/button-sdl.c
+@@ -659,7 +659,8 @@ static void button_event(int key, bool pressed)
+ /* Scripted input for headless UI checks.  POD_SCRIPT is a space separated
+  * list of steps:  W<ticks> wait, D screendump, X exit, and button steps
+  * M S P L R (menu, select, play, left, right; doubled = long press),
+- * F<n>/B<n> wheel forward/back n clicks, and 2<letter> a double tap. */
++ * F<n>/B<n> wheel forward/back n clicks, f<n>/b<n> the same at a fast turn
++ * (720 deg/s), and 2<letter> a double tap. */
+ static void script_step(void)
+ {
+     static const char *script = NULL;
+@@ -743,6 +744,14 @@ static void script_step(void)
+                                   1<<24);
+             next_tick = current_tick + HZ/5;
+             return;
++        case 'f':
++        case 'b':
++            for (int i = 0; i < (n ? n : 1); i++)
++                button_queue_post((c == 'f' ? BUTTON_SCROLL_FWD : BUTTON_SCROLL_BACK)
++                                  | BUTTON_REPEAT,
++                                  (1<<31) | (1<<24) | 720);
++            next_tick = current_tick + HZ/5;
++            return;
+         case 'M': b = BUTTON_MENU; break;
+         case 'S': b = BUTTON_SELECT; break;
+         case 'P': b = BUTTON_PLAY; break;

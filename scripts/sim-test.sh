@@ -85,3 +85,24 @@ done
 # SELECT again ends the scrub: SEEK is gone from the status row
 [ "$(magick compare -metric AE "$out/scrub/02.png[2000x2000+0+45]" "$out/scrub/03.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1)" != 0 ] || { echo "SELECT did not end the scrub" >&2; exit 1; }
 echo "scrub ok"
+
+# << and >> jump by initial in the library, and a fast wheel shows the letter
+# box over the list until 600 ms after it stops. In Songs (Analog Heart,
+# Carrier, Chrome Tape, Concrete, Dropout, Dusk, ...) >> >> lands on Dropout
+# like four clicks do, and << << from the third row is back on the first.
+"$root/scripts/sim-shot.sh" "$out/letters-next" "W300 F2 S W100 R W100 R W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/letters-click" "W300 F2 S W100 F4 W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/letters-prev" "W300 F2 S W100 F2 L W100 D L W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/letters-top" "W300 F2 S W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/letters-fast" "W300 F2 S W100 f1 D W100 D" >/dev/null
+for d in letters-next letters-click letters-prev letters-top letters-fast; do
+  [ -f "$out/$d/01.png" ] || { echo "$d/01.png is missing" >&2; exit 1; }
+done
+areadiff() {
+  magick compare -metric AE "$out/$1.png[2000x2000+0+45]" "$out/$2.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1
+}
+[ "$(areadiff letters-next/01 letters-click/01)" = 0 ] || { echo ">> did not jump by initial" >&2; exit 1; }
+[ "$(areadiff letters-prev/02 letters-top/01)" = 0 ] || { echo "<< did not jump back by initial" >&2; exit 1; }
+[ -f "$out/letters-fast/02.png" ] || { echo "letters-fast/02.png is missing" >&2; exit 1; }
+[ "$(areadiff letters-fast/01 letters-fast/02)" != 0 ] || { echo "a fast wheel did not show the letter" >&2; exit 1; }
+echo "letters ok"

@@ -16,6 +16,7 @@ fonts_jb=${JETBRAINS_MONO_DIR:?}; fonts_or=${ORBITRON_DIR:?}
 otf2bdf -p 11 -r 72 "$fonts_jb/JetBrainsMono-Regular.ttf" -o "$work/jb11.bdf" || true
 otf2bdf -p 10 -r 72 "$fonts_or/Orbitron Medium.ttf"      -o "$work/or10.bdf" || true
 otf2bdf -p 14 -r 72 "$fonts_or/Orbitron Bold.ttf"        -o "$work/or14b.bdf" || true
+otf2bdf -p 40 -r 72 -l '35 65_90' "$fonts_or/Orbitron Bold.ttf" -o "$work/or40b.bdf" || true
 cp "$src/fonts/06-Tiny.bdf" "$work/tiny6.bdf"
 
 # big splash glyph: a geometric Δ drawn at 8x and downsampled, so its edges
@@ -32,6 +33,7 @@ cvt() { "$src/tools/convbdf" -f "$@" >/dev/null; }
 cvt -a '-1!' -d '-1!' -o "$out/fonts/11-JetBrainsMono.fnt" "$work/jb11.bdf"
 cvt -o "$out/fonts/10-Deck-Medium.fnt" "$work/or10.bdf"
 cvt -o "$out/fonts/14-Deck-Bold.fnt" "$work/or14b.bdf"
+cvt -o "$out/fonts/40-Deck-Letter.fnt" "$work/or40b.bdf"
 cvt -o "$out/fonts/06-Tiny.fnt" "$work/tiny6.bdf"
 
 cp -R "$root/firmware/theme/." "$out/"
