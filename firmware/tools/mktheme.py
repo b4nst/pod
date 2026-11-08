@@ -275,6 +275,8 @@ wps = f"""# pod - cassette deck WPS for the iPod mini (bΔnst ⧉ design)
 %px%%
 %V({COL_X},50,{LCD_W - COL_X},{orb.height},2)%Vf({lcd(INK)})
 %pp/%pe
+%V({COL_X},60,{LCD_W - COL_X},6,4)%Vf({lcd(INK)})
+%?pZ<Z %pZ|>
 
 # title, artist and album
 %V(2,{TITLE_Y},{LCD_W - 4},{UI_H},1)%Vf({lcd(INK)})

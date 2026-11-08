@@ -1,0 +1,449 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <cycles@banst.ch>
+Date: Sun, 8 Nov 2026 18:30:15 +0100
+Subject: [PATCH] pod: sleep timer with a fade out
+
+---
+ apps/SOURCES                       |   1 +
+ apps/gui/skin_engine/skin_tokens.c |  17 +++
+ apps/menus/main_menu.c             |   4 +
+ apps/pcmbuf.c                      |  19 ++-
+ apps/pcmbuf.h                      |   1 +
+ apps/pod_sleep.c                   | 196 +++++++++++++++++++++++++++++
+ apps/pod_sleep.h                   |  38 ++++++
+ firmware/export/powermgmt.h        |   4 +
+ firmware/powermgmt.c               |   1 +
+ lib/skin_parser/tag_table.c        |   1 +
+ lib/skin_parser/tag_table.h        |   1 +
+ 11 files changed, 282 insertions(+), 1 deletion(-)
+ create mode 100644 apps/pod_sleep.c
+ create mode 100644 apps/pod_sleep.h
+
+diff --git a/apps/SOURCES b/apps/SOURCES
+index ceedf8d3d23f47df1f25ef88bb46e6248597a3f0..482dee898889e7f2793c60b388a09138cb9f815c 100644
+--- a/apps/SOURCES
++++ b/apps/SOURCES
+@@ -169,6 +169,7 @@ audio_thread.c
+ pcmbuf.c
+ codec_thread.c
+ pod_playlog.c
++pod_sleep.c
+ playback.c
+ codecs.c
+ #ifndef HAVE_HARDWARE_BEEP
+diff --git a/apps/gui/skin_engine/skin_tokens.c b/apps/gui/skin_engine/skin_tokens.c
+index 70926f5e9e8033101932565e5fff2faf2d5b0a9c..8a9752c58aef5d54bf406be7e13d073c19f17c4e 100644
+--- a/apps/gui/skin_engine/skin_tokens.c
++++ b/apps/gui/skin_engine/skin_tokens.c
+@@ -72,6 +72,7 @@
+ #include "list.h"
+ #include "option_select.h"
+ #include "wps.h"
++#include "pod_sleep.h"
+ 
+ #if (CONFIG_STORAGE & STORAGE_ATA)
+ #include "ata.h" /* ata_disk_isssd() */
+@@ -484,6 +485,22 @@ const char *get_id3_token(struct wps_token *token, struct mp3entry *id3,
+                 /* set while SELECT has the wheel scrubbing the track */
+                 return state->scrubbing ? "s" : NULL;
+ 
++            case SKIN_TOKEN_SLEEP_LEFT:
++            {
++                /* the sleep timer: minutes left, seconds in the last minute,
++                   ALB until the end of the album is near */
++                int left = pod_sleep_left();
++                if (left == POD_SLEEP_OFF)
++                    return NULL;
++                if (left == POD_SLEEP_ALBUM)
++                    return "ALB";
++                if (left < 60)
++                    snprintf(buf, buf_size, "%dS", left);
++                else
++                    snprintf(buf, buf_size, "%d", (left + 59) / 60);
++                return buf;
++            }
++
+             case SKIN_TOKEN_TRACK_LOVE_FLASH:
+                 /* the case to show for 1s: 1 after a love, 2 after an unlove */
+                 if (!state->love_flash)
+diff --git a/apps/menus/main_menu.c b/apps/menus/main_menu.c
+index 15c3a4137089da69ebd974bc5b8ddb020344789e..373e522002c39b0b61a9ff7e1eb683afa7be5aac 100644
+--- a/apps/menus/main_menu.c
++++ b/apps/menus/main_menu.c
+@@ -30,6 +30,7 @@
+ #include "powermgmt.h"
+ #include "menu.h"
+ #include "pod_eq.h"
++#include "pod_sleep.h"
+ #include "tagcache.h"
+ #include "misc.h"
+ #include "exported_menus.h"
+@@ -529,6 +530,8 @@ static int pod_rescan_library(void)
+ MENUITEM_FUNCTION(pod_eq_item, 0, ID2P(LANG_EQUALIZER),
+                   pod_eq_screen, NULL, Icon_EQ);
+ MENUITEM_SETTING(pod_repeat_item, &global_settings.repeat_mode, NULL);
++MENUITEM_FUNCTION_DYNTEXT(pod_sleep_item, 0, pod_sleep_cycle,
++                          pod_sleep_getname, NULL, NULL, NULL, Icon_NOICON);
+ MENUITEM_SETTING(pod_backlight_item, &global_settings.backlight_timeout, NULL);
+ MENUITEM_FUNCTION(pod_rescan_item, 0, "Rescan Library",
+                   pod_rescan_library, NULL, Icon_NOICON);
+@@ -539,6 +542,7 @@ MAKE_MENU(main_menu_, ID2P(LANG_SETTINGS), NULL,
+         Icon_Submenu_Entered,
+         &pod_eq_item,
+         &pod_repeat_item,
++        &pod_sleep_item,
+         &pod_backlight_item,
+ #if CONFIG_RTC
+         &timedate_item,
+diff --git a/apps/pcmbuf.c b/apps/pcmbuf.c
+index 3c68cfbf8440ea99f9cf0dd828393d734f8c2e5b..8f721f3a562ee25e033243784aadc67ed988a1ab 100644
+--- a/apps/pcmbuf.c
++++ b/apps/pcmbuf.c
+@@ -127,6 +127,8 @@ static bool pcmbuf_sync_position = false;
+ 
+ /* Fade effect */
+ static unsigned int fade_vol = MIX_AMP_UNITY;
++/* the sleep timer's fade, apart from fade_vol, which pause and stop own */
++static unsigned int sleep_vol = MIX_AMP_UNITY;
+ static enum
+ {
+     PCM_NOT_FADING = 0,
+@@ -1325,7 +1327,7 @@ int pcmbuf_descs(void)
+ /* Sync the channel amplitude to all states */
+ static void pcmbuf_update_volume(void)
+ {
+-    unsigned int vol = fade_vol;
++    unsigned int vol = (unsigned long long)fade_vol * sleep_vol / MIX_AMP_UNITY;
+ 
+     if (soft_mode)
+         vol >>= 2;
+@@ -1410,6 +1412,21 @@ void pcmbuf_soft_mode(bool shhh)
+ }
+ 
+ 
++/* Set the sleep timer's share of the channel volume */
++void pcmbuf_set_sleep_volume(unsigned int vol)
++{
++    /* Block the tick as in pcmbuf_soft_mode(), so a fade doesn't read the
++       old volume and update after us. */
++    int res = fade_state != PCM_NOT_FADING ?
++                tick_remove_task(pcmbuf_fade_tick) : -1;
++
++    sleep_vol = vol;
++    pcmbuf_update_volume();
++
++    if (res == 0)
++        tick_add_task(pcmbuf_fade_tick);
++}
++
+ /** Time and position */
+ 
+ /* Return the current position key value */
+diff --git a/apps/pcmbuf.h b/apps/pcmbuf.h
+index 41bc93d75ea4a76efdb84003cacaeffb938679c6..5d3e75849e89ef757dce026fc93fc33fca86d2a2 100644
+--- a/apps/pcmbuf.h
++++ b/apps/pcmbuf.h
+@@ -71,6 +71,7 @@ int pcmbuf_descs(void);
+ void pcmbuf_fade(bool fade, bool in);
+ bool pcmbuf_fading(void);
+ void pcmbuf_soft_mode(bool shhh);
++void pcmbuf_set_sleep_volume(unsigned int vol);
+ 
+ /* Time and position */
+ unsigned int pcmbuf_get_position_key(void);
+diff --git a/apps/pod_sleep.c b/apps/pod_sleep.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..60f715e48fd3d18dd3de712d514ebf07314919eb
+--- /dev/null
++++ b/apps/pod_sleep.c
+@@ -0,0 +1,196 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++/*
++ * The sleep timer: off, 15, 30, 60 minutes or the end of the playing album.
++ * The last 10 seconds fade out, then playback pauses and the volume is put
++ * back for the next play. The stock poweroff timer is not used: the idle
++ * poweroff turns the iPod off later, once it is paused.
++ */
++
++#include "config.h"
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include "system.h"
++#include "kernel.h"
++#include "audio.h"
++#include "backlight.h"
++#include "metadata.h"
++#include "pcm_mixer.h"
++#include "pcmbuf.h"
++#include "playlist.h"
++#include "settings.h"
++#include "pod_sleep.h"
++
++#define FADE_TICKS  (10 * HZ)
++
++enum { SLEEP_OFF, SLEEP_15, SLEEP_30, SLEEP_60, SLEEP_ALBUM, SLEEP_MODES };
++
++static const char * const names[SLEEP_MODES] =
++    { "Off", "15 min", "30 min", "60 min", "Album" };
++static const int minutes[SLEEP_MODES] = { 0, 15, 30, 60, 0 };
++
++static int mode = SLEEP_OFF;
++/* the pause, and the start of the fade when it is on */
++static long end_tick, fade_tick_start;
++static bool fading;
++/* when to put the volume back, after the pause has faded out */
++static long restore_tick;
++
++static void pod_sleep_fade_tick(void)
++{
++    long left = end_tick - current_tick;
++    long len = end_tick - fade_tick_start;
++    unsigned int r = left > 0 ? left * 256 / len : 0;
++
++    /* quadratic, so the end doesn't drop off */
++    pcmbuf_set_sleep_volume(r * r * (MIX_AMP_UNITY / (256 * 256)));
++}
++
++static void start_fade(long start)
++{
++    fade_tick_start = start;
++    fading = true;
++    tick_add_task(pod_sleep_fade_tick);
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: sleep fade\n");
++#endif
++}
++
++static void stop_fade(void)
++{
++    if (fading)
++    {
++        tick_remove_task(pod_sleep_fade_tick);
++        fading = false;
++    }
++}
++
++int pod_sleep_cycle(void)
++{
++    long minute = HZ * 60;
++#ifdef SIMULATOR
++    if (getenv("POD_SLEEP_FAST"))
++        minute = HZ;
++#endif
++    stop_fade();
++    pcmbuf_set_sleep_volume(MIX_AMP_UNITY);
++    restore_tick = 0;
++    mode = (mode + 1) % SLEEP_MODES;
++    end_tick = current_tick + minutes[mode] * minute;
++    return 0;
++}
++
++char *pod_sleep_getname(int selected_item, void *data, char *buffer,
++                       size_t buffer_len)
++{
++    (void)selected_item;
++    (void)data;
++    snprintf(buffer, buffer_len, "Sleep: %s", names[mode]);
++    return buffer;
++}
++
++int pod_sleep_left(void)
++{
++    if (mode == SLEEP_OFF)
++        return POD_SLEEP_OFF;
++    if (mode == SLEEP_ALBUM && !fading)
++        return POD_SLEEP_ALBUM;
++    return MAX(0, (end_tick - current_tick) / HZ);
++}
++
++static bool is_album_end(struct mp3entry *id3)
++{
++    struct mp3entry *next;
++
++    if (global_settings.repeat_mode == REPEAT_ONE)
++        return true;
++    /* the last track, which Repeat All wraps from */
++    if (!playlist_peek(1, NULL, 0)
++        || playlist_get_display_index() == playlist_amount())
++        return true;
++    /* NULL: not buffered yet, look again at the next step */
++    next = audio_next_track();
++    if (!next)
++        return false;
++    return strcmp(id3->album ? id3->album : "", next->album ? next->album : "");
++}
++
++void pod_sleep_step(void)
++{
++    struct mp3entry *id3;
++    long rest;
++
++    /* early when played again, once the pause has faded out */
++    if (restore_tick && (TIME_AFTER(current_tick, restore_tick)
++                         || (audio_status() == AUDIO_STATUS_PLAY
++                             && TIME_AFTER(current_tick, restore_tick - HZ / 2))))
++    {
++        pcmbuf_set_sleep_volume(MIX_AMP_UNITY);
++        restore_tick = 0;
++    }
++
++    if (mode == SLEEP_OFF)
++        return;
++
++    if (audio_status() != AUDIO_STATUS_PLAY)
++    {
++        /* paused or stopped by hand: the timer is over */
++        if (fading)
++        {
++            stop_fade();
++            restore_tick = current_tick + HZ;
++            mode = SLEEP_OFF;
++        }
++        else if (mode != SLEEP_ALBUM && TIME_AFTER(current_tick, end_tick))
++            mode = SLEEP_OFF;
++        return;
++    }
++
++    if (mode == SLEEP_ALBUM && !fading)
++    {
++        id3 = audio_current_track();
++        rest = id3 ? (long)id3->length - (long)id3->elapsed : 0;
++
++        if (id3 && id3->length > 0 && rest <= 10000 && is_album_end(id3))
++        {
++            /* pause before the next album starts */
++            end_tick = current_tick + rest * HZ / 1000 - HZ / 2;
++            start_fade(current_tick);
++        }
++    }
++    else if (mode != SLEEP_ALBUM && !fading
++             && TIME_AFTER(current_tick, end_tick - FADE_TICKS))
++        start_fade(end_tick - FADE_TICKS);
++
++    if (mode != SLEEP_OFF && (mode != SLEEP_ALBUM || fading)
++        && TIME_AFTER(current_tick, end_tick))
++    {
++#ifdef SIMULATOR
++        id3 = audio_current_track();
++        fprintf(stderr, "pod: sleep pause %s\n", id3 && id3->title ? id3->title : "");
++#endif
++        audio_pause();
++        stop_fade();
++        restore_tick = current_tick + HZ;
++        mode = SLEEP_OFF;
++        backlight_off();
++    }
++}
+diff --git a/apps/pod_sleep.h b/apps/pod_sleep.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..9d506c3fe8073ffea11bc9668b24708f7faa8732
+--- /dev/null
++++ b/apps/pod_sleep.h
+@@ -0,0 +1,38 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++#ifndef _POD_SLEEP_H
++#define _POD_SLEEP_H
++
++/* The menu item: the next choice (off, 15, 30, 60 min, end of album), and
++   the timer starts again */
++int pod_sleep_cycle(void);
++char *pod_sleep_getname(int selected_item, void *data, char *buffer,
++                       size_t buffer_len);
++
++/* Seconds left, or POD_SLEEP_OFF, or POD_SLEEP_ALBUM for the end of the album
++   until its fade starts */
++#define POD_SLEEP_OFF   -1
++#define POD_SLEEP_ALBUM -2
++int pod_sleep_left(void);
++
++/* Stepped by the power thread */
++void pod_sleep_step(void);
++
++#endif
+diff --git a/firmware/export/powermgmt.h b/firmware/export/powermgmt.h
+index 6bcb82b7e2a8d26544302b12e253c1f8bc8718f8..75fae9400ccdbb294192fdb1a9fc542d0ea4c885 100644
+--- a/firmware/export/powermgmt.h
++++ b/firmware/export/powermgmt.h
+@@ -165,6 +165,10 @@ void set_sleeptimer_duration(int minutes);
+ bool get_sleep_timer_active(void);
+ int get_sleep_timer(void);
+ void set_keypress_restarts_sleep_timer(bool enable);
++
++/* the sleep timer (apps/pod_sleep.c), stepped by the power thread */
++void pod_sleep_step(void);
++
+ void handle_auto_poweroff(void);
+ void set_car_adapter_mode(bool setting);
+ void reset_poweroff_timer(void);
+diff --git a/firmware/powermgmt.c b/firmware/powermgmt.c
+index 433a61afced06909c42daedb289615164472cf56..e1d3cda8bba839b0a553858a0f618090cc01f6b4 100644
+--- a/firmware/powermgmt.c
++++ b/firmware/powermgmt.c
+@@ -1258,5 +1258,6 @@ void handle_auto_poweroff(void)
+ 
+     if (sleeptimer_active)
+         handle_sleep_timer();
++    pod_sleep_step();
+ #endif
+ }
+diff --git a/lib/skin_parser/tag_table.c b/lib/skin_parser/tag_table.c
+index 3077859df03bfaee41f0494e480559195b9d88d0..f3b459a79ef866fe71fe28d2ddcf951b722d4bf2 100644
+--- a/lib/skin_parser/tag_table.c
++++ b/lib/skin_parser/tag_table.c
+@@ -156,6 +156,7 @@ static const struct tag_info legal_tags[] =
+     TAG(SKIN_TOKEN_VOLUME,                "pv" , BAR_PARAMS, SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_ELAPSED_PERCENT, "px", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_REEL_FRAME,      "pW", "", SKIN_REFRESH_DYNAMIC),
++    TAG(SKIN_TOKEN_SLEEP_LEFT,            "pZ", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_SCRUBBING,       "pS", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_LOVE_FLASH,      "pH", "", SKIN_REFRESH_DYNAMIC),
+     TAG(SKIN_TOKEN_TRACK_TIME_ELAPSED,    "pc", "", SKIN_REFRESH_DYNAMIC),
+diff --git a/lib/skin_parser/tag_table.h b/lib/skin_parser/tag_table.h
+index 7f7b201b779612a987de466c2944ac98f6ca54cf..1e25a3cd6ceec7b545aa04f986cbcfe0d8cb1157 100644
+--- a/lib/skin_parser/tag_table.h
++++ b/lib/skin_parser/tag_table.h
+@@ -201,6 +201,7 @@ enum skin_token_type {
+     /* Current track */
+     SKIN_TOKEN_TRACK_ELAPSED_PERCENT,
+     SKIN_TOKEN_TRACK_REEL_FRAME,
++    SKIN_TOKEN_SLEEP_LEFT,
+     SKIN_TOKEN_TRACK_SCRUBBING,
+     SKIN_TOKEN_TRACK_LOVE_FLASH,
+     SKIN_TOKEN_TRACK_TIME_ELAPSED,

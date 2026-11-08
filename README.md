@@ -34,8 +34,15 @@ settings menu, and you open it by holding MENU.
 |              | PLAY              | EQ on / bypass                            |
 |              | MENU              | done (saved)                              |
 
-Settings menu: Equalizer, Repeat, Backlight, Time & Date, Rescan
+Settings menu: Equalizer, Repeat, Sleep, Backlight, Time & Date, Rescan
 Library, System (battery, disk, version).
+
+Sleep cycles Off, 15, 30, 60 min and Album with each SELECT, and starts
+again from the choice. The player shows the time left (`Z 27` minutes,
+`Z 27S` in the last minute, `Z ALB` until the album is near its end). The last 10 s fade
+out, then it pauses, and the idle poweroff turns the iPod off later. Album
+pauses at the end of the playing album; shuffled, almost every track ends an
+album, so it stops after the track that is playing.
 
 Plays are logged with the time to `/.pod/plays.log` (.scrobbler.log format),
 written when the disk is up anyway, so the log never spins it up.
@@ -210,6 +217,9 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
   20. a track longer than 10 minutes resumes where it stopped (tagcache
       autoresume, `pod_autoresumable`), shorter ones start at 0, and the
       autoresume settings are not read
+  21. Sleep in the settings menu (`apps/pod_sleep.c`): 15, 30, 60 min or
+      the end of the album, with a 10 s fade (`pcmbuf_set_sleep_volume`) and
+      `%pZ` for the time left
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

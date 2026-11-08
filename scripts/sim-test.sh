@@ -112,7 +112,7 @@ echo "letters ok"
 # rebuild, now or at the next boot (stats still queued when the simulator
 # exits are lost, so this is one run)
 cl=$root/build/sim/simdisk/.pod/database_changelog.txt
-"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F1 S W100 F2 S W100 S W3500 MM W100 F4 W50 D S W1500 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F1 S W100 F2 S W100 S W3500 MM W100 F5 W50 D S W1500 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/rescan-boot" "W1500" >/dev/null
 grep -q 'playcount="[1-9]' "$cl" || { echo "the changelog has no play count" >&2; exit 1; }
 cat "$out"/rescan/sim.log "$out"/rescan-boot/sim.log | grep -q '^pod: stats imported for [1-9]' || { echo "the stats were not imported" >&2; exit 1; }
@@ -204,3 +204,29 @@ starts=$(grep '^pod: start' "$out/resume/sim.log")
 sed -n 3p <<<"$starts" | grep -Eq 'long at [5-9][0-9]{3}$' || { echo "the long track did not resume" >&2; exit 1; }
 [ "$(sed -n 4p <<<"$starts")" = 'pod: start short at 0' ] || { echo "the short track resumed" >&2; exit 1; }
 echo "resume ok"
+
+# the sleep timer (Settings, row 3) cycles Off, 15, 30, 60 min, Album. A
+# minute lasts a second here: 15 min fades over its last 10 s, pauses and
+# clears the timer; Album pauses at the end of Analog Heart, the last track
+# of its album (Carrier, from another one, is next), and so does it with
+# Repeat All, where the playlist wraps to the album's first track. The player shows the
+# time left in the HUD column until then.
+export POD_SLEEP_FAST=1
+"$root/scripts/sim-shot.sh" "$out/sleep" "W300 F2 S W100 S W100 MM W100 F2 S W50 D M W100 D W2000 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/sleep-album" "W300 F2 S W100 S W100 MM W100 F2 S S S S M W100 D W2600 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/sleep-repeat" "W300 F2 S W100 S W100 MM W100 F1 S F1 S F1 S S S S M W100 D W2600 D" >/dev/null
+unset POD_SLEEP_FAST
+for d in sleep sleep-album sleep-repeat; do
+  grep -q '^pod: sleep fade' "$out/$d/sim.log" || { echo "$d did not fade" >&2; exit 1; }
+  grep -q '^pod: sleep pause Analog Heart' "$out/$d/sim.log" || { echo "$d did not pause" >&2; exit 1; }
+done
+for f in sleep/01 sleep/02 sleep/03 sleep-album/01 sleep-album/02 sleep-repeat/02; do
+  [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
+done
+# the time left is the 60x18 box at 3x under the track count
+sleepdiff() {
+  magick compare -metric AE "$out/$1.png[60x18+326+178]" "$out/$2.png[60x18+326+178]" null: 2>&1 | cut -d' ' -f1
+}
+[ "$(sleepdiff sleep/02 sleep/03)" != 0 ] || { echo "the time left stayed after the pause" >&2; exit 1; }
+[ "$(sleepdiff sleep-album/01 sleep-album/02)" != 0 ] || { echo "the album timer stayed after the pause" >&2; exit 1; }
+echo "sleep ok"
