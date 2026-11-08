@@ -67,7 +67,11 @@ Download it from the
    MIRROR also deletes music that isn't in the folder anymore. SCAN first
    imports the iPod's play log into a history kept per iPod on the computer
    (`podlink/devices/<id>` in the user data folder) and backs up the play
-   counts and ratings there.
+   counts and ratings there. SYNC also writes the mixes to `/Mixes` from the
+   listening history, at most 100 tracks each and never a track you often
+   skip: Heavy Rotation (most played in the last 30 days), Forgotten Gems
+   (played 5+ times, not for 180 days), Never Played (a different pick every
+   day), Mornings (played 5-11 h) and Nights (played 21-4 h).
 
 Eject, and the iPod boots pod. On the first boot pod scans the library, then
 restarts by itself once to commit the database. After that it boots straight

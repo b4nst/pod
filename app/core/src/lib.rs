@@ -5,6 +5,7 @@ pub mod device;
 pub mod flash;
 pub mod history;
 pub mod ipod;
+pub mod mixes;
 pub mod release;
 pub mod sync;
 pub mod tagcache;

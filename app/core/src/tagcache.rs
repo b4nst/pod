@@ -31,6 +31,7 @@ const ARTIST: usize = 0;
 const ALBUM: usize = 1;
 const TITLE: usize = 3;
 const FILENAME: usize = 4;
+const ALBUMARTIST: usize = 7;
 const LENGTH: usize = 14;
 const PLAYCOUNT: usize = 15;
 const RATING: usize = 16;
@@ -41,6 +42,9 @@ const LASTPLAYED: usize = 18;
 pub struct TrackStats {
     pub path: String,
     pub artist: String,
+    /// What the firmware logs when there is no artist.
+    #[serde(default)]
+    pub albumartist: String,
     pub album: String,
     pub title: String,
     /// Milliseconds.
@@ -49,7 +53,7 @@ pub struct TrackStats {
     pub rating: i32,
     /// Milliseconds played in total.
     pub playtime: i32,
-    /// Seconds since the Unix epoch, on the iPod's clock.
+    /// A play serial, not a time.
     pub lastplayed: i32,
 }
 
@@ -67,6 +71,15 @@ fn string(file: &[u8], seek: i32) -> String {
 
 /// The stats of every track that has some. A missing database gives none.
 pub fn read(pod: &Path) -> Result<Vec<TrackStats>> {
+    entries(pod, true)
+}
+
+/// Every track in the database, with zero stats for those never played.
+pub fn tracks(pod: &Path) -> Result<Vec<TrackStats>> {
+    entries(pod, false)
+}
+
+fn entries(pod: &Path, played_only: bool) -> Result<Vec<TrackStats>> {
     let idx = match fs::read(pod.join("database_idx.tcd")) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -78,25 +91,30 @@ pub fn read(pod: &Path) -> Result<Vec<TrackStats>> {
     let count = le32(&idx, 8).and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
     let tag = |n: usize| fs::read(pod.join(format!("database_{n}.tcd"))).map_err(Error::from);
     let (artists, albums, titles, files) = (tag(ARTIST)?, tag(ALBUM)?, tag(TITLE)?, tag(FILENAME)?);
+    // only there when a track has an album artist
+    let albumartists = tag(ALBUMARTIST).unwrap_or_default();
 
     let mut out = Vec::new();
     let (entries, _) = idx.get(HEADER..).unwrap_or_default().as_chunks::<ENTRY>();
     for e in entries.iter().take(count) {
         let seek = |n: usize| le32(e, n * 4).unwrap_or(0);
         let flag = seek(TAG_COUNT);
-        if flag & FLAG_DELETED != 0 || flag & FLAG_DIRTYNUM == 0 {
+        let played = flag & FLAG_DIRTYNUM != 0;
+        if flag & FLAG_DELETED != 0 || (played_only && !played) {
             continue;
         }
+        let num = |n: usize| if played { seek(n) } else { 0 };
         out.push(TrackStats {
             path: string(&files, seek(FILENAME)),
             artist: string(&artists, seek(ARTIST)),
+            albumartist: string(&albumartists, seek(ALBUMARTIST)),
             album: string(&albums, seek(ALBUM)),
             title: string(&titles, seek(TITLE)),
             length: seek(LENGTH),
-            playcount: seek(PLAYCOUNT),
-            rating: seek(RATING),
-            playtime: seek(PLAYTIME),
-            lastplayed: seek(LASTPLAYED),
+            playcount: num(PLAYCOUNT),
+            rating: num(RATING),
+            playtime: num(PLAYTIME),
+            lastplayed: num(LASTPLAYED),
         });
     }
     Ok(out)
@@ -119,6 +137,14 @@ mod tests {
         assert_eq!(carrier.artist, "Unit Δelta");
         assert_eq!(carrier.album, "Signal / Noise");
         assert!(carrier.length > 0);
+    }
+
+    #[test]
+    fn tracks_has_the_unplayed_too() {
+        let (played, all) = (read(&fixture()).unwrap(), tracks(&fixture()).unwrap());
+        assert!(all.len() > played.len());
+        assert!(all.iter().any(|t| t.playcount == 0));
+        assert!(played.iter().all(|p| all.contains(p)));
     }
 
     #[test]

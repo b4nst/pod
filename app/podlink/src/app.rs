@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures::channel::{mpsc, oneshot};
 use iced::widget::{button, canvas, checkbox, column, container, pick_list, row, scrollable, space, stack, text};
@@ -11,6 +11,7 @@ use pod_core::device::{self, Device};
 use pod_core::flash::{self, Action, Report};
 use pod_core::history::{self, Imported};
 use pod_core::ipod::Bootloader;
+use pod_core::mixes;
 use pod_core::release::{self, Release};
 use pod_core::sync::{self, Mode, Plan};
 use pod_core::{Error, Model, Progress, human_bytes, upgrade};
@@ -67,7 +68,7 @@ enum Done {
     Flashed(Report),
     Upgraded(upgrade::Info),
     Planned(Plan, Result<Imported, String>),
-    Synced { copied: usize, deleted: usize },
+    Synced { copied: usize, deleted: usize, mixes: Result<usize, String> },
     Ejected,
 }
 
@@ -317,7 +318,18 @@ impl App {
                 let mount = d.mount.clone();
                 self.start("SYNCING", move |progress, cancel| {
                     sync::apply(&plan, &mount, progress, cancel)?;
-                    Ok(Done::Synced { copied: plan.copies.len(), deleted: plan.deletes.len() })
+                    // a mixes problem is reported, but doesn't fail the sync
+                    let mixes = if mount.join(".pod").is_dir() {
+                        history::device_id(&mount)
+                            .and_then(|id| {
+                                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                                mixes::write(&mount, &history::stores_dir().join(id), now as i64)
+                            })
+                            .map_err(|e| e.to_string())
+                    } else {
+                        Ok(0)
+                    };
+                    Ok(Done::Synced { copied: plan.copies.len(), deleted: plan.deletes.len(), mixes })
                 })
             }
             Message::Eject => {
@@ -382,9 +394,17 @@ impl App {
                 }
                 self.plan = Some(p);
             }
-            Done::Synced { copied, deleted } => {
+            Done::Synced { copied, deleted, mixes } => {
                 self.plan = None;
-                self.say(false, format!("SYNCED: {copied} COPIED, {deleted} DELETED. POD RESCANS AT BOOT"));
+                match mixes {
+                    Ok(n) => self.say(
+                        false,
+                        format!("SYNCED: {copied} COPIED, {deleted} DELETED, {n} MIXES. POD RESCANS AT BOOT"),
+                    ),
+                    Err(e) => {
+                        self.say(true, format!("SYNCED: {copied} COPIED, {deleted} DELETED. MIXES NOT WRITTEN: {e}"))
+                    }
+                }
             }
             Done::Ejected => self.say(false, "EJECTED. SAFE TO UNPLUG"),
         }
@@ -768,7 +788,7 @@ impl App {
         };
         let mut col = column![
             heading("LIBRARY"),
-            text("Copies music from a folder into /Music. pod adds it to the library at the next boot.")
+            text("Copies music from a folder into /Music, and writes the mixes to /Mixes. pod adds the music to the library at the next boot.")
                 .size(12)
                 .style(theme::mid),
             row![
@@ -800,7 +820,7 @@ impl App {
             col = col.push(b);
         }
         let idle = self.job.is_none() && self.device().is_some();
-        let has_plan = self.plan.as_ref().is_some_and(|p| !p.is_empty());
+        let has_plan = self.plan.is_some();
         if let Some(p) = &self.plan {
             let growth = p.growth();
             let free = self.device().map_or(0, |d| d.free);
