@@ -63,7 +63,10 @@ Download it from the
    because it writes the firmware partition directly (macOS: the system
    prompt, Linux: pkexec, Windows: UAC).
 3. SYNC compares a folder with `/Music` and copies what's new or changed.
-   MIRROR also deletes music that isn't in the folder anymore.
+   MIRROR also deletes music that isn't in the folder anymore. SCAN first
+   imports the iPod's play log into a history kept per iPod on the computer
+   (`podlink/devices/<id>` in the user data folder) and backs up the play
+   counts and ratings there.
 
 Eject, and the iPod boots pod. On the first boot pod scans the library, then
 restarts by itself once to commit the database. After that it boots straight
@@ -295,5 +298,8 @@ Font License (`firmware/licenses/`).
   configure warns about it. It runs on a 1G mini.
 - Peak meters stay empty in the simulator because its dummy audio driver feeds
   no samples. They should move on the device.
+- SCAN empties `/.pod/plays.log` once the lines are in the history, and the id
+  that names the iPod is `/.pod/podlink-id`: a reformatted iPod starts a new
+  history. Restoring the stats to an iPod is not done yet.
 - Play counts are kept per file path: a renamed file starts again from zero.
 - Removed codecs still let those files into the library, but they won't play.

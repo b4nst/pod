@@ -9,6 +9,7 @@ use iced::{Center, Element, Fill, Subscription, Task, Theme, time, window};
 
 use pod_core::device::{self, Device};
 use pod_core::flash::{self, Action, Report};
+use pod_core::history::{self, Imported};
 use pod_core::ipod::Bootloader;
 use pod_core::release::{self, Release};
 use pod_core::sync::{self, Mode, Plan};
@@ -65,7 +66,7 @@ struct Job {
 enum Done {
     Flashed(Report),
     Upgraded(upgrade::Info),
-    Planned(Plan),
+    Planned(Plan, Result<Imported, String>),
     Synced { copied: usize, deleted: usize },
     Ejected,
 }
@@ -300,7 +301,12 @@ impl App {
                 let (Some(d), Some(src)) = (self.device(), self.folder.clone()) else { return Task::none() };
                 let (mount, mode) = (d.mount.clone(), self.mode);
                 self.plan = None;
-                self.start("SCANNING", move |_, cancel| Ok(Done::Planned(sync::plan(&src, &mount, mode, cancel)?)))
+                self.start("SCANNING", move |_, cancel| {
+                    // a history problem is reported, but doesn't stop the scan
+                    let base = history::stores_dir();
+                    let imported = history::import(&mount, &base).map_err(|e| e.to_string());
+                    Ok(Done::Planned(sync::plan(&src, &mount, mode, cancel)?, imported))
+                })
             }
             Message::Sync => {
                 let (Some(d), Some(plan)) = (self.device(), self.plan.clone()) else { return Task::none() };
@@ -365,8 +371,15 @@ impl App {
                 self.report = Some(r);
             }
             Done::Upgraded(info) => self.say(false, format!("INSTALLED {}. EJECT AND REBOOT THE IPOD", info.version)),
-            Done::Planned(p) => {
-                self.say(false, if p.is_empty() { "LIBRARY UP TO DATE".into() } else { "SCAN DONE".to_string() });
+            Done::Planned(p, imported) => {
+                let scan = if p.is_empty() { "LIBRARY UP TO DATE" } else { "SCAN DONE" };
+                match imported {
+                    Ok(i) if i.plays + i.tracks > 0 => {
+                        self.say(false, format!("{scan}. {} PLAYS, {} TRACK STATS BACKED UP", i.plays, i.tracks))
+                    }
+                    Ok(_) => self.say(false, scan),
+                    Err(e) => self.say(true, format!("{scan}. HISTORY NOT SAVED: {e}")),
+                }
                 self.plan = Some(p);
             }
             Done::Synced { copied, deleted } => {
