@@ -1,0 +1,254 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pod <pod@localhost>
+Date: Sun, 8 Nov 2026 14:17:28 +0100
+Subject: [PATCH] pod: library Mixes row opens /Mixes and plays a playlist
+
+---
+ apps/SOURCES     |  1 +
+ apps/onplay.h    |  1 +
+ apps/pod_mixes.c | 98 ++++++++++++++++++++++++++++++++++++++++++++++++
+ apps/pod_mixes.h | 29 ++++++++++++++
+ apps/tagtree.c   | 12 ++++++
+ apps/tree.c      | 13 +++++++
+ 6 files changed, 154 insertions(+)
+ create mode 100644 apps/pod_mixes.c
+ create mode 100644 apps/pod_mixes.h
+
+diff --git a/apps/SOURCES b/apps/SOURCES
+index d68101a16848c4f6fbef2da2ea0732d514911107..ceedf8d3d23f47df1f25ef88bb46e6248597a3f0 100644
+--- a/apps/SOURCES
++++ b/apps/SOURCES
+@@ -60,6 +60,7 @@ talk.c
+ tree.c
+ #ifdef HAVE_TAGCACHE
+ tagtree.c
++pod_mixes.c
+ #endif
+ filetree.c
+ #ifdef IPOD_ACCESSORY_PROTOCOL
+diff --git a/apps/onplay.h b/apps/onplay.h
+index 2a91a1b4551eaffc8669d4e8711c768dd5b32d86..680ea5de9463908597171a5021f8e144b88c1502 100644
+--- a/apps/onplay.h
++++ b/apps/onplay.h
+@@ -26,6 +26,7 @@ enum onplay_custom_action {
+     ONPLAY_NO_CUSTOMACTION,
+     ONPLAY_CUSTOMACTION_SHUFFLE_SONGS,
+     ONPLAY_CUSTOMACTION_FIRSTLETTER,
++    ONPLAY_CUSTOMACTION_MIXES,
+ };
+ 
+ enum onplay_return_code {
+diff --git a/apps/pod_mixes.c b/apps/pod_mixes.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..0d7ceef61feb243756930cd114a7a5d176613fd1
+--- /dev/null
++++ b/apps/pod_mixes.c
+@@ -0,0 +1,98 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++/*
++ * Mixes: the playlists pod link syncs to /Mixes (one /Music/... path per
++ * line). The library's Mixes row lists them and SELECT plays one.
++ */
++
++#include "config.h"
++#include <stdio.h>
++#include <string.h>
++#include "string-extra.h"
++#include "action.h"
++#include "dir.h"
++#include "file.h"
++#include "filetree.h"
++#include "list.h"
++#include "pathfuncs.h"
++#include "icon.h"
++#include "root_menu.h"
++#include "settings.h"
++#include "tree.h"
++#include "pod_mixes.h"
++
++/* mixes are *.m3u8 (or *.m3u) files, whatever else is in the directory */
++static int count_mixes(void)
++{
++    int count = 0;
++    DIR *dir = opendir(POD_MIXES_DIR);
++    if (!dir)
++        return 0;
++    struct dirent *entry;
++    while ((entry = readdir(dir)))
++    {
++        const char *ext = strrchr(entry->d_name, '.');
++        if (ext && (!strcasecmp(ext, ".m3u8") || !strcasecmp(ext, ".m3u")))
++            count++;
++    }
++    closedir(dir);
++    return count;
++}
++
++int pod_mixes(void)
++{
++    int count = count_mixes();
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: mixes %d\n", count);
++#endif
++    if (count == 0)
++    {
++        struct simplelist_info info;
++        simplelist_info_init(&info, "Mixes", 1, NULL);
++        simplelist_reset_lines();
++        simplelist_addline("Sync with pod link to get mixes");
++        simplelist_show_list(&info);
++        return GO_TO_PREVIOUS;
++    }
++
++    char path[MAX_PATH];
++    struct browse_context browse = {
++        .dirfilter = SHOW_M3U,
++        .flags = BROWSE_SELECTONLY | BROWSE_NO_CONTEXT_MENU,
++        .title = "Mixes",
++        .icon = Icon_Playlist,
++        .root = POD_MIXES_DIR,
++        .buf = path,
++        .bufsize = sizeof(path),
++    };
++    int rc = rockbox_browse(&browse);
++    if (!(browse.flags & BROWSE_SELECTED))
++        return rc;
++
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: mix %s\n", path);
++#endif
++    char dir[MAX_PATH];
++    strmemccpy(dir, path, sizeof(dir));
++    char *file = strrchr(dir, PATH_SEPCH);
++    *file++ = '\0';
++    ft_play_playlist(path, dir, file);
++    return GO_TO_WPS;
++}
+diff --git a/apps/pod_mixes.h b/apps/pod_mixes.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a3a9aafa87a9292ba4b75d43e2fa0c603e609ba
+--- /dev/null
++++ b/apps/pod_mixes.h
+@@ -0,0 +1,29 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++#ifndef _POD_MIXES_H
++#define _POD_MIXES_H
++
++#define POD_MIXES_DIR "/Mixes"
++
++/* the library's Mixes row: lists POD_MIXES_DIR and plays the one selected.
++   Returns GO_TO_WPS when a mix plays, GO_TO_PREVIOUS to stay in the library */
++int pod_mixes(void);
++
++#endif
+diff --git a/apps/tagtree.c b/apps/tagtree.c
+index e0f7f5a1ef0e9912a663c9f1cfeb0c0eb20e1b58..6171a9ed86cfbf2146bfc724e63aa2ede68d4ec1 100644
+--- a/apps/tagtree.c
++++ b/apps/tagtree.c
+@@ -120,6 +120,7 @@ enum variables {
+     menu_load,
+     menu_reload,
+     menu_shuffle_songs,
++    menu_mixes,
+ };
+ 
+ /* Capacity 10 000 entries (for example 10k different artists) */
+@@ -379,6 +380,7 @@ static int get_tag(int *tag)
+         TAG_MATCH("rating", tag_rating) \
+         TAG_MATCH("%limit", var_limit) \
+         TAG_MATCH("%strip", var_strip) \
++        TAG_MATCH("%mixes", menu_mixes) \
+         TAG_MATCH("bitrate", tag_bitrate) \
+         TAG_MATCH("comment", tag_comment) \
+         TAG_MATCH("discnum", tag_discnumber) \
+@@ -875,6 +877,10 @@ static bool parse_search(struct menu_entry *entry, const char *str)
+         return true;
+     }
+ 
++    /* pod: the Mixes row has no tags, it opens /Mixes */
++    if (entry->type == menu_mixes)
++        return true;
++
+     if (entry->type != menu_next && entry->type != menu_shuffle_songs)
+         return false;
+ 
+@@ -1995,6 +2001,12 @@ static int load_root(struct tree_context *c)
+                 dptr->customaction = ONPLAY_CUSTOMACTION_SHUFFLE_SONGS;
+                 break;
+ 
++            case menu_mixes:
++                dptr->newtable = TABLE_ROOT;
++                dptr->extraseek = 0;
++                dptr->customaction = ONPLAY_CUSTOMACTION_MIXES;
++                break;
++
+             case menu_byfirstletter:
+                 dptr->newtable = TABLE_NAVIBROWSE;
+                 dptr->extraseek = i;
+diff --git a/apps/tree.c b/apps/tree.c
+index 4ada06a1439958bf41ff5b7a50f562ebc04754ee..e87d925d518ffe968d811181f78bcc0c85e963be 100644
+--- a/apps/tree.c
++++ b/apps/tree.c
+@@ -70,6 +70,7 @@
+ /* gui api */
+ #include "list.h"
+ #include "pod_letter.h"
++#include "pod_mixes.h"
+ #include "splash.h"
+ #include "quickscreen.h"
+ #include "shortcuts.h"
+@@ -858,6 +859,18 @@ static int dirbrowse(void)
+                     button = ACTION_STD_CONTEXT;
+                     do_restore_display = false;
+                 }
++                else if (customaction == ONPLAY_CUSTOMACTION_MIXES)
++                {
++                    /* the Mixes row opens /Mixes, its context menu is empty */
++                    if (button == ACTION_STD_OK)
++                    {
++                        int rc = pod_mixes();
++                        if (rc != GO_TO_PREVIOUS)
++                            return exit_to_new_screen(rc);
++                        restore = true;
++                    }
++                    button = ACTION_NONE;
++                }
+             }
+         #endif
+         switch ( button ) {

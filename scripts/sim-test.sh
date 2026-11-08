@@ -129,3 +129,23 @@ rm -f "$log"
 [ "$(grep -v '^#' "$log" | cut -f6 | tr -d '\n')" = SL ] || { echo "the plays are not S then L" >&2; exit 1; }
 [ "$(grep -v '^#' "$log" | awk -F'\t' 'NF == 8 && $7 > 1000000000' | wc -l | tr -d ' ')" = 2 ] || { echo "the play log lines are malformed" >&2; exit 1; }
 echo "play log ok"
+
+# the Mixes row (root row 4) lists /Mixes/*.m3u8 by name and SELECT plays the
+# mix and opens the player; with none it says to sync. The test makes its own
+# Mixes and removes it.
+mixes=$root/build/sim/simdisk/Mixes
+rm -rf "$mixes"
+"$root/scripts/sim-shot.sh" "$out/mixes-empty" "W300 F3 S W100 D M W100 D" >/dev/null
+mkdir -p "$mixes"
+printf '/Music/Unit Δelta/Signal - Noise/01 Carrier.flac\n/Music/Unit Δelta/Signal - Noise/02 Low Orbit.flac\n' >"$mixes/Ambient.m3u8"
+printf '/Music/Neon Cassette/Magnetic Dawn/03 Night Drive.flac\n' >"$mixes/Night Drive.m3u8"
+"$root/scripts/sim-shot.sh" "$out/mixes" "W300 F3 S W100 D S W200 D" >/dev/null
+rm -rf "$mixes"
+grep -q '^pod: mixes 0' "$out/mixes-empty/sim.log" || { echo "the empty Mixes was not detected" >&2; exit 1; }
+grep -q '^pod: mixes 2' "$out/mixes/sim.log" || { echo "the mixes were not listed" >&2; exit 1; }
+grep -q '^pod: mix /Mixes/Ambient.m3u8' "$out/mixes/sim.log" || { echo "SELECT did not play the mix" >&2; exit 1; }
+for i in 01 02; do
+  [ -f "$out/mixes-empty/$i.png" ] && [ -f "$out/mixes/$i.png" ] || { echo "mixes dump $i is missing" >&2; exit 1; }
+done
+[ "$(areadiff mixes-empty/01 mixes/01)" != 0 ] || { echo "the mix list looks like the empty one" >&2; exit 1; }
+echo "mixes ok"

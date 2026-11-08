@@ -19,6 +19,7 @@ settings menu, and you open it by holding MENU.
 |              | hold MENU         | settings                                  |
 |              | PLAY              | now playing (resumes the last playlist)   |
 |              | hold SELECT       | play shuffled / play next / play last / info |
+|              | SELECT on a mix   | plays it (Mixes, `/Mixes/*.m3u8`), then now playing |
 | Player       | wheel             | volume (the counter shows the dB value)   |
 |              | SELECT            | scrub: wheel seeks (SEEK), ends after 3 s or SELECT |
 |              | PREV / NEXT       | skip, hold to seek                        |
@@ -182,6 +183,10 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
   16. play log: every play of 3 s or more is a line of `/.pod/plays.log`
       (Audioscrobbler 1.1), kept in RAM and written by the storage idle
       callback (`apps/pod_playlog.c`)
+  17. library root: Artists, Albums, Songs, Mixes, Recently Added, Shuffle
+      All. Mixes (`%mixes`, `apps/pod_mixes.c`) lists `/Mixes/<Name>.m3u8`,
+      one absolute `/Music/...` path per line, and SELECT plays one. With
+      none it says to sync with pod link.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,
