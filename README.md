@@ -34,6 +34,9 @@ settings menu, and you open it by holding MENU.
 Settings menu: Equalizer, Shuffle, Repeat, Backlight, Time & Date, Rescan
 Library, System (battery, disk, version).
 
+Plays are logged with the time to `/.pod/plays.log` (.scrobbler.log format),
+written when the disk is up anyway, so the log never spins it up.
+
 Unplugging the headphones pauses, and plugging them back in leaves it paused.
 pod never starts louder than −20 dB.
 
@@ -176,6 +179,9 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       more than 64 rows scroll twice as fast
   15. Rescan Library keeps the play stats: exported to the changelog before
       the rebuild, imported after
+  16. play log: every play of 3 s or more is a line of `/.pod/plays.log`
+      (Audioscrobbler 1.1), kept in RAM and written by the storage idle
+      callback (`apps/pod_playlog.c`)
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

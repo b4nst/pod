@@ -117,3 +117,15 @@ cl=$root/build/sim/simdisk/.pod/database_changelog.txt
 grep -q 'playcount="[1-9]' "$cl" || { echo "the changelog has no play count" >&2; exit 1; }
 cat "$out"/rescan/sim.log "$out"/rescan-boot/sim.log | grep -q '^pod: stats imported for [1-9]' || { echo "the stats were not imported" >&2; exit 1; }
 echo "stats ok"
+
+# a finished play is a line of /.pod/plays.log, written at the USB connect
+# (the storage idle flush): the header, then a 5 s play of a 20 s track as S
+# and a 12 s one as L, with a Unix timestamp
+log=$root/build/sim/simdisk/.pod/plays.log
+rm -f "$log"
+"$root/scripts/sim-shot.sh" "$out/playlog" "W300 F2 S W100 S W800 R W1800 R W300 U W200 D" >/dev/null
+[ -f "$log" ] || { echo "no play log" >&2; exit 1; }
+[ "$(grep -c '^#' "$log")" = 3 ] && [ "$(grep -vc '^#' "$log")" = 2 ] || { echo "the play log has the wrong lines" >&2; exit 1; }
+[ "$(grep -v '^#' "$log" | cut -f6 | tr -d '\n')" = SL ] || { echo "the plays are not S then L" >&2; exit 1; }
+[ "$(grep -v '^#' "$log" | awk -F'\t' 'NF == 8 && $7 > 1000000000' | wc -l | tr -d ' ')" = 2 ] || { echo "the play log lines are malformed" >&2; exit 1; }
+echo "play log ok"

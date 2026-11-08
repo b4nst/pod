@@ -1,0 +1,232 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Sun, 8 Nov 2026 13:23:39 +0100
+Subject: [PATCH] pod: timestamped play log in .pod/plays.log
+
+---
+ apps/SOURCES       |   1 +
+ apps/main.c        |   2 +
+ apps/pod_playlog.c | 149 +++++++++++++++++++++++++++++++++++++++++++++
+ apps/pod_playlog.h |  25 ++++++++
+ 4 files changed, 177 insertions(+)
+ create mode 100644 apps/pod_playlog.c
+ create mode 100644 apps/pod_playlog.h
+
+diff --git a/apps/SOURCES b/apps/SOURCES
+index d7e904c36a717f04c0475e8f861bb943e7e1c28f..d68101a16848c4f6fbef2da2ea0732d514911107 100644
+--- a/apps/SOURCES
++++ b/apps/SOURCES
+@@ -167,6 +167,7 @@ audio_path.c
+ audio_thread.c
+ pcmbuf.c
+ codec_thread.c
++pod_playlog.c
+ playback.c
+ codecs.c
+ #ifndef HAVE_HARDWARE_BEEP
+diff --git a/apps/main.c b/apps/main.c
+index 361ecd952ad598103335bb5061b3fe8fb6d5546a..8d95af29b29e419bc80dfd1c14c1695f51d807ec 100644
+--- a/apps/main.c
++++ b/apps/main.c
+@@ -92,6 +92,7 @@
+ 
+ #include "audio_thread.h"
+ #include "playback.h"
++#include "pod_playlog.h"
+ #include "tdspeed.h"
+ #if defined(HAVE_RECORDING) && !defined(SIMULATOR)
+ #include "pcm_record.h"
+@@ -203,6 +204,7 @@ int main(void)
+ 
+ #if !defined(BOOTLOADER)
+     allocate_playback_log();
++    pod_playlog_init();
+     if (!file_exists(ROCKBOX_DIR"/playername.txt"))
+     {
+         int fd = open(ROCKBOX_DIR"/playername.txt", O_CREAT|O_WRONLY|O_TRUNC, 0666);
+diff --git a/apps/pod_playlog.c b/apps/pod_playlog.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..5a4709b646a84bab359dee2fb8ea572d2bfb2e9a
+--- /dev/null
++++ b/apps/pod_playlog.c
+@@ -0,0 +1,149 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++/*
++ * The play log: every finished play is a line of /.pod/plays.log in
++ * Audioscrobbler 1.1 format (.scrobbler.log). Lines are kept in RAM and only
++ * written when the disk is up anyway (storage idle callback, which
++ * system_flush() also forces), so logging never spins the disk up.
++ */
++
++#include "config.h"
++#include <stdio.h>
++#include <string.h>
++#include <time.h>
++#include "system.h"
++#include "kernel.h"
++#include "file.h"
++#include "rbpaths.h"
++#include "audio.h"
++#include "appevents.h"
++#include "ata_idle_notify.h"
++#include "timefuncs.h"
++#include "version.h"
++#include "metadata.h"
++#include "playback.h"
++#include "pod_playlog.h"
++
++#define LOG_FILE    ROCKBOX_DIR "/plays.log"
++#define LOG_SIZE    16384
++#define FIELD_MAX   128
++/* the position after which a play counts as listened to, if not at its half */
++#define LISTENED_MS (240 * 1000)
++
++static struct mutex log_mtx SHAREDBSS_ATTR;
++static char log_buf[LOG_SIZE];
++static size_t log_used;
++
++/* copy a tag, without the characters that would break the line */
++static size_t put_field(char *dst, const char *src)
++{
++    size_t n = 0;
++    while (src && src[n] && n < FIELD_MAX)
++    {
++        dst[n] = (src[n] == '\t' || src[n] == '\n' || src[n] == '\r') ? ' ' : src[n];
++        n++;
++    }
++    return n;
++}
++
++static void playlog_flush(void)
++{
++    mutex_lock(&log_mtx);
++    if (log_used)
++    {
++        int fd = open(LOG_FILE, O_WRONLY|O_CREAT|O_APPEND, 0666);
++        if (fd >= 0)
++        {
++            /* a new, truncated or deleted file starts with the header */
++            if (lseek(fd, 0, SEEK_END) == 0)
++            {
++                char head[64];
++                int n = snprintf(head, sizeof(head),
++                                 "#AUDIOSCROBBLER/1.1\n#TZ/UNKNOWN\n#CLIENT/pod %s\n",
++                                 rbversion);
++                write(fd, head, n);
++            }
++            if (write(fd, log_buf, log_used) == (ssize_t)log_used)
++                log_used = 0;
++            close(fd);
++        }
++    }
++    mutex_unlock(&log_mtx);
++}
++
++static void playlog_track_finish(unsigned short id, void *ev_data)
++{
++    (void)id;
++    struct track_event *te = (struct track_event *)ev_data;
++    struct mp3entry *id3 = te->id3;
++
++    /* 3s because that is the threshold the WPS uses to rewind instead of
++       skip backwards */
++    if (id3->elapsed < 3 * 1000)
++        return;
++
++    bool listened = (te->flags & TEF_AUTO_SKIP) || id3->elapsed >= id3->length / 2
++                    || id3->elapsed >= LISTENED_MS;
++    /* the RTC is local time: the start of the play */
++    time_t start = mktime(get_time()) - id3->elapsed / 1000;
++
++    const char *artist = id3->artist ? id3->artist : id3->albumartist;
++    const char *title = id3->title;
++    if (!title)
++    {
++        title = strrchr(id3->path, '/');
++        title = title ? title + 1 : id3->path;
++    }
++
++    char line[6 * FIELD_MAX + 64];
++    size_t n = 0;
++    n += put_field(line + n, artist ? artist : "<UNTAGGED>");
++    line[n++] = '\t';
++    n += put_field(line + n, id3->album);
++    line[n++] = '\t';
++    n += put_field(line + n, title);
++    line[n++] = '\t';
++    if (id3->tracknum > 0)
++        n += snprintf(line + n, 12, "%d", id3->tracknum);
++    line[n++] = '\t';
++    n += snprintf(line + n, 12, "%lu", id3->length / 1000);
++    n += snprintf(line + n, 40, "\t%c\t%ld\t", listened ? 'L' : 'S', (long)start);
++    n += put_field(line + n, id3->mb_track_id);
++    line[n++] = '\n';
++
++    mutex_lock(&log_mtx);
++    /* full: drop it, the disk is never woken for the log */
++    if (log_used + n <= LOG_SIZE)
++    {
++        memcpy(log_buf + log_used, line, n);
++        log_used += n;
++        register_storage_idle_func(playlog_flush);
++    }
++    mutex_unlock(&log_mtx);
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: playlog %c %s\n", listened ? 'L' : 'S', title);
++#endif
++}
++
++void pod_playlog_init(void)
++{
++    mutex_init(&log_mtx);
++    add_event(PLAYBACK_EVENT_TRACK_FINISH, playlog_track_finish);
++}
+diff --git a/apps/pod_playlog.h b/apps/pod_playlog.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..ba639ffc837f7a157adeb18adcc9d74286bdf7d4
+--- /dev/null
++++ b/apps/pod_playlog.h
+@@ -0,0 +1,25 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++#ifndef _POD_PLAYLOG_H
++#define _POD_PLAYLOG_H
++
++void pod_playlog_init(void);
++
++#endif
