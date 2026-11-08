@@ -17,7 +17,8 @@ settings menu, and you open it by holding MENU.
 |              | << / >>           | previous / next letter (hold repeats)     |
 |              | fast wheel        | shows the letter you are on               |
 |              | hold MENU         | settings                                  |
-|              | PLAY              | now playing (resumes the last playlist)   |
+|              | PLAY              | play the highlighted item in order (on Artists, Albums, Recently Added: now playing) |
+|              | double PLAY       | play it shuffled (Shuffle All: PLAY)      |
 |              | hold SELECT       | play shuffled / play next / play last / info |
 |              | SELECT on a mix   | plays it (Mixes, `/Mixes/*.m3u8`), then now playing |
 | Player       | wheel             | volume (the counter shows the dB value)   |
@@ -32,7 +33,7 @@ settings menu, and you open it by holding MENU.
 |              | PLAY              | EQ on / bypass                            |
 |              | MENU              | done (saved)                              |
 
-Settings menu: Equalizer, Shuffle, Repeat, Backlight, Time & Date, Rescan
+Settings menu: Equalizer, Repeat, Backlight, Time & Date, Rescan
 Library, System (battery, disk, version).
 
 Plays are logged with the time to `/.pod/plays.log` (.scrobbler.log format),
@@ -190,6 +191,10 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       All. Mixes (`%mixes`, `apps/pod_mixes.c`) lists `/Mixes/<Name>.m3u8`,
       one absolute `/Music/...` path per line, and SELECT plays one. With
       none it says to sync with pod link.
+  18. PLAY in the library plays the highlighted row (`tagtree_play_selection`,
+      an artist's tracks by album) and opens the player, a second tap within
+      300 ms reshuffles it (`ACTION_TREE_SHUFFLE`), and the Shuffle setting
+      is gone
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

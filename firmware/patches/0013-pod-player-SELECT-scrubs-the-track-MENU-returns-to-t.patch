@@ -190,7 +190,7 @@ index 36dc77e4938ababcf07353753b1bf6624d20fcb3..7f5a207f784d0f08d46514c57a1da138
  };
  
 diff --git a/apps/root_menu.c b/apps/root_menu.c
-index 04b4dd26d301756aceb51120312de3d8014f7328..8929b94cffaa7b9fdae5d632ef7b067e9c2beefd 100644
+index bc023befb67ff59345423aa2c3d63a02220863e5..f14a3ccc45498d261c1c73b057e0a6cbf925a5ff 100644
 --- a/apps/root_menu.c
 +++ b/apps/root_menu.c
 @@ -275,8 +275,12 @@ static int browser(void* param)

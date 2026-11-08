@@ -50,7 +50,7 @@ index a796b0aa9ac1159236a69f73518d978bcf647c88..3e2e9676558ee666b7493f579b74c37f
  </phrase>
  <phrase>
 diff --git a/apps/menus/main_menu.c b/apps/menus/main_menu.c
-index d987f3d2aa3788da880990878152601022a03e81..a7f6aee631576b4f3f66433a6f3e7087232d7f65 100644
+index 60ea60bc6e8271764e07d41513f2b53ac1aee9fa..15c3a4137089da69ebd974bc5b8ddb020344789e 100644
 --- a/apps/menus/main_menu.c
 +++ b/apps/menus/main_menu.c
 @@ -52,6 +52,10 @@

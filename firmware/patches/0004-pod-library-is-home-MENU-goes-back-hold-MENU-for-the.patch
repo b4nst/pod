@@ -8,12 +8,12 @@ Claude-Session: https://claude.ai/code/session_016WAUF3TsZL9kusqffkgzF3
 ---
  apps/action.h              |  1 +
  apps/gui/wps.c             |  2 +-
- apps/keymaps/keymap-ipod.c | 32 +++++++++++++++++++++++++++-----
- apps/menus/main_menu.c     | 34 ++++++++++++++++++++++++++--------
- apps/onplay.c              | 29 +++--------------------------
- apps/root_menu.c           | 36 ++++++++++++------------------------
+ apps/keymaps/keymap-ipod.c | 32 ++++++++++++++++++++++++++-----
+ apps/menus/main_menu.c     | 32 +++++++++++++++++++++++--------
+ apps/onplay.c              | 29 +++-------------------------
+ apps/root_menu.c           | 39 +++++++++++++++-----------------------
  apps/tree.c                |  8 +++++---
- 7 files changed, 75 insertions(+), 67 deletions(-)
+ 7 files changed, 76 insertions(+), 67 deletions(-)
 
 diff --git a/apps/action.h b/apps/action.h
 index 03a3a084c420963ec0665fdeeb50baa52fbaec94..ea02716dabbd35bd63f5a910fcbc3e43314950c3 100644
@@ -114,7 +114,7 @@ index 787d930468a22c1ff032b6f2a1b38d1fc8b00a0c..5652bf6f3913ea5cc18a15d3a1d4b6f1
          case CONTEXT_SETTINGS_TIME:
          case CONTEXT_SETTINGS:
 diff --git a/apps/menus/main_menu.c b/apps/menus/main_menu.c
-index a09d81de3d99b88b2373bad377142821fac9e426..d987f3d2aa3788da880990878152601022a03e81 100644
+index a09d81de3d99b88b2373bad377142821fac9e426..60ea60bc6e8271764e07d41513f2b53ac1aee9fa 100644
 --- a/apps/menus/main_menu.c
 +++ b/apps/menus/main_menu.c
 @@ -29,6 +29,8 @@
@@ -126,7 +126,7 @@ index a09d81de3d99b88b2373bad377142821fac9e426..d987f3d2aa3788da8809908781526010
  #include "misc.h"
  #include "exported_menus.h"
  #include "tree.h"
-@@ -506,19 +508,35 @@ MENUITEM_FUNCTION(main_menu_config_item, 0, ID2P(LANG_MAIN_MENU),
+@@ -506,19 +508,33 @@ MENUITEM_FUNCTION(main_menu_config_item, 0, ID2P(LANG_MAIN_MENU),
  /***********************************/
  /*    MAIN MENU                    */
  
@@ -140,7 +140,6 @@ index a09d81de3d99b88b2373bad377142821fac9e426..d987f3d2aa3788da8809908781526010
 +
 +MENUITEM_FUNCTION(pod_eq_item, 0, ID2P(LANG_EQUALIZER),
 +                  pod_eq_screen, NULL, Icon_EQ);
-+MENUITEM_SETTING(pod_shuffle_item, &global_settings.playlist_shuffle, NULL);
 +MENUITEM_SETTING(pod_repeat_item, &global_settings.repeat_mode, NULL);
 +MENUITEM_SETTING(pod_backlight_item, &global_settings.backlight_timeout, NULL);
 +MENUITEM_FUNCTION(pod_rescan_item, 0, "Rescan Library",
@@ -157,7 +156,6 @@ index a09d81de3d99b88b2373bad377142821fac9e426..d987f3d2aa3788da8809908781526010
 -        &recording_settings,
 -#endif
 +        &pod_eq_item,
-+        &pod_shuffle_item,
 +        &pod_repeat_item,
 +        &pod_backlight_item,
  #if CONFIG_RTC
@@ -218,7 +216,7 @@ index d383523879558f30c0a149c9ea98e08b0542d2c4..29b6c87152287029279fb8530aa4e21f
  
  static int onplaymenu_callback(int action,
 diff --git a/apps/root_menu.c b/apps/root_menu.c
-index 918669b24568c2effe708714c5c30bb2ddf21f3f..04b4dd26d301756aceb51120312de3d8014f7328 100644
+index 918669b24568c2effe708714c5c30bb2ddf21f3f..bc023befb67ff59345423aa2c3d63a02220863e5 100644
 --- a/apps/root_menu.c
 +++ b/apps/root_menu.c
 @@ -27,6 +27,7 @@
@@ -287,7 +285,7 @@ index 918669b24568c2effe708714c5c30bb2ddf21f3f..04b4dd26d301756aceb51120312de3d8
  
      if (new_screen >= NUM_ITEMS ||
          (new_screen == GO_TO_WPS && global_status.resume_index == -1))
-@@ -940,7 +933,7 @@ static int root_menu_setup_screens(void)
+@@ -940,10 +933,13 @@ static int root_menu_setup_screens(void)
  
  void root_menu(void)
  {
@@ -296,7 +294,13 @@ index 918669b24568c2effe708714c5c30bb2ddf21f3f..04b4dd26d301756aceb51120312de3d8
      int selected = 0;
      int shortcut_origin = GO_TO_ROOT;
  
-@@ -960,14 +953,9 @@ void root_menu(void)
++    /* there is no Shuffle setting: PLAY shuffles with a double tap, so a
++     * saved "shuffle: on" must not shuffle the library's playlists */
++    global_settings.playlist_shuffle = false;
+     push_current_activity(ACTIVITY_MAINMENU);
+     next_screen = root_menu_setup_screens();
+ 
+@@ -960,14 +956,9 @@ void root_menu(void)
                  global_status.last_screen = GO_TO_ROOT; /* We've returned to ROOT */
                  /* When we are in the main menu we want the hardware BACK
                   * button to be handled by HOST instead of rockbox */

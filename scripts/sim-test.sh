@@ -112,7 +112,7 @@ echo "letters ok"
 # rebuild, now or at the next boot (stats still queued when the simulator
 # exits are lost, so this is one run)
 cl=$root/build/sim/simdisk/.pod/database_changelog.txt
-"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F1 S W100 F2 S W100 S W3500 MM W100 F5 W50 D S W1500 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F1 S W100 F2 S W100 S W3500 MM W100 F4 W50 D S W1500 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/rescan-boot" "W1500" >/dev/null
 grep -q 'playcount="[1-9]' "$cl" || { echo "the changelog has no play count" >&2; exit 1; }
 cat "$out"/rescan/sim.log "$out"/rescan-boot/sim.log | grep -q '^pod: stats imported for [1-9]' || { echo "the stats were not imported" >&2; exit 1; }
@@ -149,3 +149,25 @@ for i in 01 02; do
 done
 [ "$(areadiff mixes-empty/01 mixes/01)" != 0 ] || { echo "the mix list looks like the empty one" >&2; exit 1; }
 echo "mixes ok"
+
+# PLAY plays the highlighted row in order and opens the player; a double tap
+# plays it shuffled, and Shuffle All (root row 6) shuffles on a single tap.
+# The dumps are the player, which differs from the library; PLAY on Artists
+# (a menu row) plays nothing.
+"$root/scripts/sim-shot.sh" "$out/play" "W300 D S W100 P W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/play-double" "W300 S W100 2P W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/play-all" "W300 F5 P W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/play-root" "W300 P W200 D" >/dev/null
+! grep -q '^pod: play shuffled' "$out/play/sim.log" || { echo "PLAY shuffled" >&2; exit 1; }
+for d in play-double play-all; do
+  grep -q '^pod: play shuffled' "$out/$d/sim.log" || { echo "$d did not shuffle" >&2; exit 1; }
+done
+for d in play play-double play-all play-root; do
+  [ -f "$out/$d/01.png" ] || { echo "$d dump is missing" >&2; exit 1; }
+done
+[ "$(areadiff play/01 play/02)" != 0 ] || { echo "PLAY did not open the player" >&2; exit 1; }
+[ "$(magick "$out/play/02.png" -format '%k' info:)" -gt 1 ] || { echo "play/02.png is blank" >&2; exit 1; }
+[ "$(areadiff play/01 play-double/01)" != 0 ] || { echo "a double tap did not open the player" >&2; exit 1; }
+[ "$(areadiff play/01 play-all/01)" != 0 ] || { echo "Shuffle All did not open the player" >&2; exit 1; }
+! grep -q '^pod: play shuffled' "$out/play-root/sim.log" || { echo "PLAY on Artists played" >&2; exit 1; }
+echo "play ok"
