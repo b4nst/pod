@@ -75,5 +75,10 @@ file under `build/`). It starts with exactly
 `verdict=changes`. Then list the findings: number, severity, status on a
 re-review, `file:line`, what goes wrong and when, and the fix you suggest.
 
+Write little. An approval with no findings is the marker and one line. A
+finding is two or three lines: `R1 blocking file:line`, what goes wrong,
+the fix. No preamble, no praise, no summary of the PR. Your final reply,
+which goes only to the log, is one line.
+
 The verdict follows from the list: `changes` if a blocking finding is open
 or new, `approve` otherwise. Don't block on taste.

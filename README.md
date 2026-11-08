@@ -225,9 +225,11 @@ a merge with four Claude Code agents (`.claude/agents/`). It needs the
 | `reviewer`       | Opus   | correctness: the plan is done and nothing breaks        |
 | `style-reviewer` | Sonnet | the code, commits, patches and docs match the existing ones |
 
-1. Label an issue `ready`. The planner plans it, or labels it `blocked`
-   (it goes back to `ready` once the issues it waits for are closed) or
-   `needs-human` with questions.
+1. Label an issue `ready`. Only your own `ready` counts: the loop checks the
+   issue's history for it (`POD_LOOP_APPROVER`, the repo owner by default)
+   before planning, and again before opening a PR. The planner comments a
+   plan, what the issue waits for (`blocked`, back to `ready` once those are
+   closed) or questions (`needs-human`).
 2. The implementer takes `planned` issues, one PR at a time
    (`POD_LOOP_WIP`), since patches don't merge as text.
 3. Once CI is green, both reviewers comment `approve` or `changes` on the
@@ -246,7 +248,9 @@ checkout, never from the branch they work on.
 The agents run headless with `--permission-mode auto`
 (`POD_AGENT_PERMISSION_MODE`), so what they may not do is refused, not asked.
 They skip your user settings, whose `ask` rules would refuse every push, and
-the loop gives each one the commands its job needs. The implementer pushes
+the loop gives each one the commands its job needs, on its own issue or PR.
+Agents only comment. Labels are the loop's, from the marker on each comment,
+so an agent can't mark an issue ready. The implementer pushes
 its branch once and opens the PR. After that it only commits, because auto
 mode won't let an agent rewrite a pushed branch, and the loop force-pushes
 it with a lease on the commit it handed out. Nothing but the loop can push

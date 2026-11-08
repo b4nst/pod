@@ -42,8 +42,13 @@ or another branch.
   you finish, the loop force-pushes your branch itself (agents may not
   rewrite a pushed branch). Any other push is refused.
   Write PR bodies and comments to files under `build/`, not `/tmp`.
-- Comments you post start with a marker the loop reads (below). Write them in
-  plain words, as short as they can be.
+- Comments you post start with a marker the loop reads (below). You never
+  change labels: the loop does.
+- Write little. A PR body is `Closes #<n>.`, up to five bullets of what
+  changed, one line on how you verified it, and the definition of done.
+  A fix comment is one line per finding or failure (`R1: fixed, folded into
+  <commit>`). No preamble, no summaries of the plan. Your final reply, which
+  goes only to the log, is one line.
 
 ## Mode `implement`
 
@@ -58,8 +63,8 @@ or another branch.
    `gh pr create --base main --head issue-<n> --title "<area>: <what>" --body-file <file>`.
    The body starts with
    `<!-- pod-agent role=implementer kind=pr issue=<n> -->`, then
-   `Closes #<n>.`, what changed, how you verified it, and the plan's
-   definition of done as a checklist with what is done ticked.
+   `Closes #<n>.`, then the rest as above, with the definition of done as
+   a checklist and what is done ticked.
 
 ## Mode `ci`
 

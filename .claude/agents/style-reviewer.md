@@ -73,6 +73,11 @@ file under `build/`). It starts with exactly
 re-review, `file:line`, what doesn't match, and the existing code it should
 look like.
 
+Write little. An approval with no findings is the marker and one line. A
+finding is two or three lines: `S1 blocking file:line`, what goes wrong,
+the fix. No preamble, no praise, no summary of the PR. Your final reply,
+which goes only to the log, is one line.
+
 The verdict follows from the list: `changes` if a blocking finding is open
 or new, `approve` otherwise. Ask for changes only when the mismatch is clear
 from the surrounding code, not on taste.
