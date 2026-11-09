@@ -84,12 +84,7 @@ pub fn import_plays(mount: &Path, store: &Path) -> Result<usize> {
 /// Returns how many tracks the iPod had stats for.
 pub fn backup_stats(mount: &Path, store: &Path) -> Result<usize> {
     let read = tagcache::read(&mount.join(".pod"))?;
-    let file = store.join("stats.json");
-    let mut all: BTreeMap<String, TrackStats> = match fs::read(&file) {
-        Ok(b) => serde_json::from_slice(&b).map_err(|e| Error::Other(format!("{}: {e}", file.display())))?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
-        Err(e) => return Err(e.into()),
-    };
+    let mut all = load_stats(store)?;
     let tracks = read.len();
     for s in read.into_iter().filter(|s| !s.path.is_empty()) {
         match all.get(&s.path) {
@@ -99,11 +94,46 @@ pub fn backup_stats(mount: &Path, store: &Path) -> Result<usize> {
             }
         }
     }
+    save_stats(store, &all)?;
+    Ok(tracks)
+}
+
+fn load_stats(store: &Path) -> Result<BTreeMap<String, TrackStats>> {
+    let file = store.join("stats.json");
+    match fs::read(&file) {
+        Ok(b) => serde_json::from_slice(&b).map_err(|e| Error::Other(format!("{}: {e}", file.display()))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn save_stats(store: &Path, all: &BTreeMap<String, TrackStats>) -> Result<()> {
     fs::create_dir_all(store)?;
     let tmp = store.join("stats.json.tmp");
-    fs::write(&tmp, serde_json::to_vec_pretty(&all).map_err(|e| Error::Other(e.to_string()))?)?;
-    fs::rename(&tmp, &file)?;
-    Ok(tracks)
+    fs::write(&tmp, serde_json::to_vec_pretty(all).map_err(|e| Error::Other(e.to_string()))?)?;
+    fs::rename(&tmp, store.join("stats.json"))?;
+    Ok(())
+}
+
+/// Moves the stats of files that sync replaced (`/Music/a.flac` to
+/// `/Music/a.ogg`) to their new path, so the backup follows them.
+pub fn rename_paths(store: &Path, renames: &[(String, String)]) -> Result<()> {
+    if renames.is_empty() {
+        return Ok(());
+    }
+    let mut all = load_stats(store)?;
+    let mut moved = false;
+    for (old, new) in renames {
+        if let Some(mut s) = all.remove(old) {
+            s.path = new.clone();
+            all.insert(new.clone(), s);
+            moved = true;
+        }
+    }
+    if moved {
+        save_stats(store, &all)?;
+    }
+    Ok(())
 }
 
 /// Imports the play log and backs up the stats of the iPod at `mount` into
@@ -188,6 +218,19 @@ mod tests {
         backup_stats(dev.path(), store.path()).unwrap();
         let now: BTreeMap<String, TrackStats> = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
         assert_eq!(now, all);
+    }
+
+    #[test]
+    fn a_renamed_track_keeps_its_stats() {
+        let (dev, store) = (ipod(), tempfile::tempdir().unwrap());
+        backup_stats(dev.path(), store.path()).unwrap();
+        let before = load_stats(store.path()).unwrap();
+        let (old, stats) = before.iter().find(|(_, s)| s.playcount > 0).unwrap();
+        rename_paths(store.path(), &[(old.clone(), "/Music/moved.ogg".into())]).unwrap();
+        let after = load_stats(store.path()).unwrap();
+        assert!(!after.contains_key(old));
+        assert_eq!(after["/Music/moved.ogg"], TrackStats { path: "/Music/moved.ogg".into(), ..stats.clone() });
+        assert_eq!(after.len(), before.len());
     }
 
     #[test]

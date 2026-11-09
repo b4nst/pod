@@ -9,6 +9,7 @@ pub mod mixes;
 pub mod release;
 pub mod sync;
 pub mod tagcache;
+pub mod transcode;
 pub mod upgrade;
 
 use std::io;

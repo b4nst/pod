@@ -17,11 +17,15 @@ required-features = ["fixtures"]
 [dependencies]
 filetime = "0.2"
 fs4 = "1.1"
+lofty = "0.22"
+rubato = "0.16"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
+symphonia = { version = "0.5", default-features = false, features = ["flac", "alac", "wav", "aiff", "isomp4", "pcm"] }
 thiserror = "2"
 ureq = { version = "3", features = ["json"] }
+vorbis_rs = "0.5"
 walkdir = "2"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 dirs = "7"

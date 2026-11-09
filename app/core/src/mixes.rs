@@ -169,8 +169,9 @@ pub fn build(tracks: &[TrackStats], backup: &BTreeMap<String, TrackStats>, plays
 
 /// Writes the mixes of the iPod at `mount` to `/Mixes`, from its store, and
 /// returns how many. A mix with no tracks is deleted; other files in `/Mixes`
-/// stay. An iPod without `/.pod` or a store has none.
-pub fn write(mount: &Path, store: &Path, now: i64) -> Result<usize> {
+/// stay. An iPod without `/.pod` or a store has none. `renames` are the files
+/// sync just replaced: the database still knows them by their old path.
+pub fn write(mount: &Path, store: &Path, now: i64, renames: &[(String, String)]) -> Result<usize> {
     let pod = mount.join(".pod");
     if !pod.is_dir() || !store.is_dir() {
         return Ok(0);
@@ -183,6 +184,11 @@ pub fn write(mount: &Path, store: &Path, now: i64) -> Result<usize> {
     };
     // Mirror may have just deleted some, and new copies aren't in the database yet
     let mut tracks = tagcache::tracks(&pod)?;
+    for t in &mut tracks {
+        if let Some((_, new)) = renames.iter().find(|(old, _)| *old == t.path) {
+            t.path = new.clone();
+        }
+    }
     tracks.retain(|t| mount.join(t.path.trim_start_matches('/')).is_file());
 
     let dir = mount.join("Mixes");
@@ -371,6 +377,20 @@ mod tests {
     }
 
     #[test]
+    fn a_replaced_track_stays_in_its_mix() {
+        let all = tagcache::tracks(&ipod(&[]).path().join(".pod")).unwrap();
+        let paths: Vec<&str> = all.iter().map(|t| t.path.as_str()).collect();
+        // every track is on the iPod, but the first as an .ogg now
+        let (dev, store) = (ipod(&paths[1..]), tempfile::tempdir().unwrap());
+        let new = "/Music/replaced.ogg";
+        fs::write(dev.path().join(new.trim_start_matches('/')), b"x").unwrap();
+        let renames = [(paths[0].to_string(), new.to_string())];
+        write(dev.path(), store.path(), NOW, &renames).unwrap();
+        let never = lines(&dev.path().join("Mixes/Never Played.m3u8"));
+        assert!(never.contains(&new.to_string()) && !never.contains(&paths[0].to_string()));
+    }
+
+    #[test]
     fn writes_the_mixes() {
         let all = tagcache::tracks(&ipod(&[]).path().join(".pod")).unwrap();
         let paths: Vec<&str> = all.iter().map(|t| t.path.as_str()).collect();
@@ -379,7 +399,7 @@ mod tests {
         fs::write(dev.path().join("Mixes/Mine.m3u8"), "/Music/mine.mp3\n").unwrap();
         fs::write(dev.path().join("Mixes/Nights.m3u8"), "/Music/old.mp3\n").unwrap();
 
-        assert_eq!(write(dev.path(), store.path(), NOW).unwrap(), 1);
+        assert_eq!(write(dev.path(), store.path(), NOW, &[]).unwrap(), 1);
         let never = lines(&dev.path().join("Mixes/Never Played.m3u8"));
         assert!(!never.is_empty() && never.iter().all(|p| p.starts_with("/Music/")));
         assert!(!never.contains(&paths[0].to_string()), "a missing file is skipped");
@@ -392,9 +412,9 @@ mod tests {
     #[test]
     fn no_store_is_no_mixes() {
         let dev = ipod(&[]);
-        assert_eq!(write(dev.path(), &dev.path().join("nope"), NOW).unwrap(), 0);
+        assert_eq!(write(dev.path(), &dev.path().join("nope"), NOW, &[]).unwrap(), 0);
         assert!(!dev.path().join("Mixes").exists());
         let bare = tempfile::tempdir().unwrap();
-        assert_eq!(write(bare.path(), bare.path(), NOW).unwrap(), 0);
+        assert_eq!(write(bare.path(), bare.path(), NOW, &[]).unwrap(), 0);
     }
 }

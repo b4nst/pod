@@ -75,7 +75,15 @@ Download it from the
    because it writes the firmware partition directly (macOS: the system
    prompt, Linux: pkexec, Windows: UAC).
 3. SYNC compares a folder with `/Music` and copies what's new or changed.
-   MIRROR also deletes music that isn't in the folder anymore. SCAN first
+   MIRROR also deletes music that isn't in the folder anymore. FORMAT can
+   convert lossless files (FLAC, WAV, AIFF, ALAC) to Ogg Vorbis (OGG Q3, Q5
+   or Q7, about 110, 160 or 220 kbit/s) to fit more music: tags, ReplayGain
+   and cover art are kept, files above 48 kHz are resampled to 44.1 kHz, and
+   everything else is copied as it is. What was converted is listed in
+   `/.pod/sync.json`, so SCAN finds the library up to date, and changing the
+   FORMAT replaces only the files it affects. A converted track is a new file
+   to the iPod, which forgets its play count at the next boot; the backup
+   below keeps it. SCAN first
    imports the iPod's play log into a history kept per iPod on the computer
    (`podlink/devices/<id>` in the user data folder) and backs up the play
    counts and ratings there. SYNC also writes the mixes to `/Mixes` from the

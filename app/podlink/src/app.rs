@@ -13,7 +13,8 @@ use pod_core::history::{self, Imported};
 use pod_core::ipod::Bootloader;
 use pod_core::mixes;
 use pod_core::release::{self, Release};
-use pod_core::sync::{self, Mode, Plan};
+use pod_core::sync::{self, Manifest, Mode, Plan};
+use pod_core::transcode::Profile;
 use pod_core::{Error, Model, Progress, human_bytes, upgrade};
 
 use crate::deck::{Cassette, Delta, Dots, Hatch, Ipod, Meter};
@@ -68,7 +69,7 @@ enum Done {
     Flashed(Report),
     Upgraded(upgrade::Info),
     Planned(Plan, Result<Imported, String>),
-    Synced { copied: usize, deleted: usize, mixes: Result<usize, String> },
+    Synced { copied: usize, converted: usize, deleted: usize, mixes: Result<usize, String> },
     Ejected,
 }
 
@@ -94,6 +95,7 @@ enum Message {
     PickFolder,
     FolderPicked(Option<PathBuf>),
     SyncMode(Mode),
+    SyncProfile(Profile),
     Flash,
     Unflash,
     Upgrade,
@@ -118,6 +120,7 @@ struct App {
     remove_rockbox: bool,
     folder: Option<PathBuf>,
     mode: Mode,
+    profile: Profile,
     plan: Option<Plan>,
     report: Option<Report>,
     job: Option<Job>,
@@ -153,6 +156,7 @@ impl App {
             remove_rockbox: true,
             folder: None,
             mode: Mode::Update,
+            profile: Profile::Off,
             plan: None,
             report: None,
             job: None,
@@ -224,19 +228,22 @@ impl App {
             Message::Scanned(devices) => {
                 self.scanning = false;
                 let had = self.device().map(|d| d.mount.clone());
-                if devices.iter().all(|d| Some(&d.mount) != had.as_ref()) {
-                    self.selected = devices.first().map(|d| d.mount.clone());
+                let gone = devices.iter().all(|d| Some(&d.mount) != had.as_ref());
+                self.devices = devices;
+                if gone {
+                    self.selected = self.devices.first().map(|d| d.mount.clone());
                     self.model = None;
                     self.plan = None;
                     self.report = None;
+                    self.preset_profile();
                 }
-                self.devices = devices;
                 Task::none()
             }
             Message::Select(label) => {
                 self.selected = self.devices.iter().find(|d| d.label == label).map(|d| d.mount.clone());
                 self.model = None;
                 self.plan = None;
+                self.preset_profile();
                 Task::none()
             }
             Message::Tab(t) => {
@@ -296,17 +303,22 @@ impl App {
                 self.plan = None;
                 Task::none()
             }
+            Message::SyncProfile(p) => {
+                self.profile = p;
+                self.plan = None;
+                Task::none()
+            }
             Message::Flash | Message::Unflash => self.flash(matches!(message, Message::Flash)),
             Message::Upgrade => self.upgrade(),
             Message::Scan => {
                 let (Some(d), Some(src)) = (self.device(), self.folder.clone()) else { return Task::none() };
-                let (mount, mode) = (d.mount.clone(), self.mode);
+                let (mount, mode, profile) = (d.mount.clone(), self.mode, self.profile);
                 self.plan = None;
                 self.start("SCANNING", move |_, cancel| {
                     // a history problem is reported, but doesn't stop the scan
                     let base = history::stores_dir();
                     let imported = history::import(&mount, &base).map_err(|e| e.to_string());
-                    Ok(Done::Planned(sync::plan(&src, &mount, mode, cancel)?, imported))
+                    Ok(Done::Planned(sync::plan(&src, &mount, mode, profile, cancel)?, imported))
                 })
             }
             Message::Sync => {
@@ -317,19 +329,33 @@ impl App {
                 }
                 let mount = d.mount.clone();
                 self.start("SYNCING", move |progress, cancel| {
-                    sync::apply(&plan, &mount, progress, cancel)?;
-                    // a mixes problem is reported, but doesn't fail the sync
-                    let mixes = if mount.join(".pod").is_dir() {
-                        history::device_id(&mount)
-                            .and_then(|id| {
-                                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-                                mixes::write(&mount, &history::stores_dir().join(id), now as i64)
-                            })
-                            .map_err(|e| e.to_string())
+                    let (renames, res) = sync::apply(&plan, &mount, progress, cancel);
+                    // a mixes problem is reported, but doesn't fail the sync. The
+                    // stats follow the files already converted even if it failed
+                    let store = if mount.join(".pod").is_dir() {
+                        history::device_id(&mount).map(|id| Some(history::stores_dir().join(id)))
                     } else {
-                        Ok(0)
+                        Ok(None)
                     };
-                    Ok(Done::Synced { copied: plan.copies.len(), deleted: plan.deletes.len(), mixes })
+                    let renamed = store.as_ref().map_err(|e| e.to_string()).and_then(|s| match s {
+                        Some(s) => history::rename_paths(s, &renames).map_err(|e| e.to_string()),
+                        None => Ok(()),
+                    });
+                    res?;
+                    let mixes = renamed.and_then(|_| match store {
+                        Ok(Some(store)) => {
+                            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                            mixes::write(&mount, &store, now as i64, &renames).map_err(|e| e.to_string())
+                        }
+                        Ok(None) => Ok(0),
+                        Err(e) => Err(e.to_string()),
+                    });
+                    Ok(Done::Synced {
+                        copied: plan.copies.len(),
+                        converted: plan.converted(),
+                        deleted: plan.deletes.len(),
+                        mixes,
+                    })
                 })
             }
             Message::Eject => {
@@ -372,6 +398,11 @@ impl App {
         }
     }
 
+    /// The profile of the iPod's last sync, so a new SCAN keeps it.
+    fn preset_profile(&mut self) {
+        self.profile = self.device().and_then(|d| Manifest::load(&d.mount).ok()).map_or(Profile::Off, |m| m.profile);
+    }
+
     fn local_mut(&mut self, firmware: bool) -> &mut Option<PathBuf> {
         if firmware { &mut self.fw_local } else { &mut self.boot_local }
     }
@@ -394,15 +425,15 @@ impl App {
                 }
                 self.plan = Some(p);
             }
-            Done::Synced { copied, deleted, mixes } => {
+            Done::Synced { copied, converted, deleted, mixes } => {
                 self.plan = None;
                 match mixes {
                     Ok(n) => self.say(
                         false,
-                        format!("SYNCED: {copied} COPIED, {deleted} DELETED, {n} MIXES. POD RESCANS AT BOOT"),
+                        format!("SYNCED: {copied} COPIED ({converted} CONVERTED), {deleted} DELETED, {n} MIXES. POD RESCANS AT BOOT"),
                     ),
                     Err(e) => {
-                        self.say(true, format!("SYNCED: {copied} COPIED, {deleted} DELETED. MIXES NOT WRITTEN: {e}"))
+                        self.say(true, format!("SYNCED: {copied} COPIED ({converted} CONVERTED), {deleted} DELETED. MIXES NOT WRITTEN: {e}"))
                     }
                 }
             }
@@ -786,6 +817,12 @@ impl App {
                 .padding([5, 10])
                 .on_press(Message::SyncMode(m))
         };
+        let profile_key = |p: Profile, l: &'static str| {
+            button(text(l).font(DECK).size(11))
+                .style(theme::deck_key(self.profile == p))
+                .padding([5, 10])
+                .on_press(Message::SyncProfile(p))
+        };
         let mut col = column![
             heading("LIBRARY"),
             text("Copies music from a folder into /Music, and writes the mixes to /Mixes. pod adds the music to the library at the next boot.")
@@ -811,6 +848,16 @@ impl App {
                 })
                 .size(11)
                 .style(theme::mid),
+            ]
+            .spacing(8)
+            .align_y(Center),
+            row![
+                label("FORMAT").width(80),
+                profile_key(Profile::Off, "AS IS"),
+                profile_key(Profile::Vorbis(3), "OGG Q3"),
+                profile_key(Profile::Vorbis(5), "OGG Q5"),
+                profile_key(Profile::Vorbis(7), "OGG Q7"),
+                text("lossless is converted, the rest copied").size(11).style(theme::mid),
             ]
             .spacing(8)
             .align_y(Center),
