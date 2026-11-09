@@ -11,6 +11,8 @@ rm -rf "$out"
 # the first boot scans the library and reboots to commit it, which ends the
 # simulator: get that out of the way
 "$root/scripts/sim-shot.sh" "$out/first-boot" "W1500" >/dev/null
+# a playlist left by an earlier run would be the queue tape of the deck
+rm -f "$root"/build/sim/simdisk/.pod/.playlist_control* "$root"/build/sim/simdisk/.pod/.resume.cfg*
 "$root/scripts/sim-shot.sh" "$out" "$script"
 got=$(find "$out" -maxdepth 1 -name '*.png' | wc -l | tr -d ' ')
 if [ "$got" != "$want" ]; then
@@ -73,11 +75,11 @@ grep -q '^pod: deck 4/5 Tape Loop' "$out/deck/sim.log" || { echo ">> did not jum
 [ "$(grep '^pod: deck' "$out/deck/sim.log" | tail -1)" = 'pod: deck 3/5 Signal / Noise' ] || { echo "<< did not jump back" >&2; exit 1; }
 [ "$(areadiff deck/01 deck/04)" != 0 ] || { echo "the deck did not change" >&2; exit 1; }
 grep -q '^pod: deck play Signal / Noise' "$out/deck-play/sim.log" || { echo "SELECT did not play the album" >&2; exit 1; }
-[ "$(grep -c '^pod: deck 3/5' "$out/deck-play/sim.log")" -ge 2 ] || { echo "MENU did not go back to the deck" >&2; exit 1; }
+grep -q '^pod: deck 4/6 Signal / Noise' "$out/deck-play/sim.log" || { echo "MENU did not go back to the deck" >&2; exit 1; }
 [ "$(areadiff deck-play/01 deck-play/02)" != 0 ] || { echo "the player looks like the deck" >&2; exit 1; }
 grep -q '^pod: play shuffled' "$out/deck-shuffle/sim.log" || { echo "a double PLAY did not shuffle the album" >&2; exit 1; }
 ! grep -q '^pod: play shuffled' "$out/deck-play/sim.log" || { echo "SELECT shuffled the album" >&2; exit 1; }
-grep -q '^pod: deck 3/5' "$out/deck-songs/sim.log" || { echo "MENU did not open the deck on the playing album" >&2; exit 1; }
+grep -q '^pod: deck 4/6 Signal / Noise' "$out/deck-songs/sim.log" || { echo "MENU did not open the deck on the playing album" >&2; exit 1; }
 echo "deck ok"
 
 # SELECT in the player scrubs: the wheel moves the position (the counter
@@ -114,7 +116,7 @@ echo "letters ok"
 # rebuild, now or at the next boot (stats still queued when the simulator
 # exits are lost, so this is one run)
 cl=$root/build/sim/simdisk/.pod/database_changelog.txt
-"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F1 S W100 F2 S W3500 MM W100 F5 W50 D S W1500 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F1 S W100 F2 S W3500 M W100 MM W100 F5 W50 D S W1500 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/rescan-boot" "W1500" >/dev/null
 grep -q 'playcount="[1-9]' "$cl" || { echo "the changelog has no play count" >&2; exit 1; }
 cat "$out"/rescan/sim.log "$out"/rescan-boot/sim.log | grep -q '^pod: stats imported for [1-9]' || { echo "the stats were not imported" >&2; exit 1; }
@@ -149,11 +151,37 @@ for f in deck-mixes/01 deck-mixes/02 deck-mixes/03 deck-mixes-jump/01; do
 done
 grep -q '^pod: deck 1/7 Ambient' "$out/deck-mixes/sim.log" || { echo "the mixes are not first in the deck" >&2; exit 1; }
 grep -q '^pod: deck play mix /Mixes/Ambient.m3u8' "$out/deck-mixes/sim.log" || { echo "SELECT did not play the mix" >&2; exit 1; }
-[ "$(grep -c '^pod: deck 1/7' "$out/deck-mixes/sim.log")" -ge 2 ] || { echo "MENU did not go back to the mixtape" >&2; exit 1; }
+grep -q '^pod: deck 2/8 Ambient' "$out/deck-mixes/sim.log" || { echo "MENU did not go back to the mixtape" >&2; exit 1; }
 grep -q '^pod: deck 3/7 Afterglow' "$out/deck-mixes-jump/sim.log" || { echo ">> did not jump over the mixes" >&2; exit 1; }
 [ "$(grep '^pod: deck' "$out/deck-mixes-jump/sim.log" | tail -1)" = 'pod: deck 1/7 Ambient' ] || { echo "<< did not jump back to the mixes" >&2; exit 1; }
 [ "$(areadiff deck-mixes/01 deck-mixes/02)" != 0 ] || { echo "the player looks like the deck" >&2; exit 1; }
 echo "deck mixes ok"
+
+# The current playlist is the first tape of the deck, with a tracklist card:
+# nothing plays at boot so there is none, and after Signal / Noise it comes
+# before Afterglow (1/6). SELECT on it opens the player without a new
+# playlist. Hold SELECT on an album asks Play next / Play last, adds it and
+# stays on the deck. The editor opens with hold MENU in the player: SELECT
+# picks a track up and drops it, hold SELECT removes one, MENU is the player.
+"$root/scripts/sim-shot.sh" "$out/queue" "W300 F1 S W100 F2 S W200 M W100 D B9 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/queue-next" "W300 F1 S W100 F2 S W200 M W100 F1 SS W50 D S W150 B9 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/queue-edit" "W300 F1 S W100 F2 S W200 MM W100 D S F1 D S W50 D SS W50 D M W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/queue-play" "W300 F1 S W100 F2 S W200 M W100 B9 S W100 D" >/dev/null
+for f in queue/02 queue-next/01 queue-edit/01 queue-edit/04 queue-edit/05 queue-play/01; do
+  [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
+done
+grep -q '^pod: deck 1/6 Queue' "$out/queue/sim.log" || { echo "the queue is not the first tape" >&2; exit 1; }
+! grep -q '^pod: deck 1/5 Queue' "$out/queue/sim.log" || { echo "a queue with nothing playing" >&2; exit 1; }
+grep -q '^pod: deck insert next Tape Loop' "$out/queue-next/sim.log" || { echo "hold SELECT did not add the album" >&2; exit 1; }
+[ "$(areadiff queue-next/01 queue-next/02)" != 0 ] || { echo "the menu looks like the deck" >&2; exit 1; }
+grep -q '^pod: queue move 0 -> 1' "$out/queue-edit/sim.log" || { echo "the track was not moved" >&2; exit 1; }
+grep -q '^pod: queue remove' "$out/queue-edit/sim.log" || { echo "the track was not removed" >&2; exit 1; }
+[ "$(areadiff queue-edit/01 queue-edit/04)" != 0 ] || { echo "the queue did not change" >&2; exit 1; }
+[ "$(areadiff queue-edit/04 queue-edit/05)" != 0 ] || { echo "MENU did not go back to the player" >&2; exit 1; }
+grep -q '^pod: deck play queue' "$out/queue-play/sim.log" || { echo "SELECT did not play the queue" >&2; exit 1; }
+[ "$(grep -c '^pod: deck play Signal' "$out/queue-play/sim.log")" = 1 ] || { echo "the queue was replaced" >&2; exit 1; }
+[ "$(areadiff queue/02 queue-play/01)" != 0 ] || { echo "the player looks like the deck" >&2; exit 1; }
+echo "queue ok"
 
 # PLAY plays the highlighted row in order and opens the player; a double tap
 # plays it shuffled, and Shuffle All (root row 5) shuffles on a single tap.
@@ -217,9 +245,9 @@ echo "resume ok"
 # Repeat All, where the playlist wraps to the album's first track. The player shows the
 # time left in the HUD column until then.
 export POD_SLEEP_FAST=1
-"$root/scripts/sim-shot.sh" "$out/sleep" "W300 F2 S W100 S W100 MM W100 F2 S W50 D M W100 D W2000 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/sleep-album" "W300 F2 S W100 S W100 MM W100 F2 S S S S M W100 D W2600 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/sleep-repeat" "W300 F2 S W100 S W100 MM W100 F1 S F1 S F1 S S S S M W100 D W2600 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/sleep" "W300 F2 S W100 S W100 MM W100 MM W100 F2 S W50 D M W100 M W100 D W2000 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/sleep-album" "W300 F2 S W100 S W100 MM W100 MM W100 F2 S S S S M W100 M W100 D W2600 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/sleep-repeat" "W300 F2 S W100 S W100 MM W100 MM W100 F1 S F1 S F1 S S S S M W100 M W100 D W2600 D" >/dev/null
 unset POD_SLEEP_FAST
 for d in sleep sleep-album sleep-repeat; do
   grep -q '^pod: sleep fade' "$out/$d/sim.log" || { echo "$d did not fade" >&2; exit 1; }

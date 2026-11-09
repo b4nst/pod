@@ -6,7 +6,7 @@ theme. bΔnst ⧉ design.
 ![screens](docs/screens.png)
 
 It boots into your music library and has a cassette-deck player. There is one
-settings menu, and you open it by holding MENU.
+settings menu, and you open it by holding MENU, in the library or the deck.
 
 ![deck](docs/deck.png)
 
@@ -24,22 +24,35 @@ settings menu, and you open it by holding MENU.
 |              | hold SELECT       | play shuffled / play next / play last / info |
 | Deck (Albums)| wheel             | previous / next tape (mixtapes first, then albums) |
 |              | << / >>           | previous / next initial (hold repeats)    |
-|              | SELECT / PLAY     | play the album or mixtape from track 1, open the player |
+|              | SELECT / PLAY     | play the album or mixtape from track 1, open the player (the queue tape: open the player) |
 |              | double PLAY       | play it shuffled                          |
+|              | hold SELECT       | on an album or mixtape: play next / play last |
 |              | MENU              | back (from the player: the list the track came from)  |
 |              | hold MENU         | settings                                  |
 | Player       | wheel             | volume (the counter shows the dB value)   |
 |              | SELECT            | scrub: wheel seeks (SEEK), ends after 3 s or SELECT |
 |              | PREV / NEXT       | skip, hold to seek                        |
 |              | MENU              | the deck, on the playing album            |
-|              | hold MENU         | settings                                  |
+|              | hold MENU         | the queue                                 |
 |              | double SELECT     | love / unlove the track (heart)           |
 |              | hold SELECT       | track info / reshuffle                    |
+| Queue        | wheel             | move                                      |
+|              | SELECT            | pick the track up, SELECT again drops it  |
+|              | hold SELECT       | remove the track (picked up: let go)      |
+|              | MENU              | back to the player                        |
+|              | hold MENU         | settings                                  |
 | Equalizer    | wheel             | gain of the selected band (±12 dB)        |
 |              | PREV / NEXT       | select band (60, 250, 1K, 4K, 12K)        |
 |              | SELECT            | next preset: FLAT BASS SUB WARM VOCAL AIR LOUD |
 |              | PLAY              | EQ on / bypass                            |
 |              | MENU              | done (saved)                              |
+
+The queue is the current playlist. It is the first tape of the deck whenever
+there is one, also after a reboot before anything plays, and SELECT on it
+plays or resumes it. SELECT on an album still replaces it, and hold SELECT on
+an album or mixtape adds it after the playing track (Play next) or at the end
+(Play last), staying on the deck. In the player, hold MENU opens the queue as
+a list of titles to reorder or trim.
 
 Settings menu: Equalizer, Repeat, Sleep, Backlight, Time & Date, Rescan
 Library, System (battery, disk, version).
@@ -187,8 +200,9 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
      shelf, three peaks and a high shelf. The plot is the actual biquad
      magnitude response.
   4. navigation: the library is the root, MENU is back (at the root: now
-     playing), `<<`/`>>` do nothing in lists, hold MENU opens the settings
-     menu, the context menus are cut down, the first scan reboots by itself
+     playing), `<<`/`>>` do nothing in lists, hold MENU in the library or the
+     deck opens the settings menu, the context menus are cut down, the first
+     scan reboots by itself
   5. full-screen splash, codecs: MP3, AAC/ALAC, FLAC, Vorbis, Opus, WAV, AIFF,
      WavPack, APE
   6. full-screen "DATA LINK" USB screen in place of the stock logo
@@ -241,6 +255,11 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       albums under `#`, with a ruled J-card and the `#RULE:<text>` line pod
       link writes at the top of the file on its tape. SELECT/PLAY play it,
       and the Mixes row is gone from the library root.
+  24. the queue (`apps/gui/pod_deck.c`, `apps/playlist_viewer.c`): the current
+      playlist is the first tape of the deck, with a tracklist card. Hold
+      SELECT on an album inserts it (Play next / Play last), and hold MENU in
+      the player opens the playlist viewer as an editor: SELECT picks up and
+      drops a track, hold SELECT removes it.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

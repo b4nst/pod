@@ -1,0 +1,418 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pod <a@b.c>
+Date: Mon, 9 Nov 2026 23:49:05 +0100
+Subject: [PATCH] pod: play queue as a tape
+
+---
+ apps/gui/pod_deck.c        | 173 +++++++++++++++++++++++++++++++++++--
+ apps/keymaps/keymap-ipod.c |   6 +-
+ apps/playlist_viewer.c     |  47 +++++++++-
+ apps/root_menu.c           |   5 +-
+ 4 files changed, 218 insertions(+), 13 deletions(-)
+
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index 344d0119c26cf55b9ca87f5f4bf2f862884f9279..6312b45fc288abc19685a4326c133df92529af90 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -20,9 +20,10 @@
+ 
+ /*
+  * The cassette deck, browse mode: one tape per album (an artist's and
+- * another's of the same name are two), after a tape per mix of /Mixes, a
+- * bargraph with the initials round the corner, the J-card and the tape of
+- * the current album, and a rack of the next ones below.
++ * another's of the same name are two), after a tape per mix of /Mixes and
++ * the queue, the current playlist, first of all. A bargraph with the
++ * initials round the corner, the J-card and the tape of the current album,
++ * and a rack of the next ones below.
+  *
+  * On entry the albums are read from the tagcache: a row per track (album,
+  * artist, disc, track) sorted by album, so an album is a run of rows that is
+@@ -53,6 +54,7 @@
+ #include "splash.h"
+ #include "root_menu.h"
+ #include "tagcache.h"
++#include "menu.h"
+ #include "lang.h"
+ #include "pod_letter.h"
+ #include "pod_mixes.h"
+@@ -114,7 +116,8 @@ struct deck_album {
+ };
+ 
+ /* a mixtape is a deck_album with no tracks: start is -1 and end its index in
+- * the mixes. They come first, under the # initial. */
++ * the mixes. They come first, under the # initial. The queue has neither:
++ * start and end are -1, and it comes before them. */
+ #define DECK_MAX_TRACKS 32768   /* 384 KB, a CF card full of music */
+ #define DECK_MAX_ALBUMS 8192    /* 384 KB */
+ 
+@@ -125,6 +128,7 @@ struct deck {
+     int count;                  /* albums and mixtapes */
+     struct pod_mix *mixes;
+     int mix_count;              /* the first of them */
++    bool queue;                 /* the first album is the queue */
+ };
+ 
+ static struct deck_track rows[DECK_MAX_TRACKS];
+@@ -179,13 +183,42 @@ static void get_tag(struct tagcache_search *tcs, int32_t idx, int tag,
+         strmemccpy(buf, UNTAGGED, size);
+ }
+ 
++static bool is_queue(const struct deck_album *a)
++{
++    return a->start < 0 && a->end < 0;
++}
++
+ static bool is_mix(const struct deck_album *a)
+ {
+-    return a->start < 0;
++    return a->start < 0 && a->end >= 0;
++}
++
++/* Put the queue ahead of the tapes when there is a current playlist, whether
++ * it plays or waits to resume, or keep its track count up to date. Returns
++ * whether there is one. */
++static bool queue_load(struct deck *k)
++{
++    struct deck_album *q = &shelf[0];
++
++    if (playlist_amount() <= 0
++        && (global_status.resume_index == -1 || playlist_resume() == -1))
++        return k->queue;
++    if (!k->queue)
++    {
++        int n = MIN(k->count, DECK_MAX_ALBUMS - 1);
++
++        memmove(&shelf[1], &shelf[0], n * sizeof(shelf[0]));
++        k->count = n + 1;
++        k->queue = true;
++        q->start = q->end = -1;
++        strmemccpy(q->album, "Queue", sizeof(q->album));
++    }
++    snprintf(q->artist, sizeof(q->artist), "%d tracks", playlist_amount());
++    return true;
+ }
+ 
+ /* Read the mixtapes and the albums. Returns false when there are none. */
+-static bool deck_load(struct deck *k)
++static bool load_albums(struct deck *k)
+ {
+     struct tagcache_search tcs;
+     char path[MAX_PATH], album[MAX_PATH], artist[MAX_PATH];
+@@ -196,6 +229,7 @@ static bool deck_load(struct deck *k)
+     k->track_count = 0;
+     k->mixes = mixes;
+     k->mix_count = m;
++    k->queue = false;
+     k->tracks = rows;
+     k->albums = shelf;
+     for (k->count = 0; k->count < m; k->count++)
+@@ -259,6 +293,13 @@ static bool deck_load(struct deck *k)
+     return k->count > 0;
+ }
+ 
++static bool deck_load(struct deck *k)
++{
++    bool any = load_albums(k);
++
++    return queue_load(k) || any;
++}
++
+ static const struct deck_album *album_row(const struct deck *k, int album)
+ {
+     return &k->albums[album];
+@@ -268,6 +309,8 @@ static char album_initial(const struct deck *k, int album)
+ {
+     const struct deck_album *a = album_row(k, album);
+ 
++    if (is_queue(a))
++        return '>';
+     return is_mix(a) ? '#' : pod_letter_initial(a->album);
+ }
+ 
+@@ -282,7 +325,7 @@ static int find_album(const struct deck *k, int32_t idx)
+ {
+     for (int a = 0; a < k->count; a++)
+     {
+-        if (is_mix(&k->albums[a]))
++        if (is_queue(&k->albums[a]) || is_mix(&k->albums[a]))
+             continue;
+         for (int i = k->albums[a].start; i < k->albums[a].end; i++)
+             if (k->tracks[i].idx == idx)
+@@ -301,7 +344,7 @@ static int playing_album(const struct deck *k)
+     int album = pod_mixes_find(k->mixes, k->mix_count);
+ 
+     if (album >= 0)
+-        return album;
++        return album + k->queue;
+     path = playlist_peek(0, buf, sizeof(buf));
+ 
+     if (path && tagcache_find_index(&tcs, path))
+@@ -360,6 +403,75 @@ static bool deck_play(const struct deck *k, int album)
+     return true;
+ }
+ 
++/* Add an album or a mixtape to the playlist, after the playing track or at
++ * the end. With nothing to add to it plays them. */
++static bool deck_insert(const struct deck *k, int album, int position)
++{
++    struct tagcache_search tcs;
++    char path[MAX_PATH];
++
++    if (playlist_amount() <= 0)
++        return deck_play(k, album);
++    if (is_mix(&k->albums[album]))
++    {
++        snprintf(path, sizeof(path), POD_MIXES_DIR "/%s",
++                 k->mixes[k->albums[album].end].file);
++        if (playlist_insert_playlist(NULL, path, position, false) < 0)
++            return false;
++        playlist_sync(NULL);
++        return true;
++    }
++    if (!tagcache_search(&tcs, tag_filename))
++    {
++        splash(HZ, ID2P(LANG_TAGCACHE_BUSY));
++        return false;
++    }
++    for (int i = k->albums[album].start; i < k->albums[album].end; i++)
++        if (tagcache_retrieve(&tcs, k->tracks[i].idx, tag_filename, path,
++                              sizeof(path)))
++        {
++            playlist_insert_track(NULL, path, position, false, false);
++            /* the rest follow the first, in order */
++            if (position == PLAYLIST_INSERT_FIRST)
++                position = PLAYLIST_INSERT;
++        }
++    tagcache_search_finish(&tcs);
++    /* inserted tracks are not buffered unless the audio thread reloads */
++    if (audio_status() & AUDIO_STATUS_PLAY)
++        audio_flush_and_reload_tracks();
++    playlist_sync(NULL);
++    return true;
++}
++
++/* The hold SELECT menu of an album: Play next or Play last. Returns whether
++ * it was added. */
++static bool deck_insert_menu(const struct deck *k, int album)
++{
++    MENUITEM_STRINGLIST(menu, ID2P(LANG_PLAYLIST), NULL,
++                        ID2P(LANG_PLAY_NEXT), ID2P(LANG_PLAY_LAST));
++    int sel;
++    bool next, added;
++
++    FOR_NB_SCREENS(i)
++        viewportmanager_theme_undo(i, false);
++    sel = do_menu(&menu, NULL, NULL, false);
++    FOR_NB_SCREENS(i)
++        viewportmanager_theme_enable(i, false, NULL);
++    screens[SCREEN_MAIN].set_viewport(NULL);
++    if (sel != 0 && sel != 1)
++        return false;
++    next = sel == 0;
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: deck insert %s %s\n", next ? "next" : "last",
++            album_row(k, album)->album);
++#endif
++    added = deck_insert(k, album, next ? PLAYLIST_INSERT_FIRST
++                                       : PLAYLIST_INSERT_LAST);
++    if (added)
++        splash(HZ, next ? ID2P(LANG_PLAY_NEXT) : ID2P(LANG_PLAY_LAST));
++    return added;
++}
++
+ static int load_font(const char *path)
+ {
+     int id = font_load(path);
+@@ -542,6 +654,28 @@ static void draw_mix_card(struct screen *d, int x, int y, int w, int h,
+         card_name(d, font, x + 3, y + 17 - font_get(font)->height - 1, w - 6, name);
+ }
+ 
++/* The queue card: a tracklist, with the playing mark on the first line. A
++ * thumbnail has three lines. */
++static void draw_queue_card(struct screen *d, int x, int y, int w, int h)
++{
++    bool thumb = w <= THUMB_W;
++    int step = thumb ? 5 : 7;
++
++    d->set_foreground(POD_PAPER);
++    d->fillrect(x, y, w, h);
++    d->set_foreground(POD_FAINT);
++    for (int n = 0; n < (thumb ? 3 : 8); n++)
++        d->hline(x + (thumb ? 2 : 9), x + w - 3, y + (thumb ? 4 : 6) + n * step);
++    if (!thumb)
++    {
++        d->set_foreground(POD_INK);
++        for (int i = 0; i < 4; i++)
++            d->vline(x + 3 + i, y + 3 + i, y + 9 - i);
++    }
++    d->set_foreground(POD_INK);
++    d->drawrect(x, y, w, h);
++}
++
+ /* A generated card: a hatch picked by the album, and its initial. Both the
+  * J-card and the thumbnails come through here. */
+ static void draw_card(struct screen *d, int x, int y, int w, int h,
+@@ -550,6 +684,11 @@ static void draw_card(struct screen *d, int x, int y, int w, int h,
+     unsigned pattern = hash_tags(t->album, t->artist) % 4;
+     char str[2] = { pod_letter_initial(t->album), '\0' };
+ 
++    if (is_queue(t))
++    {
++        draw_queue_card(d, x, y, w, h);
++        return;
++    }
+     if (is_mix(t))
+     {
+         draw_mix_card(d, x, y, w, h, t->album, tiny);
+@@ -780,8 +919,26 @@ int pod_deck(bool on_playing)
+         case ACTION_TREE_LETTER_PREV:
+             cur = jump_letter(&k, cur, -1);
+             break;
++        case ACTION_STD_CONTEXT:
++            if (!is_queue(album_row(&k, cur)))
++            {
++                bool had = k.queue;
++
++                /* the queue row appears ahead of the tape */
++                if (deck_insert_menu(&k, cur) && queue_load(&k) && !had)
++                    cur = MIN(cur + 1, k.count - 1);
++            }
++            break;
+         case ACTION_STD_OK:
+         case ACTION_TREE_WPS:
++            if (is_queue(album_row(&k, cur)))
++            {
++#ifdef SIMULATOR
++                fprintf(stderr, "pod: deck play queue\n");
++#endif
++                ret = GO_TO_WPS;
++                goto done;
++            }
+ #ifdef SIMULATOR
+             fprintf(stderr, "pod: deck play %s\n", album_row(&k, cur)->album);
+ #endif
+diff --git a/apps/keymaps/keymap-ipod.c b/apps/keymaps/keymap-ipod.c
+index 020497c44af9d177e1c5cf675468db0569664e69..d39c2dbd79a2a409a6ce6ac11d335fb773cdabfa 100644
+--- a/apps/keymaps/keymap-ipod.c
++++ b/apps/keymaps/keymap-ipod.c
+@@ -105,7 +105,7 @@ static const struct button_mapping button_context_wps[]  = {
+     { ACTION_WPS_CONTEXT,   BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
+     { ACTION_WPS_HOTKEY,        BUTTON_SELECT|BUTTON_PLAY,      BUTTON_NONE },
+     { ACTION_WPS_BROWSE,        BUTTON_MENU|BUTTON_REL,         BUTTON_MENU },
+-    { ACTION_WPS_MENU,          BUTTON_MENU|BUTTON_REPEAT,      BUTTON_MENU },
++    { ACTION_WPS_VIEW_PLAYLIST, BUTTON_MENU|BUTTON_REPEAT,      BUTTON_MENU },
+ 
+     LAST_ITEM_IN_LIST,
+ }; /* button_context_wps */
+@@ -145,7 +145,8 @@ static const struct button_mapping button_context_eq[]  = {
+ }; /* button_context_eq */
+ 
+ /* pod deck: wheel = album, prev/next = letter, select = play the album,
+- * play = play it, double play = shuffled, menu = back, hold menu = settings */
++ * hold select = play next / last, play = play it, double play = shuffled,
++ * menu = back, hold menu = settings */
+ static const struct button_mapping button_context_deck[]  = {
+     { ACTION_STD_NEXT,              BUTTON_SCROLL_FWD,                  BUTTON_NONE },
+     { ACTION_STD_NEXTREPEAT,        BUTTON_SCROLL_FWD|BUTTON_REPEAT,    BUTTON_NONE },
+@@ -156,6 +157,7 @@ static const struct button_mapping button_context_deck[]  = {
+     { ACTION_TREE_LETTER_NEXT,      BUTTON_RIGHT,                       BUTTON_NONE },
+     { ACTION_TREE_LETTER_NEXT,      BUTTON_RIGHT|BUTTON_REPEAT,         BUTTON_NONE },
+     { ACTION_STD_OK,                BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
++    { ACTION_STD_CONTEXT,           BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
+     { ACTION_TREE_WPS,              BUTTON_PLAY|BUTTON_REL,             BUTTON_PLAY },
+     { ACTION_TREE_SHUFFLE,          BUTTON_PLAY|BUTTON_DOUBLE,          BUTTON_NONE },
+     { ACTION_STD_CANCEL,            BUTTON_MENU|BUTTON_REL,             BUTTON_MENU },
+diff --git a/apps/playlist_viewer.c b/apps/playlist_viewer.c
+index 94539ce0d9be1afc45238aea06df588f6299d627..1c2412d51110b5e07365075d497881e38fb78604 100644
+--- a/apps/playlist_viewer.c
++++ b/apps/playlist_viewer.c
+@@ -22,6 +22,7 @@
+  * Kevin Ferrare 2005/10/16
+  * multi-screen support, rewrote a lot of code
+  */
++#include <stdio.h>
+ #include <string.h>
+ #include "playlist.h"
+ #include "audio.h"
+@@ -1061,9 +1062,21 @@ enum playlist_viewer_result playlist_viewer_ex(const char* filename,
+                             playlist_buffer_get_track(&viewer.buffer,
+                                                       viewer.selected_track);
+                 int ret_val, start_index = current_track->index;
+-                if (viewer.moving_track >= 0)
++                if (!viewer.playlist && viewer.moving_track < 0)
++                {
++                    /* the queue: pick the track up, SELECT drops it */
++                    viewer.moving_track = viewer.selected_track;
++                    viewer.moving_playlist_index = current_track->index;
++                }
++                else if (viewer.moving_track >= 0)
+                 {
+                     /* Move track */
++#ifdef SIMULATOR
++                    if (!viewer.playlist)
++                        fprintf(stderr, "pod: queue move %d -> %d\n",
++                                viewer.moving_playlist_index,
++                                current_track->index);
++#endif
+                     ret_val = playlist_move(viewer.playlist,
+                                             viewer.moving_playlist_index,
+                                             current_track->index);
+@@ -1119,7 +1132,37 @@ enum playlist_viewer_result playlist_viewer_ex(const char* filename,
+             }
+             case ACTION_STD_CONTEXT:
+             {
+-                int pv_context_result = context_menu(viewer.selected_track);
++                int pv_context_result;
++
++                if (!viewer.playlist)
++                {
++                    /* the queue: remove the track, or let go of the one
++                     * that is picked up */
++                    struct playlist_entry *current_track =
++                            playlist_buffer_get_track(&viewer.buffer,
++                                                      viewer.selected_track);
++
++                    if (viewer.moving_track >= 0)
++                    {
++                        viewer.selected_track = viewer.moving_track;
++                        gui_synclist_select_item(&playlist_lists,
++                                                 viewer.moving_track);
++                        viewer.moving_track = -1;
++                        viewer.moving_playlist_index = -1;
++                        gui_synclist_draw(&playlist_lists);
++                        break;
++                    }
++#ifdef SIMULATOR
++                    fprintf(stderr, "pod: queue remove %d\n",
++                            current_track->index);
++#endif
++                    pv_context_result = delete_track(current_track->index,
++                            viewer.selected_track,
++                            (audio_status() & AUDIO_STATUS_PLAY)
++                            && current_track->index == viewer.current_playing_track);
++                }
++                else
++                    pv_context_result = context_menu(viewer.selected_track);
+ 
+                 if (pv_context_result == PV_CONTEXT_USB)
+                 {
+diff --git a/apps/root_menu.c b/apps/root_menu.c
+index efb26a8a26d41dbccb3177446f9d74c57f3cb1d2..55383e41e817d1219f97100255341a7e4cc45797 100644
+--- a/apps/root_menu.c
++++ b/apps/root_menu.c
+@@ -447,10 +447,13 @@ static int playlist_view(void * param)
+     switch (val)
+     {
+         case PLAYLIST_VIEWER_MAINMENU:
++            return GO_TO_MAINMENU;
+         case PLAYLIST_VIEWER_USB:
+             return GO_TO_ROOT;
+         case PLAYLIST_VIEWER_OK:
+-            return GO_TO_PREVIOUS;
++        case PLAYLIST_VIEWER_CANCEL:
++            /* the queue is opened from the player: back to it */
++            return audio_status() ? GO_TO_WPS : GO_TO_PREVIOUS;
+     }
+     return GO_TO_PREVIOUS;
+ }
