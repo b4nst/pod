@@ -37,7 +37,7 @@ index 68c25939dd43637b737c5a3ef0d446bf23635194..2cc40e419b210c4f110b63671bea086d
      { ACTION_NONE,              BUTTON_LEFT,                 BUTTON_NONE },
      { ACTION_NONE,              BUTTON_RIGHT,                BUTTON_NONE },
 diff --git a/apps/tagtree.c b/apps/tagtree.c
-index 6171a9ed86cfbf2146bfc724e63aa2ede68d4ec1..9f6d7b0440c8a1c2feff09599b1863071b5f837b 100644
+index c2f06bb803dc5bd93f05fdf26b2863be97a181e2..c47ad19c2b4af3084e2df2251dfc14b056586fac 100644
 --- a/apps/tagtree.c
 +++ b/apps/tagtree.c
 @@ -65,7 +65,7 @@
@@ -58,7 +58,7 @@ index 6171a9ed86cfbf2146bfc724e63aa2ede68d4ec1..9f6d7b0440c8a1c2feff09599b186307
                      rc = 2;
                  break;
              }
-@@ -2812,7 +2812,7 @@ int tagtree_add_to_playlist(const char* playlist, bool new_playlist)
+@@ -2722,7 +2722,7 @@ int tagtree_add_to_playlist(const char* playlist, bool new_playlist)
      return tagtree_insert_selection(0, false, playlist, new_playlist) ? 0 : -1;
  }
  
@@ -67,7 +67,7 @@ index 6171a9ed86cfbf2146bfc724e63aa2ede68d4ec1..9f6d7b0440c8a1c2feff09599b186307
  {
      logf( "%s", __func__);
      int start_index = c->selected_item;
-@@ -2837,11 +2837,13 @@ static int tagtree_play_folder(struct tree_context* c)
+@@ -2747,11 +2747,13 @@ static int tagtree_play_folder(struct tree_context* c)
          start_index = percentage_start_index * playlist_get_current()->amount / 100;
      }
  
@@ -85,7 +85,7 @@ index 6171a9ed86cfbf2146bfc724e63aa2ede68d4ec1..9f6d7b0440c8a1c2feff09599b186307
      }
  
      playlist_start(start_index, 0, 0);
-@@ -2849,6 +2851,58 @@ static int tagtree_play_folder(struct tree_context* c)
+@@ -2759,6 +2761,58 @@ static int tagtree_play_folder(struct tree_context* c)
      return 0;
  }
  
@@ -145,13 +145,13 @@ index 6171a9ed86cfbf2146bfc724e63aa2ede68d4ec1..9f6d7b0440c8a1c2feff09599b186307
  {
      struct tagentry *entry;
 diff --git a/apps/tagtree.h b/apps/tagtree.h
-index db305a68ef79e5f8edc807beb8026d1fae43e069..05fa617ddbb55a7cd8fabc739c32a035e84743c7 100644
+index b96b4fdf82770ea2b80b5a7eea2d5759ac19066e..122d8ebaa330d44c0da89872658e6b92c07631a3 100644
 --- a/apps/tagtree.h
 +++ b/apps/tagtree.h
-@@ -38,6 +38,7 @@ int tagtree_enter(struct tree_context* c, bool is_visible);
+@@ -37,6 +37,7 @@ bool tagtree_ready(void);
+ int tagtree_enter(struct tree_context* c, bool is_visible);
  void tagtree_exit(struct tree_context* c, bool is_visible);
  int tagtree_load(struct tree_context* c);
- bool tagtree_goto_current(struct tree_context *c);
 +int tagtree_play_selection(struct tree_context *c, bool shuffle);
  char* tagtree_get_entry_name(struct tree_context *c, int id,
                                      char* buf, size_t bufsize);

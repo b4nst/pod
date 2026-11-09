@@ -8,6 +8,8 @@ theme. bΔnst ⧉ design.
 It boots into your music library and has a cassette-deck player. There is one
 settings menu, and you open it by holding MENU.
 
+![deck](docs/deck.png)
+
 ## Controls
 
 | Where        | Button            | Action                                    |
@@ -21,10 +23,16 @@ settings menu, and you open it by holding MENU.
 |              | double PLAY       | play it shuffled (Shuffle All: PLAY)      |
 |              | hold SELECT       | play shuffled / play next / play last / info |
 |              | SELECT on a mix   | plays it (Mixes, `/Mixes/*.m3u8`), then now playing |
+| Deck (Albums)| wheel             | previous / next album                     |
+|              | << / >>           | previous / next initial (hold repeats)    |
+|              | SELECT / PLAY     | play the album from track 1, open the player |
+|              | double PLAY       | play it shuffled                          |
+|              | MENU              | back (from the player: the list the track came from)  |
+|              | hold MENU         | settings                                  |
 | Player       | wheel             | volume (the counter shows the dB value)   |
 |              | SELECT            | scrub: wheel seeks (SEEK), ends after 3 s or SELECT |
 |              | PREV / NEXT       | skip, hold to seek                        |
-|              | MENU              | the playing track in its album            |
+|              | MENU              | the deck, on the playing album            |
 |              | hold MENU         | settings                                  |
 |              | double SELECT     | love / unlove the track (heart)           |
 |              | hold SELECT       | track info / reshuffle                    |
@@ -199,8 +207,7 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       tap, for keymaps that map it. Unmapped, it is a plain press.
   12. no [All tracks] / [Random] rows in the library lists, so an artist's
       albums come by year (`tagnavi_user.config`)
-  13. player SELECT scrubs the track (`%pS` skin tag: SEEK in the status row),
-      MENU opens the playing track in its album (`tagtree_goto_current`)
+  13. player SELECT scrubs the track (`%pS` skin tag: SEEK in the status row)
   14. library letters: `<<`/`>>` jump to the previous/next initial
       (`ACTION_TREE_LETTER_*`), a fast wheel or a jump shows the letter in a
       box over the list for 600 ms (`apps/gui/pod_letter.c`), and lists of
@@ -228,6 +235,10 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
   21. Sleep in the settings menu (`apps/pod_sleep.c`): 15, 30, 60 min or
       the end of the album, with a 10 s fade (`pcmbuf_set_sleep_volume`) and
       `%pZ` for the time left
+  22. the cassette deck (`apps/gui/pod_deck.c`), the Albums row (`%deck`): an
+      album per tape, with a bargraph of initials, a generated J-card and a
+      rack of the next albums. SELECT/PLAY play the album and open the
+      player, whose MENU comes back to the deck on the playing album.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

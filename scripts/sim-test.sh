@@ -52,28 +52,33 @@ for d in slow hold; do
 done
 echo "double tap ok"
 
-# an artist's albums come by year: the first one under Neon Cassette (1984) is
-# Magnetic Dawn, the second one in Albums (by title). Opened, they show the
-# same tracks, which they would not if the first row were Afterglow (1991) or
-# one of the [All tracks] rows.
-"$root/scripts/sim-shot.sh" "$out/artist" "W300 S W100 F1 S W100 S W100 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/album" "W300 F1 S W100 F1 S W100 D" >/dev/null
-for d in artist album; do
-  [ -f "$out/$d/01.png" ] || { echo "$d/01.png is missing" >&2; exit 1; }
+# Albums (root row 2) opens the deck: the wheel moves one album at a time
+# (Afterglow, Magnetic Dawn, Signal / Noise, Tape Loop, ...), >> and << jump
+# by initial (S, T, back to S), SELECT plays the album from its first track
+# and opens the player, and MENU in the player comes back to the deck on the
+# playing album, also when the track came from Songs.
+areadiff() {
+  magick compare -metric AE "$out/$1.png[2000x2000+0+45]" "$out/$2.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1
+}
+"$root/scripts/sim-shot.sh" "$out/deck" "W300 F1 S W100 D F2 D R D L D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/deck-play" "W300 F1 S W100 F2 S W200 D M W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/deck-shuffle" "W300 F1 S W100 F2 2P W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/deck-songs" "W300 F2 S W100 F1 S W200 M W100 D" >/dev/null
+for f in deck/01 deck/04 deck-play/01 deck-play/02 deck-songs/01; do
+  [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
 done
-d=$(magick compare -metric AE "$out/artist/01.png[2000x2000+0+45]" "$out/album/01.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1)
-[ "$d" = 0 ] || { echo "the first album of an artist is not the earliest one" >&2; exit 1; }
-echo "albums ok"
-
-# MENU in the player opens the playing track in its album (Albums, level 2,
-# the second track), and MENU backs out of there one level at a time up to
-# the library root, where one more goes to the player
-"$root/scripts/sim-shot.sh" "$out/goto" "W300 F1 S W100 F2 S W100 F1 S W200 D M W100 D M W100 D M W100 D M W200 D" >/dev/null
-grep -q '^pod: current track level 2 item 1' "$out/goto/sim.log" || { echo "MENU did not open the playing track" >&2; exit 1; }
-for i in 01 02 03 04 05; do
-  [ -f "$out/goto/$i.png" ] || { echo "goto/$i.png is missing" >&2; exit 1; }
-done
-echo "goto ok"
+grep -q '^pod: deck 1/5 Afterglow' "$out/deck/sim.log" || { echo "the deck did not open on the first album" >&2; exit 1; }
+grep -q '^pod: deck 3/5 Signal / Noise' "$out/deck/sim.log" || { echo "the wheel did not move the deck" >&2; exit 1; }
+grep -q '^pod: deck 4/5 Tape Loop' "$out/deck/sim.log" || { echo ">> did not jump to the next initial" >&2; exit 1; }
+[ "$(grep '^pod: deck' "$out/deck/sim.log" | tail -1)" = 'pod: deck 3/5 Signal / Noise' ] || { echo "<< did not jump back" >&2; exit 1; }
+[ "$(areadiff deck/01 deck/04)" != 0 ] || { echo "the deck did not change" >&2; exit 1; }
+grep -q '^pod: deck play Signal / Noise' "$out/deck-play/sim.log" || { echo "SELECT did not play the album" >&2; exit 1; }
+[ "$(grep -c '^pod: deck 3/5' "$out/deck-play/sim.log")" -ge 2 ] || { echo "MENU did not go back to the deck" >&2; exit 1; }
+[ "$(areadiff deck-play/01 deck-play/02)" != 0 ] || { echo "the player looks like the deck" >&2; exit 1; }
+grep -q '^pod: play shuffled' "$out/deck-shuffle/sim.log" || { echo "a double PLAY did not shuffle the album" >&2; exit 1; }
+! grep -q '^pod: play shuffled' "$out/deck-play/sim.log" || { echo "SELECT shuffled the album" >&2; exit 1; }
+grep -q '^pod: deck 3/5' "$out/deck-songs/sim.log" || { echo "MENU did not open the deck on the playing album" >&2; exit 1; }
+echo "deck ok"
 
 # SELECT in the player scrubs: the wheel moves the position (the counter
 # changes) and no longer the volume
@@ -98,9 +103,6 @@ echo "scrub ok"
 for d in letters-next letters-click letters-prev letters-top letters-fast; do
   [ -f "$out/$d/01.png" ] || { echo "$d/01.png is missing" >&2; exit 1; }
 done
-areadiff() {
-  magick compare -metric AE "$out/$1.png[2000x2000+0+45]" "$out/$2.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1
-}
 [ "$(areadiff letters-next/01 letters-click/01)" = 0 ] || { echo ">> did not jump by initial" >&2; exit 1; }
 [ "$(areadiff letters-prev/02 letters-top/01)" = 0 ] || { echo "<< did not jump back by initial" >&2; exit 1; }
 [ -f "$out/letters-fast/02.png" ] || { echo "letters-fast/02.png is missing" >&2; exit 1; }
@@ -112,7 +114,7 @@ echo "letters ok"
 # rebuild, now or at the next boot (stats still queued when the simulator
 # exits are lost, so this is one run)
 cl=$root/build/sim/simdisk/.pod/database_changelog.txt
-"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F1 S W100 F2 S W100 S W3500 MM W100 F5 W50 D S W1500 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F1 S W100 F2 S W3500 MM W100 F5 W50 D S W1500 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/rescan-boot" "W1500" >/dev/null
 grep -q 'playcount="[1-9]' "$cl" || { echo "the changelog has no play count" >&2; exit 1; }
 cat "$out"/rescan/sim.log "$out"/rescan-boot/sim.log | grep -q '^pod: stats imported for [1-9]' || { echo "the stats were not imported" >&2; exit 1; }
@@ -194,10 +196,10 @@ done
 echo "love ok"
 
 # a track over 10 minutes picks up where it stopped, a short one starts at 0.
-# Zero Hour (Albums row 4, 11 min) plays 6 s, Carrier 6 s, then Zero Hour
-# again starts at about 6 s and Carrier at 0. One run, because the resume
+# Zero Hour (Albums row 4, 11 min, the Tape Loop tape) plays 8 s, Carrier 6 s, then Zero Hour
+# again starts where it stopped and Carrier at 0. One run, because the resume
 # points are tagcache updates still queued when the simulator exits.
-"$root/scripts/sim-shot.sh" "$out/resume" "W300 F1 S W100 F3 S W100 S W600 M W100 M W100 B1 S W100 S W600 M W100 M W100 F1 S W100 S W300 D M W100 M W100 B1 S W100 S W300 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/resume" "W300 F1 S W100 F3 S W800 M W100 B1 S W600 M W100 F1 S W300 D M W100 B1 S W300 D" >/dev/null
 starts=$(grep '^pod: start' "$out/resume/sim.log")
 [ "$(sed -n 1p <<<"$starts")" = 'pod: start long at 0' ] || { echo "Zero Hour is not a long track" >&2; exit 1; }
 [ "$(sed -n 2p <<<"$starts")" = 'pod: start short at 0' ] || { echo "Carrier is not a short track" >&2; exit 1; }

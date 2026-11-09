@@ -1,19 +1,15 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: banst <bastien@banst.ch>
 Date: Sun, 8 Nov 2026 10:15:13 +0100
-Subject: [PATCH] pod: player SELECT scrubs the track, MENU returns to the
- playing track in its album
+Subject: [PATCH] pod: player SELECT scrubs the track
 
 ---
  apps/gui/skin_engine/skin_tokens.c |  4 ++
  apps/gui/wps.c                     | 99 ++++++++++++++++++++++++++++++
  apps/gui/wps.h                     |  1 +
- apps/root_menu.c                   |  8 ++-
- apps/tagtree.c                     | 90 +++++++++++++++++++++++++++
- apps/tagtree.h                     |  1 +
  lib/skin_parser/tag_table.c        |  1 +
  lib/skin_parser/tag_table.h        |  1 +
- 8 files changed, 203 insertions(+), 2 deletions(-)
+ 5 files changed, 106 insertions(+)
 
 diff --git a/apps/gui/skin_engine/skin_tokens.c b/apps/gui/skin_engine/skin_tokens.c
 index b18eedc99cdb61e9ca89e2e7d045ea8a8aa61372..0e3a04d5e3c935c2aa79c7aa991b08e7cde70b9d 100644
@@ -189,138 +185,6 @@ index 36dc77e4938ababcf07353753b1bf6624d20fcb3..7f5a207f784d0f08d46514c57a1da138
      bool paused;
  };
  
-diff --git a/apps/root_menu.c b/apps/root_menu.c
-index bc023befb67ff59345423aa2c3d63a02220863e5..f14a3ccc45498d261c1c73b057e0a6cbf925a5ff 100644
---- a/apps/root_menu.c
-+++ b/apps/root_menu.c
-@@ -275,8 +275,12 @@ static int browser(void* param)
-             }
-             filter = SHOW_ID3DB;
-             last_ft_dirlevel = tc->dirlevel;
--            tc->dirlevel = last_db_dirlevel;
--            tc->selected_item = last_db_selection;
-+            /* from the player, MENU opens the playing track in its album */
-+            if (!(last_screen == GO_TO_WPS && tagtree_goto_current(tc)))
-+            {
-+                tc->dirlevel = last_db_dirlevel;
-+                tc->selected_item = last_db_selection;
-+            }
-             push_current_activity(ACTIVITY_DATABASEBROWSER);
-         break;
- #endif /*HAVE_TAGCACHE*/
-diff --git a/apps/tagtree.c b/apps/tagtree.c
-index 2f047969e12acb5332426cc816d047fe440e56d8..e0f7f5a1ef0e9912a663c9f1cfeb0c0eb20e1b58 100644
---- a/apps/tagtree.c
-+++ b/apps/tagtree.c
-@@ -2300,6 +2300,96 @@ int tagtree_enter(struct tree_context* c, bool is_visible)
-     return rc;
- }
- 
-+/* pod: open the album of the playing track with the track selected, as if
-+ * walked to from the root: Albums, the album, the track. When a step fails
-+ * the browser is left at the root. Returns false only if it didn't move. */
-+bool tagtree_goto_current(struct tree_context *c)
-+{
-+    struct mp3entry *id3 = audio_current_track();
-+    struct tagcache_search tcs;
-+    char album[MAX_PATH], name[MAX_PATH];
-+    int idx, i;
-+    bool found;
-+
-+    if (!id3 || !tagcache_find_index(&tcs, id3->path))
-+        return false;
-+    idx = tcs.idx_id;
-+    found = tagcache_retrieve(&tcs, idx, tag_album, album, sizeof(album));
-+    tagcache_search_finish(&tcs);
-+    if (!found)
-+        return false;
-+
-+    c->dirlevel = 0;
-+    c->currtable = TABLE_ROOT;
-+    c->currextra = rootmenu;
-+    c->selected_item = 0;
-+    max_history_level = 0;
-+    tagtree_load(c);
-+
-+    /* Albums is the root item listing albums then titles, with no filter */
-+    for (i = 0; i < c->filesindir; i++)
-+    {
-+        struct tagentry *e = tagtree_get_entry(c, i);
-+        struct search_instruction *si;
-+
-+        if (!e || e->newtable != TABLE_NAVIBROWSE)
-+            continue;
-+        si = &menu->items[e->extraseek]->si;
-+        if (si->tagorder_count == 2 && si->tagorder[0] == tag_album
-+            && si->tagorder[1] == tag_title
-+            && !si->clause_count[0] && !si->clause_count[1])
-+            break;
-+    }
-+    if (i == c->filesindir)
-+        goto fail;
-+
-+    c->selected_item = i;
-+    tagtree_enter(c, true);
-+    tagtree_load(c);
-+
-+    /* the list shows untagged albums under another name */
-+    if (!strcmp(album, UNTAGGED))
-+        strlcpy(album, str(LANG_TAGNAVI_UNTAGGED), sizeof(album));
-+    for (i = c->special_entry_count; i < c->filesindir; i++)
-+    {
-+        char *n = tagtree_get_entry_name(c, i, name, sizeof(name));
-+        if (!n)
-+            goto fail;
-+        if (!strcmp(n, album))
-+            break;
-+    }
-+    if (i == c->filesindir)
-+        goto fail;
-+
-+    c->selected_item = i;
-+    tagtree_enter(c, true);
-+    tagtree_load(c);
-+
-+    for (i = c->special_entry_count; i < c->filesindir; i++)
-+    {
-+        struct tagentry *e = tagtree_get_entry(c, i);
-+        if (e && e->extraseek == idx)
-+            break;
-+    }
-+    if (i == c->filesindir)
-+        goto fail;
-+
-+    c->selected_item = i;
-+#ifdef SIMULATOR
-+    fprintf(stderr, "pod: current track level %d item %d\n", c->dirlevel, i);
-+#endif
-+    return true;
-+
-+fail:
-+    c->dirlevel = 0;
-+    c->currtable = TABLE_ROOT;
-+    c->currextra = rootmenu;
-+    c->selected_item = 0;
-+    max_history_level = 0;
-+    tagtree_load(c);
-+    return true;
-+}
-+
- /* Exits current database menu or table */
- void tagtree_exit(struct tree_context* c, bool is_visible)
- {
-diff --git a/apps/tagtree.h b/apps/tagtree.h
-index b96b4fdf82770ea2b80b5a7eea2d5759ac19066e..db305a68ef79e5f8edc807beb8026d1fae43e069 100644
---- a/apps/tagtree.h
-+++ b/apps/tagtree.h
-@@ -37,6 +37,7 @@ bool tagtree_ready(void);
- int tagtree_enter(struct tree_context* c, bool is_visible);
- void tagtree_exit(struct tree_context* c, bool is_visible);
- int tagtree_load(struct tree_context* c);
-+bool tagtree_goto_current(struct tree_context *c);
- char* tagtree_get_entry_name(struct tree_context *c, int id,
-                                     char* buf, size_t bufsize);
- bool tagtree_current_playlist_insert(int position, bool queue);
 diff --git a/lib/skin_parser/tag_table.c b/lib/skin_parser/tag_table.c
 index 03834aa63b4f0e3f7672c1ddbbcabe13335ba432..a29a873d321a7783fc32dc72ae10a3f2ff307478 100644
 --- a/lib/skin_parser/tag_table.c

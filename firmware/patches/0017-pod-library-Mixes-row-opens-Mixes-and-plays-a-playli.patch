@@ -178,7 +178,7 @@ index 0000000000000000000000000000000000000000..4a3a9aafa87a9292ba4b75d43e2fa0c6
 +
 +#endif
 diff --git a/apps/tagtree.c b/apps/tagtree.c
-index e0f7f5a1ef0e9912a663c9f1cfeb0c0eb20e1b58..6171a9ed86cfbf2146bfc724e63aa2ede68d4ec1 100644
+index 2f047969e12acb5332426cc816d047fe440e56d8..c2f06bb803dc5bd93f05fdf26b2863be97a181e2 100644
 --- a/apps/tagtree.c
 +++ b/apps/tagtree.c
 @@ -120,6 +120,7 @@ enum variables {

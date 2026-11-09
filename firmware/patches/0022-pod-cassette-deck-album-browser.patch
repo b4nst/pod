@@ -1,0 +1,967 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Mon, 9 Nov 2026 20:09:15 +0100
+Subject: [PATCH] pod: cassette deck album browser
+
+---
+ apps/SOURCES               |   1 +
+ apps/action.h              |   1 +
+ apps/gui/pod_deck.c        | 729 +++++++++++++++++++++++++++++++++++++
+ apps/gui/pod_deck.h        |  30 ++
+ apps/keymaps/keymap-ipod.c |  22 ++
+ apps/onplay.h              |   1 +
+ apps/root_menu.c           |   8 +
+ apps/tagtree.c             |  12 +-
+ apps/tree.c                |  13 +
+ 9 files changed, 815 insertions(+), 2 deletions(-)
+ create mode 100644 apps/gui/pod_deck.c
+ create mode 100644 apps/gui/pod_deck.h
+
+diff --git a/apps/SOURCES b/apps/SOURCES
+index 482dee898889e7f2793c60b388a09138cb9f815c..d96d6b5f6d30bd684d519d0e1a34c126a34fe096 100644
+--- a/apps/SOURCES
++++ b/apps/SOURCES
+@@ -78,6 +78,7 @@ iap/iap-lingo7.c
+ #endif
+ screen_access.c
+ gui/icon.c
++gui/pod_deck.c
+ gui/pod_eq.c
+ gui/pod_letter.c
+ gui/list.c
+diff --git a/apps/action.h b/apps/action.h
+index fe03542325dc2b2c4586463d5ec94b4a3b4ca9c4..c9b1a27cd19f93cda4c0b49a3b31a99ee534df2c 100644
+--- a/apps/action.h
++++ b/apps/action.h
+@@ -132,6 +132,7 @@ enum {
+     CONTEXT_USB_HID_MODE_PRESENTATION,
+     CONTEXT_USB_HID_MODE_BROWSER,
+     CONTEXT_USB_HID_MODE_MOUSE,
++    CONTEXT_POD_DECK,
+     LAST_CONTEXT_PLACEHOLDER,
+ };
+ 
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..c057672d9e95b1695efed0f00589c3b7d883578b
+--- /dev/null
++++ b/apps/gui/pod_deck.c
+@@ -0,0 +1,729 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++
++/*
++ * The cassette deck, browse mode: one tape per album (an artist's and
++ * another's of the same name are two), a bargraph with the initials round
++ * the corner, the J-card and the tape of the current album, and a rack of
++ * the next ones below.
++ *
++ * On entry the albums are read from the tagcache: a row per track (album,
++ * artist, disc, track) sorted by album, so an album is a run of rows that is
++ * already in play order. The rows are static, and so are the fonts once
++ * loaded: allocating from buflib while a track plays makes the player stop
++ * and resume it.
++ */
++
++#include "config.h"
++#include <stdio.h>
++#include <stdbool.h>
++#include <string.h>
++#include <ctype.h>
++#include <stdlib.h>
++#include "string-extra.h"
++#include "system.h"
++#include "kernel.h"
++#include "action.h"
++#include "settings.h"
++#include "rbpaths.h"
++#include "font.h"
++#include "screen_access.h"
++#include "viewport.h"
++#include "misc.h"
++#include "audio.h"
++#include "playlist.h"
++#include "powermgmt.h"
++#include "splash.h"
++#include "root_menu.h"
++#include "tagcache.h"
++#include "lang.h"
++#include "pod_letter.h"
++#include "pod_sleep.h"
++#include "pod_deck.h"
++
++#define FONT_VALUE      FONT_DIR "/14-Deck-Bold.fnt"
++#define FONT_TINY       FONT_DIR "/06-Tiny.fnt"
++
++/* light theme: dark ink on the bare (backlit) panel */
++#define POD_PAPER       LCD_WHITE
++#define POD_FAINT       LCD_LIGHTGRAY
++#define POD_MID         LCD_DARKGRAY
++#define POD_INK         LCD_BLACK
++
++/* bargraph: ticks every 4 px up the left edge, round a 20 px corner and
++ * across the top. A tick is 2 px along the path and 6 across. */
++#define BAR_STEP        4
++#define BAR_X           3       /* the vertical run */
++#define BAR_Y0          55      /* its lowest tick */
++#define BAR_R           20      /* corner radius, its centre at (R+3, R+3) */
++#define BAR_TOP         3       /* the horizontal run */
++#define BAR_XEND        111     /* before the battery */
++#define BAR_V           8       /* ticks of the vertical run */
++#define BAR_A           9       /* ticks of the corner */
++#define BAR_H           22      /* ticks of the horizontal run */
++#define BAR_N           (BAR_V + BAR_A + BAR_H)
++#define BAR_LABEL       9       /* labels sit this far inside the ticks */
++#define LABEL_GAP       2       /* ticks: 8 px between two labels */
++
++/* J-card, tape and rack */
++#define CARD_X          17
++#define CARD_Y          19
++#define CARD_W          38
++#define CARD_H          59
++#define TAPE_X          60
++#define TAPE_Y          19
++#define TAPE_W          74
++#define TAPE_H          46
++#define THUMB_W         12
++#define THUMB_H         19
++#define THUMB_X         3
++#define THUMB_Y         86
++#define THUMB_STEP      15
++#define THUMB_N         9       /* the previous album, the current one, 7 more */
++
++/* a track: the album it belongs to is told by a hash of the whole album and
++ * artist, the text is only kept for the albums */
++struct deck_track {
++    uint32_t hash;
++    int32_t idx;                /* tagcache index of the track */
++    uint16_t disc, track;
++};
++
++struct deck_album {
++    int start, end;             /* its tracks, in play order */
++    char album[24];             /* to sort and to show */
++    char artist[16];
++};
++
++#define DECK_MAX_TRACKS 32768   /* 384 KB, a CF card full of music */
++#define DECK_MAX_ALBUMS 8192    /* 384 KB */
++
++struct deck {
++    struct deck_track *tracks;
++    int track_count;
++    struct deck_album *albums;
++    int count;                  /* albums */
++};
++
++static struct deck_track rows[DECK_MAX_TRACKS];
++static struct deck_album shelf[DECK_MAX_ALBUMS];
++
++/* cos of 0, 11.25, ... 90 degrees in 64ths: the corner of the bargraph */
++static const unsigned char corner_cos[BAR_A] = { 64, 63, 59, 53, 45, 36, 24, 12, 0 };
++
++static int cmp_track(const void *a, const void *b)
++{
++    const struct deck_track *x = a, *y = b;
++
++    if (x->hash != y->hash)
++        return x->hash < y->hash ? -1 : 1;
++    if (x->disc != y->disc)
++        return x->disc - y->disc;
++    if (x->track != y->track)
++        return x->track - y->track;
++    return x->idx - y->idx;
++}
++
++static int cmp_album(const void *a, const void *b)
++{
++    const struct deck_album *x = a, *y = b;
++    int d = strcasecmp(x->album, y->album);
++
++    if (!d)
++        d = strcasecmp(x->artist, y->artist);
++    return d ? d : x->start - y->start;
++}
++
++/* FNV-1a over the album, a separator and the artist, case folded as the
++ * sorting is */
++static uint32_t hash_tags(const char *album, const char *artist)
++{
++    uint32_t h = 2166136261u;
++
++    for (const char *p = album; *p; p++)
++        h = (h ^ (unsigned char)tolower((unsigned char)*p)) * 16777619u;
++    h *= 16777619u;
++    for (const char *p = artist; *p; p++)
++        h = (h ^ (unsigned char)tolower((unsigned char)*p)) * 16777619u;
++    return h;
++}
++
++/* the tag of a track, or <Untagged> */
++static void get_tag(struct tagcache_search *tcs, int32_t idx, int tag,
++                    char *buf, long size)
++{
++    if (!tagcache_retrieve(tcs, idx, tag, buf, size) || !*buf)
++        strmemccpy(buf, UNTAGGED, size);
++}
++
++/* Read the albums. Returns false when the library is busy or empty. */
++static bool deck_load(struct deck *k)
++{
++    struct tagcache_search tcs;
++    char path[MAX_PATH], album[MAX_PATH], artist[MAX_PATH];
++    int total = tagcache_get_stat()->total_entries;
++    bool full = total > DECK_MAX_TRACKS;
++
++    k->count = k->track_count = 0;
++    if (total <= 0 || !tagcache_search(&tcs, tag_filename))
++        return false;
++    total = MIN(total, DECK_MAX_TRACKS);
++    k->tracks = rows;
++    k->albums = shelf;
++
++    cpu_boost(true);
++    while (k->track_count < total && tagcache_get_next(&tcs, path, sizeof(path)))
++    {
++        struct deck_track *t = &k->tracks[k->track_count++];
++
++        t->idx = tcs.idx_id;
++        get_tag(&tcs, t->idx, tag_album, album, sizeof(album));
++        get_tag(&tcs, t->idx, tag_virt_canonicalartist, artist, sizeof(artist));
++        t->hash = hash_tags(album, artist);
++        t->disc = MAX(0, tagcache_get_numeric(&tcs, tag_discnumber));
++        t->track = MAX(0, tagcache_get_numeric(&tcs, tag_tracknumber));
++    }
++
++    /* an album is a run of one hash, already in play order */
++    qsort(k->tracks, k->track_count, sizeof(struct deck_track), cmp_track);
++    for (int i = 0; i < k->track_count; i++)
++    {
++        struct deck_album *a;
++
++        if (i > 0 && k->tracks[i - 1].hash == k->tracks[i].hash)
++        {
++            k->albums[k->count - 1].end = i + 1;
++            continue;
++        }
++        if (k->count == DECK_MAX_ALBUMS)
++        {
++            full = true;
++            k->track_count = i;
++            break;
++        }
++        a = &k->albums[k->count++];
++        a->start = i;
++        a->end = i + 1;
++        get_tag(&tcs, k->tracks[i].idx, tag_album, album, sizeof(album));
++        get_tag(&tcs, k->tracks[i].idx, tag_virt_canonicalartist, artist,
++                sizeof(artist));
++        strmemccpy(a->album, album, sizeof(a->album));
++        strmemccpy(a->artist, artist, sizeof(a->artist));
++    }
++    tagcache_search_finish(&tcs);
++    cpu_boost(false);
++
++    qsort(k->albums, k->count, sizeof(struct deck_album), cmp_album);
++    if (full)
++        splash(HZ * 2, "Library too big: some albums are left out");
++    return k->count > 0;
++}
++
++static const struct deck_album *album_row(const struct deck *k, int album)
++{
++    return &k->albums[album];
++}
++
++static char album_initial(const struct deck *k, int album)
++{
++    return pod_letter_initial(album_row(k, album)->album);
++}
++
++/* the album a tagcache track belongs to, or -1 */
++static int find_album(const struct deck *k, int32_t idx)
++{
++    for (int a = 0; a < k->count; a++)
++        for (int i = k->albums[a].start; i < k->albums[a].end; i++)
++            if (k->tracks[i].idx == idx)
++                return a;
++    return -1;
++}
++
++/* the album of the track the playlist is on: the player may still be
++ * loading it, so ask the playlist and not the audio thread */
++static int playing_album(const struct deck *k)
++{
++    struct tagcache_search tcs;
++    char buf[MAX_PATH];
++    const char *path = playlist_peek(0, buf, sizeof(buf));
++    int album = -1;
++
++    if (path && tagcache_find_index(&tcs, path))
++    {
++        album = find_album(k, tcs.idx_id);
++        tagcache_search_finish(&tcs);
++    }
++    return album;
++}
++
++/* the first album of the previous / next initial */
++static int jump_letter(const struct deck *k, int cur, int dir)
++{
++    char c = album_initial(k, cur);
++    int a = cur;
++
++    if (dir > 0)
++    {
++        while (a < k->count - 1 && album_initial(k, a) == c)
++            a++;
++        return a;
++    }
++    while (a > 0 && album_initial(k, a) == c)
++        a--;
++    c = album_initial(k, a);
++    while (a > 0 && album_initial(k, a - 1) == c)
++        a--;
++    return a;
++}
++
++/* Put the tracks of an album on a new playlist and start it. */
++static bool deck_play(const struct deck *k, int album)
++{
++    struct tagcache_search tcs;
++    char path[MAX_PATH];
++
++    if (!tagcache_search(&tcs, tag_filename))
++    {
++        splash(HZ, ID2P(LANG_TAGCACHE_BUSY));
++        return false;
++    }
++    if (playlist_create(NULL, NULL) < 0)
++    {
++        tagcache_search_finish(&tcs);
++        return false;
++    }
++    for (int i = k->albums[album].start; i < k->albums[album].end; i++)
++        if (tagcache_retrieve(&tcs, k->tracks[i].idx, tag_filename, path,
++                              sizeof(path)))
++            playlist_insert_track(NULL, path, PLAYLIST_INSERT_LAST, false, false);
++    tagcache_search_finish(&tcs);
++    playlist_sync(NULL);
++    playlist_start(0, 0, 0);
++    return true;
++}
++
++static int load_font(const char *path)
++{
++    int id = font_load(path);
++    return id < 0 ? FONT_SYSFIXED : id;
++}
++
++static int text_width(int font, const char *s)
++{
++    int w, h;
++    font_getstringsize(s, &w, &h, font);
++    return w;
++}
++
++/* a filled disc, for the hubs */
++static void disc(struct screen *d, int cx, int cy, int r)
++{
++    for (int dy = -r; dy <= r; dy++)
++    {
++        int dx = 0;
++        while ((dx + 1) * (dx + 1) + dy * dy <= r * r + r)
++            dx++;
++        d->hline(cx - dx, cx + dx, cy + dy);
++    }
++}
++
++/* The tick s of the bargraph: its centre, and the direction inside the curve
++ * in 64ths */
++static void bar_pos(int s, int *x, int *y, int *ix, int *iy)
++{
++    if (s < BAR_V)
++    {
++        *x = BAR_X;
++        *y = BAR_Y0 - s * BAR_STEP;
++        *ix = 64;
++        *iy = 0;
++    }
++    else if (s < BAR_V + BAR_A)
++    {
++        int k = s - BAR_V;
++        *ix = corner_cos[k];
++        *iy = corner_cos[BAR_A - 1 - k];
++        *x = BAR_X + BAR_R - BAR_R * *ix / 64;
++        *y = BAR_TOP + BAR_R - BAR_R * *iy / 64;
++    }
++    else
++    {
++        *x = BAR_X + BAR_R + (s - BAR_V - BAR_A + 1) * BAR_STEP;
++        *y = BAR_TOP;
++        *ix = 0;
++        *iy = 64;
++    }
++}
++
++static void bar_tick(struct screen *d, int s)
++{
++    int x, y, ix, iy;
++
++    bar_pos(s, &x, &y, &ix, &iy);
++    if (s < BAR_V)
++        d->fillrect(x - 3, y - 1, 6, 2);
++    else if (s >= BAR_V + BAR_A)
++        d->fillrect(x - 1, y - 3, 2, 6);
++    else
++    {
++        int x0 = x - 3 * ix / 64, y0 = y - 3 * iy / 64;
++        int x1 = x + 3 * ix / 64, y1 = y + 3 * iy / 64;
++        /* two px wide: shift by one across the steeper axis */
++        d->drawline(x0, y0, x1, y1);
++        d->drawline(x0 + (ix < iy), y0 + (ix >= iy), x1 + (ix < iy),
++                    y1 + (ix >= iy));
++    }
++}
++
++static int bar_segment(const struct deck *k, int album)
++{
++    return k->count > 1 ? (album * (BAR_N - 1) + (k->count - 1) / 2)
++                          / (k->count - 1) : BAR_N - 1;
++}
++
++static void draw_bargraph(struct screen *d, const struct deck *k, int cur,
++                          int font)
++{
++    int th = font_get(font)->height;
++    int lit = bar_segment(k, cur);
++    char curc = album_initial(k, cur);
++    int cur_s = 0, last_s = -LABEL_GAP;
++
++    for (int s = 0; s < BAR_N; s++)
++    {
++        d->set_foreground(s <= lit ? POD_INK : POD_FAINT);
++        bar_tick(d, s);
++    }
++
++    /* a letter at the first album of each initial; the current one is
++     * inverted and always there */
++    for (int a = 0; a < k->count; a++)
++        if (a == 0 || album_initial(k, a - 1) != album_initial(k, a))
++            if (album_initial(k, a) == curc)
++                cur_s = bar_segment(k, a);
++    d->setfont(font);
++    for (int a = 0; a < k->count; a++)
++    {
++        char c = album_initial(k, a);
++        char str[2] = { c, '\0' };
++        int s = bar_segment(k, a), x, y, ix, iy;
++        bool current = c == curc;
++
++        if (a > 0 && album_initial(k, a - 1) == c)
++            continue;
++        if (!current && (s - last_s < LABEL_GAP || abs(s - cur_s) < LABEL_GAP))
++            continue;
++        last_s = s;
++        bar_pos(s, &x, &y, &ix, &iy);
++        x += BAR_LABEL * ix / 64;
++        y += BAR_LABEL * iy / 64;
++        int w = text_width(font, str);
++        x -= w / 2;
++        y -= th / 2;
++        if (current)
++        {
++            d->set_foreground(POD_INK);
++            d->fillrect(x - 1, y - 1, w + 2, th + 2);
++            d->set_foreground(POD_PAPER);
++        }
++        else
++            d->set_foreground(POD_MID);
++        d->putsxy(x, y, str);
++    }
++}
++
++/* A generated card: a hatch picked by the album, and its initial. Both the
++ * J-card and the thumbnails come through here. */
++static void draw_card(struct screen *d, int x, int y, int w, int h,
++                      const struct deck_album *t, int font)
++{
++    unsigned pattern = hash_tags(t->album, t->artist) % 4;
++    char str[2] = { pod_letter_initial(t->album), '\0' };
++
++    d->set_foreground(POD_PAPER);
++    d->fillrect(x, y, w, h);
++    d->set_foreground(POD_FAINT);
++    for (int j = 1; j < h - 1; j++)
++        for (int i = 1; i < w - 1; i++)
++            if ((pattern == 0 && (i + j) % 4 == 0)
++                || (pattern == 1 && (i - j + 64) % 4 == 0)
++                || (pattern == 2 && j % 3 == 0)
++                || (pattern == 3 && i % 3 == 0 && j % 2 == 0))
++                d->drawpixel(x + i, y + j);
++    d->set_foreground(POD_INK);
++    d->drawrect(x, y, w, h);
++
++    int tw = text_width(font, str), th = font_get(font)->height;
++    if (w > THUMB_W)
++    {
++        /* the J-card: the initial on a label */
++        int lw = tw + 8, lh = th + 4;
++        d->set_foreground(POD_PAPER);
++        d->fillrect(x + (w - lw) / 2, y + 10, lw, lh);
++        d->set_foreground(POD_INK);
++        d->drawrect(x + (w - lw) / 2, y + 10, lw, lh);
++    }
++    d->setfont(font);
++    d->putsxy(x + (w - tw) / 2, w > THUMB_W ? y + 12 : y + (h - th) / 2, str);
++}
++
++/* the album and artist, upper case, cut to fit the label */
++static void tape_text(struct screen *d, int font, int x, int y, const char *s)
++{
++    char buf[34];
++    int n = 0;
++
++    while (s[n] && n < (int)sizeof(buf) - 1)
++    {
++        buf[n] = toupper((unsigned char)s[n]);
++        n++;
++    }
++    buf[n] = '\0';
++    while (n > 0 && text_width(font, buf) > TAPE_W - 14)
++        buf[--n] = '\0';
++    d->putsxy(x, y, buf);
++}
++
++static void draw_hub(struct screen *d, int cx, int cy)
++{
++    d->set_foreground(POD_INK);
++    disc(d, cx, cy, 8);
++    d->set_foreground(POD_PAPER);
++    disc(d, cx, cy, 5);
++    /* six teeth */
++    d->set_foreground(POD_INK);
++    d->drawpixel(cx - 4, cy);
++    d->drawpixel(cx + 4, cy);
++    d->drawpixel(cx - 2, cy - 3);
++    d->drawpixel(cx + 2, cy - 3);
++    d->drawpixel(cx - 2, cy + 3);
++    d->drawpixel(cx + 2, cy + 3);
++    d->fillrect(cx - 1, cy - 1, 3, 3);
++}
++
++static void draw_tape(struct screen *d, const struct deck_album *t, int font)
++{
++    int x = TAPE_X, y = TAPE_Y, r = x + TAPE_W - 1, b = y + TAPE_H - 1;
++
++    /* shell with the corners cut */
++    d->set_foreground(POD_PAPER);
++    d->fillrect(x, y, TAPE_W, TAPE_H);
++    d->set_foreground(POD_INK);
++    d->hline(x + 2, r - 2, y);
++    d->hline(x + 2, r - 2, b);
++    d->vline(x, y + 2, b - 2);
++    d->vline(r, y + 2, b - 2);
++    d->drawpixel(x + 1, y + 1);
++    d->drawpixel(r - 1, y + 1);
++    d->drawpixel(x + 1, b - 1);
++    d->drawpixel(r - 1, b - 1);
++
++    /* label: album and artist */
++    d->drawrect(x + 3, y + 3, TAPE_W - 6, 16);
++    d->setfont(font);
++    tape_text(d, font, x + 6, y + 5, t->album);
++    d->set_foreground(POD_MID);
++    tape_text(d, font, x + 6, y + 12, t->artist);
++
++    /* the hubs, joined by the tape along their bottoms */
++    draw_hub(d, x + 20, y + 29);
++    draw_hub(d, r - 20, y + 29);
++    d->set_foreground(POD_INK);
++    d->hline(x + 20, r - 20, y + 38);
++
++    /* bottom ridge */
++    d->hline(x + 12, r - 12, b - 3);
++    d->drawpixel(x + 11, b - 2);
++    d->drawpixel(r - 11, b - 2);
++    d->vline(x + 22, b - 2, b - 1);
++    d->vline(r - 22, b - 2, b - 1);
++}
++
++static void draw_rack(struct screen *d, const struct deck *k, int cur, int font)
++{
++    for (int i = 0; i < THUMB_N; i++)
++    {
++        int a = cur - 1 + i;
++        int x = THUMB_X + i * THUMB_STEP;
++
++        if (cur == 0)
++            a = i;          /* nothing before the first: start with it */
++        if (a < 0 || a >= k->count)
++            continue;
++        draw_card(d, x, THUMB_Y, THUMB_W, THUMB_H, album_row(k, a), font);
++        if (a == cur)
++        {
++            d->set_foreground(POD_INK);
++            d->drawrect(x - 1, THUMB_Y - 1, THUMB_W + 2, THUMB_H + 2);
++            d->fillrect(x + 4, THUMB_Y - 5, 4, 3);
++        }
++    }
++}
++
++static void draw_status(struct screen *d, int font)
++{
++    int level = battery_level();
++    int status = audio_status();
++
++    /* battery */
++    d->set_foreground(POD_INK);
++    d->drawrect(117, 1, 17, 7);
++    d->fillrect(134, 3, 2, 3);
++    if (level > 0)
++        d->fillrect(119, 3, MIN(level, 100) * 13 / 100, 3);
++
++    /* the sleep timer is set */
++    d->setfont(font);
++    if (pod_sleep_left() != POD_SLEEP_OFF)
++        d->putsxy(117, 10, "Z");
++
++    /* playing or paused */
++    if (status & AUDIO_STATUS_PLAY)
++    {
++        if (status & AUDIO_STATUS_PAUSE)
++        {
++            d->fillrect(126, 10, 2, 7);
++            d->fillrect(130, 10, 2, 7);
++        }
++        else
++            for (int i = 0; i < 4; i++)
++                d->vline(126 + i, 10 + i, 16 - i);
++    }
++}
++
++static void draw(struct screen *d, const struct deck *k, int cur, int f_value,
++                 int f_tiny)
++{
++    const struct deck_album *t = album_row(k, cur);
++
++    d->set_background(POD_PAPER);
++    d->clear_display();
++    /* text goes over filled shapes, so never paint glyph backgrounds */
++    d->set_drawmode(DRMODE_FG);
++
++    draw_bargraph(d, k, cur, f_tiny);
++    draw_status(d, f_tiny);
++    draw_card(d, CARD_X, CARD_Y, CARD_W, CARD_H, t, f_value);
++    draw_tape(d, t, f_tiny);
++    draw_rack(d, k, cur, f_tiny);
++
++    d->setfont(FONT_UI);
++    d->set_drawmode(DRMODE_SOLID);
++    d->set_foreground(LCD_DEFAULT_FG);
++    d->set_background(LCD_DEFAULT_BG);
++    d->update();
++}
++
++int pod_deck(bool on_playing)
++{
++    struct screen *d = &screens[SCREEN_MAIN];
++    struct deck k;
++    static int f_value = -1, f_tiny = -1;   /* loaded once */
++    int cur = 0, ret = GO_TO_PREVIOUS;
++
++    if (!deck_load(&k))
++    {
++        splash(HZ, ID2P(LANG_NO_FILES));
++        return GO_TO_PREVIOUS;
++    }
++    if (on_playing)
++        cur = MAX(0, playing_album(&k));
++
++    if (f_value < 0)
++    {
++        f_value = load_font(FONT_VALUE);
++        f_tiny = load_font(FONT_TINY);
++    }
++    FOR_NB_SCREENS(i)
++        viewportmanager_theme_enable(i, false, NULL);
++    d->set_viewport(NULL);
++
++    while (true)
++    {
++#ifdef SIMULATOR
++        fprintf(stderr, "pod: deck %d/%d %s\n", cur + 1, k.count,
++                album_row(&k, cur)->album);
++#endif
++        draw(d, &k, cur, f_value, f_tiny);
++
++        int button = get_action(CONTEXT_POD_DECK, TIMEOUT_BLOCK);
++
++        switch (button)
++        {
++        case ACTION_STD_NEXT:
++        case ACTION_STD_NEXTREPEAT:
++            cur = MIN(cur + 1, k.count - 1);
++            break;
++        case ACTION_STD_PREV:
++        case ACTION_STD_PREVREPEAT:
++            cur = MAX(cur - 1, 0);
++            break;
++        case ACTION_TREE_LETTER_NEXT:
++            cur = jump_letter(&k, cur, 1);
++            break;
++        case ACTION_TREE_LETTER_PREV:
++            cur = jump_letter(&k, cur, -1);
++            break;
++        case ACTION_STD_OK:
++        case ACTION_TREE_WPS:
++#ifdef SIMULATOR
++            fprintf(stderr, "pod: deck play %s\n", album_row(&k, cur)->album);
++#endif
++            if (deck_play(&k, cur))
++            {
++                /* PLAY plays in order; a second tap within the window
++                 * shuffles the rest, the track stays */
++                long until = current_tick + HZ * 3 / 10;
++
++                while (button == ACTION_TREE_WPS
++                       && TIME_BEFORE(current_tick, until))
++                {
++                    button = get_action(CONTEXT_POD_DECK, until - current_tick);
++                    if (button == ACTION_TREE_SHUFFLE
++                        || button == ACTION_TREE_WPS)
++                    {
++#ifdef SIMULATOR
++                        fprintf(stderr, "pod: play shuffled\n");
++#endif
++                        playlist_randomise(NULL, current_tick, true);
++                        break;
++                    }
++                }
++                ret = GO_TO_WPS;
++                goto done;
++            }
++            break;
++        case ACTION_STD_CANCEL:
++            goto done;
++        case ACTION_STD_MENU:
++            ret = GO_TO_MAINMENU;
++            goto done;
++        default:
++            if (default_event_handler(button) == SYS_USB_CONNECTED)
++                goto done;
++            break;
++        }
++    }
++
++done:
++    FOR_NB_SCREENS(i)
++        viewportmanager_theme_undo(i, false);
++    return ret;
++}
+diff --git a/apps/gui/pod_deck.h b/apps/gui/pod_deck.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..9d90dc81a97ffb7066808398e209d81c244c9096
+--- /dev/null
++++ b/apps/gui/pod_deck.h
+@@ -0,0 +1,30 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++#ifndef _POD_DECK_H_
++#define _POD_DECK_H_
++
++#include <stdbool.h>
++
++/* The cassette deck: the albums of the library as tapes. SELECT or PLAY
++ * plays one and returns GO_TO_WPS. on_playing opens on the album of the
++ * playing track instead of the first one. */
++int pod_deck(bool on_playing);
++
++#endif /* _POD_DECK_H_ */
+diff --git a/apps/keymaps/keymap-ipod.c b/apps/keymaps/keymap-ipod.c
+index bbcd1390fde212d659ea3da2cd7f42783b084eae..020497c44af9d177e1c5cf675468db0569664e69 100644
+--- a/apps/keymaps/keymap-ipod.c
++++ b/apps/keymaps/keymap-ipod.c
+@@ -144,6 +144,26 @@ static const struct button_mapping button_context_eq[]  = {
+     LAST_ITEM_IN_LIST
+ }; /* button_context_eq */
+ 
++/* pod deck: wheel = album, prev/next = letter, select = play the album,
++ * play = play it, double play = shuffled, menu = back, hold menu = settings */
++static const struct button_mapping button_context_deck[]  = {
++    { ACTION_STD_NEXT,              BUTTON_SCROLL_FWD,                  BUTTON_NONE },
++    { ACTION_STD_NEXTREPEAT,        BUTTON_SCROLL_FWD|BUTTON_REPEAT,    BUTTON_NONE },
++    { ACTION_STD_PREV,              BUTTON_SCROLL_BACK,                 BUTTON_NONE },
++    { ACTION_STD_PREVREPEAT,        BUTTON_SCROLL_BACK|BUTTON_REPEAT,   BUTTON_NONE },
++    { ACTION_TREE_LETTER_PREV,      BUTTON_LEFT,                        BUTTON_NONE },
++    { ACTION_TREE_LETTER_PREV,      BUTTON_LEFT|BUTTON_REPEAT,          BUTTON_NONE },
++    { ACTION_TREE_LETTER_NEXT,      BUTTON_RIGHT,                       BUTTON_NONE },
++    { ACTION_TREE_LETTER_NEXT,      BUTTON_RIGHT|BUTTON_REPEAT,         BUTTON_NONE },
++    { ACTION_STD_OK,                BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
++    { ACTION_TREE_WPS,              BUTTON_PLAY|BUTTON_REL,             BUTTON_PLAY },
++    { ACTION_TREE_SHUFFLE,          BUTTON_PLAY|BUTTON_DOUBLE,          BUTTON_NONE },
++    { ACTION_STD_CANCEL,            BUTTON_MENU|BUTTON_REL,             BUTTON_MENU },
++    { ACTION_STD_MENU,              BUTTON_MENU|BUTTON_REPEAT,          BUTTON_MENU },
++
++    LAST_ITEM_IN_LIST
++}; /* button_context_deck */
++
+ static const struct button_mapping button_context_yesno[]  = {
+     { ACTION_YESNO_ACCEPT,          BUTTON_SELECT,                  BUTTON_NONE },
+     { ACTION_STD_CANCEL,          BUTTON_PLAY,                  BUTTON_NONE },
+@@ -493,6 +513,8 @@ const struct button_mapping* get_context_mapping(int context)
+ 
+         case CONTEXT_SETTINGS_EQ:
+             return button_context_eq;
++        case CONTEXT_POD_DECK:
++            return button_context_deck;
+         case CONTEXT_SETTINGS_COLOURCHOOSER:
+         case CONTEXT_SETTINGS_TIME:
+         case CONTEXT_SETTINGS:
+diff --git a/apps/onplay.h b/apps/onplay.h
+index 680ea5de9463908597171a5021f8e144b88c1502..7eef6112fa4c2689cae52c41bc9cad5622c8a3c6 100644
+--- a/apps/onplay.h
++++ b/apps/onplay.h
+@@ -27,6 +27,7 @@ enum onplay_custom_action {
+     ONPLAY_CUSTOMACTION_SHUFFLE_SONGS,
+     ONPLAY_CUSTOMACTION_FIRSTLETTER,
+     ONPLAY_CUSTOMACTION_MIXES,
++    ONPLAY_CUSTOMACTION_DECK,
+ };
+ 
+ enum onplay_return_code {
+diff --git a/apps/root_menu.c b/apps/root_menu.c
+index bc023befb67ff59345423aa2c3d63a02220863e5..efb26a8a26d41dbccb3177446f9d74c57f3cb1d2 100644
+--- a/apps/root_menu.c
++++ b/apps/root_menu.c
+@@ -70,6 +70,7 @@
+ #ifdef HAVE_TAGCACHE
+ #include "tagcache.h"
+ #include "tagtree.h"
++#include "pod_deck.h"
+ #endif
+ #include "language.h"
+ #include "plugin.h"
+@@ -275,6 +276,13 @@ static int browser(void* param)
+             }
+             filter = SHOW_ID3DB;
+             last_ft_dirlevel = tc->dirlevel;
++            /* from the player, MENU opens the deck on the playing album */
++            if (last_screen == GO_TO_WPS)
++            {
++                int rc = pod_deck(true);
++                if (rc != GO_TO_PREVIOUS)
++                    return rc;
++            }
+             tc->dirlevel = last_db_dirlevel;
+             tc->selected_item = last_db_selection;
+             push_current_activity(ACTIVITY_DATABASEBROWSER);
+diff --git a/apps/tagtree.c b/apps/tagtree.c
+index 510cd3cef9a44088b2618e3c08ca43f705c3b3c4..cfa3e927b44ea31110627d92a85e63d3f0e2087c 100644
+--- a/apps/tagtree.c
++++ b/apps/tagtree.c
+@@ -121,6 +121,7 @@ enum variables {
+     menu_reload,
+     menu_shuffle_songs,
+     menu_mixes,
++    menu_deck,
+ };
+ 
+ /* Capacity 10 000 entries (for example 10k different artists) */
+@@ -375,6 +376,7 @@ static int get_tag(int *tag)
+         TAG_MATCH("genre", tag_genre) \
+         TAG_MATCH("title", tag_title) \
+         TAG_MATCH("%sort", var_sorttype) \
++        TAG_MATCH("%deck", menu_deck) \
+         TAG_MATCH("artist", tag_artist) \
+         TAG_MATCH("length", tag_length) \
+         TAG_MATCH("rating", tag_rating) \
+@@ -877,8 +879,8 @@ static bool parse_search(struct menu_entry *entry, const char *str)
+         return true;
+     }
+ 
+-    /* pod: the Mixes row has no tags, it opens /Mixes */
+-    if (entry->type == menu_mixes)
++    /* pod: the Mixes and Albums rows have no tags, they open /Mixes and the deck */
++    if (entry->type == menu_mixes || entry->type == menu_deck)
+         return true;
+ 
+     if (entry->type != menu_next && entry->type != menu_shuffle_songs)
+@@ -2007,6 +2009,12 @@ static int load_root(struct tree_context *c)
+                 dptr->customaction = ONPLAY_CUSTOMACTION_MIXES;
+                 break;
+ 
++            case menu_deck:
++                dptr->newtable = TABLE_ROOT;
++                dptr->extraseek = 0;
++                dptr->customaction = ONPLAY_CUSTOMACTION_DECK;
++                break;
++
+             case menu_byfirstletter:
+                 dptr->newtable = TABLE_NAVIBROWSE;
+                 dptr->extraseek = i;
+diff --git a/apps/tree.c b/apps/tree.c
+index 0b3b0b53e383633c9169e54c615b280c0cce5a07..bbe7588b37b747496448690f5da420f360cf2f50 100644
+--- a/apps/tree.c
++++ b/apps/tree.c
+@@ -69,6 +69,7 @@
+ 
+ /* gui api */
+ #include "list.h"
++#include "pod_deck.h"
+ #include "pod_letter.h"
+ #include "pod_mixes.h"
+ #include "splash.h"
+@@ -871,6 +872,18 @@ static int dirbrowse(void)
+                     }
+                     button = ACTION_NONE;
+                 }
++                else if (customaction == ONPLAY_CUSTOMACTION_DECK)
++                {
++                    /* the Albums row opens the deck, its context menu is empty */
++                    if (button == ACTION_STD_OK)
++                    {
++                        int rc = pod_deck(false);
++                        if (rc != GO_TO_PREVIOUS)
++                            return exit_to_new_screen(rc);
++                        restore = true;
++                    }
++                    button = ACTION_NONE;
++                }
+             }
+         #endif
+         switch ( button ) {

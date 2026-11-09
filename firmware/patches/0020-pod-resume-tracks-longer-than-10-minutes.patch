@@ -157,7 +157,7 @@ index 6a16829d4de1853b28e7bcbe54e299ff09cc0a8b..9eeb079922f2740d316734abeb482fbb
  void tagcache_screensync_enable(bool state);
  
 diff --git a/apps/tagtree.c b/apps/tagtree.c
-index 9f6d7b0440c8a1c2feff09599b1863071b5f837b..8a9760c6723fea38535a0f80069fb6238130d3be 100644
+index c47ad19c2b4af3084e2df2251dfc14b056586fac..510cd3cef9a44088b2618e3c08ca43f705c3b3c4 100644
 --- a/apps/tagtree.c
 +++ b/apps/tagtree.c
 @@ -944,7 +944,7 @@ static void tagtree_buffer_event(unsigned short id, void *ev_data)
