@@ -1,0 +1,585 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Mon, 9 Nov 2026 22:29:09 +0100
+Subject: [PATCH] pod: mixtapes as tapes in the deck
+
+---
+ apps/gui/pod_deck.c | 143 +++++++++++++++++++++++++++++++++++++-------
+ apps/onplay.h       |   1 -
+ apps/pod_mixes.c    | 126 +++++++++++++++++++++++---------------
+ apps/pod_mixes.h    |  22 ++++++-
+ apps/tagtree.c      |  14 +----
+ apps/tree.c         |  13 ----
+ 6 files changed, 221 insertions(+), 98 deletions(-)
+
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index c057672d9e95b1695efed0f00589c3b7d883578b..344d0119c26cf55b9ca87f5f4bf2f862884f9279 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -20,9 +20,9 @@
+ 
+ /*
+  * The cassette deck, browse mode: one tape per album (an artist's and
+- * another's of the same name are two), a bargraph with the initials round
+- * the corner, the J-card and the tape of the current album, and a rack of
+- * the next ones below.
++ * another's of the same name are two), after a tape per mix of /Mixes, a
++ * bargraph with the initials round the corner, the J-card and the tape of
++ * the current album, and a rack of the next ones below.
+  *
+  * On entry the albums are read from the tagcache: a row per track (album,
+  * artist, disc, track) sorted by album, so an album is a run of rows that is
+@@ -55,6 +55,7 @@
+ #include "tagcache.h"
+ #include "lang.h"
+ #include "pod_letter.h"
++#include "pod_mixes.h"
+ #include "pod_sleep.h"
+ #include "pod_deck.h"
+ 
+@@ -112,6 +113,8 @@ struct deck_album {
+     char artist[16];
+ };
+ 
++/* a mixtape is a deck_album with no tracks: start is -1 and end its index in
++ * the mixes. They come first, under the # initial. */
+ #define DECK_MAX_TRACKS 32768   /* 384 KB, a CF card full of music */
+ #define DECK_MAX_ALBUMS 8192    /* 384 KB */
+ 
+@@ -119,11 +122,14 @@ struct deck {
+     struct deck_track *tracks;
+     int track_count;
+     struct deck_album *albums;
+-    int count;                  /* albums */
++    int count;                  /* albums and mixtapes */
++    struct pod_mix *mixes;
++    int mix_count;              /* the first of them */
+ };
+ 
+ static struct deck_track rows[DECK_MAX_TRACKS];
+ static struct deck_album shelf[DECK_MAX_ALBUMS];
++static struct pod_mix mixes[POD_MIXES_MAX];
+ 
+ /* cos of 0, 11.25, ... 90 degrees in 64ths: the corner of the bargraph */
+ static const unsigned char corner_cos[BAR_A] = { 64, 63, 59, 53, 45, 36, 24, 12, 0 };
+@@ -173,20 +179,37 @@ static void get_tag(struct tagcache_search *tcs, int32_t idx, int tag,
+         strmemccpy(buf, UNTAGGED, size);
+ }
+ 
+-/* Read the albums. Returns false when the library is busy or empty. */
++static bool is_mix(const struct deck_album *a)
++{
++    return a->start < 0;
++}
++
++/* Read the mixtapes and the albums. Returns false when there are none. */
+ static bool deck_load(struct deck *k)
+ {
+     struct tagcache_search tcs;
+     char path[MAX_PATH], album[MAX_PATH], artist[MAX_PATH];
+     int total = tagcache_get_stat()->total_entries;
+     bool full = total > DECK_MAX_TRACKS;
++    int m = pod_mixes_load(mixes, POD_MIXES_MAX);
+ 
+-    k->count = k->track_count = 0;
+-    if (total <= 0 || !tagcache_search(&tcs, tag_filename))
+-        return false;
+-    total = MIN(total, DECK_MAX_TRACKS);
++    k->track_count = 0;
++    k->mixes = mixes;
++    k->mix_count = m;
+     k->tracks = rows;
+     k->albums = shelf;
++    for (k->count = 0; k->count < m; k->count++)
++    {
++        struct deck_album *a = &shelf[k->count];
++
++        a->start = -1;
++        a->end = k->count;
++        strmemccpy(a->album, mixes[k->count].name, sizeof(a->album));
++        a->artist[0] = '\0';
++    }
++    if (total <= 0 || !tagcache_search(&tcs, tag_filename))
++        return m > 0;
++    total = MIN(total, DECK_MAX_TRACKS);
+ 
+     cpu_boost(true);
+     while (k->track_count < total && tagcache_get_next(&tcs, path, sizeof(path)))
+@@ -230,7 +253,7 @@ static bool deck_load(struct deck *k)
+     tagcache_search_finish(&tcs);
+     cpu_boost(false);
+ 
+-    qsort(k->albums, k->count, sizeof(struct deck_album), cmp_album);
++    qsort(k->albums + m, k->count - m, sizeof(struct deck_album), cmp_album);
+     if (full)
+         splash(HZ * 2, "Library too big: some albums are left out");
+     return k->count > 0;
+@@ -243,27 +266,43 @@ static const struct deck_album *album_row(const struct deck *k, int album)
+ 
+ static char album_initial(const struct deck *k, int album)
+ {
+-    return pod_letter_initial(album_row(k, album)->album);
++    const struct deck_album *a = album_row(k, album);
++
++    return is_mix(a) ? '#' : pod_letter_initial(a->album);
++}
++
++/* the second line of a tape: the artist, or what a mix is made of */
++static const char *album_sub(const struct deck *k, const struct deck_album *a)
++{
++    return is_mix(a) ? k->mixes[a->end].rule : a->artist;
+ }
+ 
+ /* the album a tagcache track belongs to, or -1 */
+ static int find_album(const struct deck *k, int32_t idx)
+ {
+     for (int a = 0; a < k->count; a++)
++    {
++        if (is_mix(&k->albums[a]))
++            continue;
+         for (int i = k->albums[a].start; i < k->albums[a].end; i++)
+             if (k->tracks[i].idx == idx)
+                 return a;
++    }
+     return -1;
+ }
+ 
+-/* the album of the track the playlist is on: the player may still be
+- * loading it, so ask the playlist and not the audio thread */
++/* the album or mixtape of the track the playlist is on: the player may still
++ * be loading it, so ask the playlist and not the audio thread */
+ static int playing_album(const struct deck *k)
+ {
+     struct tagcache_search tcs;
+     char buf[MAX_PATH];
+-    const char *path = playlist_peek(0, buf, sizeof(buf));
+-    int album = -1;
++    const char *path;
++    int album = pod_mixes_find(k->mixes, k->mix_count);
++
++    if (album >= 0)
++        return album;
++    path = playlist_peek(0, buf, sizeof(buf));
+ 
+     if (path && tagcache_find_index(&tcs, path))
+     {
+@@ -299,6 +338,8 @@ static bool deck_play(const struct deck *k, int album)
+     struct tagcache_search tcs;
+     char path[MAX_PATH];
+ 
++    if (is_mix(&k->albums[album]))
++        return pod_mixes_play(&k->mixes[k->albums[album].end]);
+     if (!tagcache_search(&tcs, tag_filename))
+     {
+         splash(HZ, ID2P(LANG_TAGCACHE_BUSY));
+@@ -449,14 +490,71 @@ static void draw_bargraph(struct screen *d, const struct deck *k, int cur,
+     }
+ }
+ 
++/* the name of a mixtape in upper case on up to two lines of a label, cut at
++ * the last space that fits */
++static void card_name(struct screen *d, int font, int x, int y, int w,
++                      const char *s)
++{
++    char buf[sizeof(((struct deck_album *)0)->album)], line[sizeof(buf)];
++    const char *p = buf;
++    int th = font_get(font)->height;
++
++    for (int n = 0; (buf[n] = toupper((unsigned char)s[n])); n++)
++        ;
++    d->setfont(font);
++    for (int row = 0; row < 2 && *p; row++)
++    {
++        int n = strlen(p);
++
++        strmemccpy(line, p, sizeof(line));
++        while (n > 0 && text_width(font, line) > w)
++            line[--n] = '\0';
++        if (row == 0 && p[n])
++            for (int i = n; i > 0; i--)
++                if (line[i - 1] == ' ')
++                {
++                    n = i;
++                    line[n] = '\0';
++                    break;
++                }
++        d->putsxy(x, y + row * (th + 4), line);
++        for (p += n; *p == ' '; p++)
++            ;
++    }
++}
++
++/* A mixtape card: ruled lines like a label to write on, and the name on the
++ * first ones. A thumbnail has the lines only. */
++static void draw_mix_card(struct screen *d, int x, int y, int w, int h,
++                          const char *name, int font)
++{
++    bool thumb = w <= THUMB_W;
++    int step = thumb ? 4 : 10;
++
++    d->set_foreground(POD_PAPER);
++    d->fillrect(x, y, w, h);
++    d->set_foreground(POD_FAINT);
++    for (int j = thumb ? 5 : 17; j < h - 3; j += step)
++        d->hline(x + 2, x + w - 3, y + j);
++    d->set_foreground(POD_INK);
++    d->drawrect(x, y, w, h);
++    if (!thumb)
++        card_name(d, font, x + 3, y + 17 - font_get(font)->height - 1, w - 6, name);
++}
++
+ /* A generated card: a hatch picked by the album, and its initial. Both the
+  * J-card and the thumbnails come through here. */
+ static void draw_card(struct screen *d, int x, int y, int w, int h,
+-                      const struct deck_album *t, int font)
++                      const struct deck_album *t, int font, int tiny)
+ {
+     unsigned pattern = hash_tags(t->album, t->artist) % 4;
+     char str[2] = { pod_letter_initial(t->album), '\0' };
+ 
++    if (is_mix(t))
++    {
++        draw_mix_card(d, x, y, w, h, t->album, tiny);
++        return;
++    }
+     d->set_foreground(POD_PAPER);
+     d->fillrect(x, y, w, h);
+     d->set_foreground(POD_FAINT);
+@@ -518,7 +616,8 @@ static void draw_hub(struct screen *d, int cx, int cy)
+     d->fillrect(cx - 1, cy - 1, 3, 3);
+ }
+ 
+-static void draw_tape(struct screen *d, const struct deck_album *t, int font)
++static void draw_tape(struct screen *d, const struct deck_album *t,
++                      const char *sub, int font)
+ {
+     int x = TAPE_X, y = TAPE_Y, r = x + TAPE_W - 1, b = y + TAPE_H - 1;
+ 
+@@ -535,12 +634,12 @@ static void draw_tape(struct screen *d, const struct deck_album *t, int font)
+     d->drawpixel(x + 1, b - 1);
+     d->drawpixel(r - 1, b - 1);
+ 
+-    /* label: album and artist */
++    /* label: album and artist, or mixtape and rule */
+     d->drawrect(x + 3, y + 3, TAPE_W - 6, 16);
+     d->setfont(font);
+     tape_text(d, font, x + 6, y + 5, t->album);
+     d->set_foreground(POD_MID);
+-    tape_text(d, font, x + 6, y + 12, t->artist);
++    tape_text(d, font, x + 6, y + 12, sub);
+ 
+     /* the hubs, joined by the tape along their bottoms */
+     draw_hub(d, x + 20, y + 29);
+@@ -567,7 +666,7 @@ static void draw_rack(struct screen *d, const struct deck *k, int cur, int font)
+             a = i;          /* nothing before the first: start with it */
+         if (a < 0 || a >= k->count)
+             continue;
+-        draw_card(d, x, THUMB_Y, THUMB_W, THUMB_H, album_row(k, a), font);
++        draw_card(d, x, THUMB_Y, THUMB_W, THUMB_H, album_row(k, a), font, font);
+         if (a == cur)
+         {
+             d->set_foreground(POD_INK);
+@@ -620,8 +719,8 @@ static void draw(struct screen *d, const struct deck *k, int cur, int f_value,
+ 
+     draw_bargraph(d, k, cur, f_tiny);
+     draw_status(d, f_tiny);
+-    draw_card(d, CARD_X, CARD_Y, CARD_W, CARD_H, t, f_value);
+-    draw_tape(d, t, f_tiny);
++    draw_card(d, CARD_X, CARD_Y, CARD_W, CARD_H, t, f_value, f_tiny);
++    draw_tape(d, t, album_sub(k, t), f_tiny);
+     draw_rack(d, k, cur, f_tiny);
+ 
+     d->setfont(FONT_UI);
+diff --git a/apps/onplay.h b/apps/onplay.h
+index 7eef6112fa4c2689cae52c41bc9cad5622c8a3c6..b55a9ff71df315453f3002b9d2781f3705837638 100644
+--- a/apps/onplay.h
++++ b/apps/onplay.h
+@@ -26,7 +26,6 @@ enum onplay_custom_action {
+     ONPLAY_NO_CUSTOMACTION,
+     ONPLAY_CUSTOMACTION_SHUFFLE_SONGS,
+     ONPLAY_CUSTOMACTION_FIRSTLETTER,
+-    ONPLAY_CUSTOMACTION_MIXES,
+     ONPLAY_CUSTOMACTION_DECK,
+ };
+ 
+diff --git a/apps/pod_mixes.c b/apps/pod_mixes.c
+index 0d7ceef61feb243756930cd114a7a5d176613fd1..d6055cac40f0603f436b3ddb50bcd3b2310aa7a6 100644
+--- a/apps/pod_mixes.c
++++ b/apps/pod_mixes.c
+@@ -19,80 +19,110 @@
+  ****************************************************************************/
+ /*
+  * Mixes: the playlists pod link syncs to /Mixes (one /Music/... path per
+- * line). The library's Mixes row lists them and SELECT plays one.
++ * line). The deck shows them as tapes, ahead of the albums. A line
++ * "#RULE:<text>" is what the mix is made of, shown on its tape.
+  */
+ 
+ #include "config.h"
+ #include <stdio.h>
+ #include <string.h>
+ #include "string-extra.h"
+-#include "action.h"
+ #include "dir.h"
+ #include "file.h"
+ #include "filetree.h"
+-#include "list.h"
++#include "misc.h"
+ #include "pathfuncs.h"
+-#include "icon.h"
+-#include "root_menu.h"
+-#include "settings.h"
+-#include "tree.h"
++#include "playlist.h"
+ #include "pod_mixes.h"
+ 
+-/* mixes are *.m3u8 (or *.m3u) files, whatever else is in the directory */
+-static int count_mixes(void)
++#define RULE_TAG        "#RULE:"
++#define RULE_LINES      4       /* the rule is one of the first lines */
++
++static bool is_mix_file(const char *name)
++{
++    const char *ext = strrchr(name, '.');
++    return ext && (!strcasecmp(ext, ".m3u8") || !strcasecmp(ext, ".m3u"));
++}
++
++/* the text of the rule line at the top of a mix, or empty */
++static void read_rule(const char *path, char *rule, int size)
++{
++    char line[MAX_PATH];
++    int fd = open(path, O_RDONLY);
++
++    *rule = '\0';
++    if (fd < 0)
++        return;
++    for (int i = 0; i < RULE_LINES && read_line(fd, line, sizeof(line)) > 0; i++)
++        if (!strncmp(line, RULE_TAG, strlen(RULE_TAG)))
++        {
++            strmemccpy(rule, line + strlen(RULE_TAG), size);
++            break;
++        }
++    close(fd);
++}
++
++static int cmp_mix(const void *a, const void *b)
++{
++    const struct pod_mix *x = a, *y = b;
++    return strcasecmp(x->name, y->name);
++}
++
++int pod_mixes_load(struct pod_mix *m, int max)
+ {
+     int count = 0;
+     DIR *dir = opendir(POD_MIXES_DIR);
++    struct dirent *entry;
++
+     if (!dir)
+         return 0;
+-    struct dirent *entry;
+-    while ((entry = readdir(dir)))
++    while (count < max && (entry = readdir(dir)))
+     {
+-        const char *ext = strrchr(entry->d_name, '.');
+-        if (ext && (!strcasecmp(ext, ".m3u8") || !strcasecmp(ext, ".m3u")))
+-            count++;
++        char path[MAX_PATH];
++        char *ext;
++
++        if (!is_mix_file(entry->d_name))
++            continue;
++        strmemccpy(m[count].file, entry->d_name, sizeof(m[count].file));
++        strmemccpy(m[count].name, entry->d_name, sizeof(m[count].name));
++        ext = strrchr(m[count].name, '.');
++        if (ext)
++            *ext = '\0';
++        snprintf(path, sizeof(path), POD_MIXES_DIR "/%s", entry->d_name);
++        read_rule(path, m[count].rule, sizeof(m[count].rule));
++        count++;
+     }
+     closedir(dir);
++    qsort(m, count, sizeof(struct pod_mix), cmp_mix);
+     return count;
+ }
+ 
+-int pod_mixes(void)
++bool pod_mixes_play(const struct pod_mix *m)
+ {
+-    int count = count_mixes();
+-#ifdef SIMULATOR
+-    fprintf(stderr, "pod: mixes %d\n", count);
+-#endif
+-    if (count == 0)
+-    {
+-        struct simplelist_info info;
+-        simplelist_info_init(&info, "Mixes", 1, NULL);
+-        simplelist_reset_lines();
+-        simplelist_addline("Sync with pod link to get mixes");
+-        simplelist_show_list(&info);
+-        return GO_TO_PREVIOUS;
+-    }
+-
+     char path[MAX_PATH];
+-    struct browse_context browse = {
+-        .dirfilter = SHOW_M3U,
+-        .flags = BROWSE_SELECTONLY | BROWSE_NO_CONTEXT_MENU,
+-        .title = "Mixes",
+-        .icon = Icon_Playlist,
+-        .root = POD_MIXES_DIR,
+-        .buf = path,
+-        .bufsize = sizeof(path),
+-    };
+-    int rc = rockbox_browse(&browse);
+-    if (!(browse.flags & BROWSE_SELECTED))
+-        return rc;
++    char dir[] = POD_MIXES_DIR;
+ 
++    snprintf(path, sizeof(path), POD_MIXES_DIR "/%s", m->file);
++    if (!file_exists(path))
++        return false;
+ #ifdef SIMULATOR
+-    fprintf(stderr, "pod: mix %s\n", path);
++    fprintf(stderr, "pod: deck play mix %s\n", path);
+ #endif
+-    char dir[MAX_PATH];
+-    strmemccpy(dir, path, sizeof(dir));
+-    char *file = strrchr(dir, PATH_SEPCH);
+-    *file++ = '\0';
+-    ft_play_playlist(path, dir, file);
+-    return GO_TO_WPS;
++    return ft_play_playlist(path, dir, m->file);
++}
++
++int pod_mixes_find(const struct pod_mix *m, int count)
++{
++    char buf[MAX_PATH], path[MAX_PATH];
++    const char *playing = playlist_get_name(NULL, buf, sizeof(buf));
++
++    if (!playing)
++        return -1;
++    for (int i = 0; i < count; i++)
++    {
++        snprintf(path, sizeof(path), POD_MIXES_DIR "/%s", m[i].file);
++        if (!strcmp(path, playing))
++            return i;
++    }
++    return -1;
+ }
+diff --git a/apps/pod_mixes.h b/apps/pod_mixes.h
+index 4a3a9aafa87a9292ba4b75d43e2fa0c603e609ba..97c39855f107ff7167cbd43ee29c92d08950a564 100644
+--- a/apps/pod_mixes.h
++++ b/apps/pod_mixes.h
+@@ -20,10 +20,26 @@
+ #ifndef _POD_MIXES_H
+ #define _POD_MIXES_H
+ 
++#include <stdbool.h>
++#include "file.h"
++
+ #define POD_MIXES_DIR "/Mixes"
++#define POD_MIXES_MAX 16
++
++struct pod_mix {
++    char file[MAX_PATH];        /* the file name, in POD_MIXES_DIR */
++    char name[24];              /* the file name without .m3u8, to show */
++    char rule[24];              /* what it is made of, or empty */
++};
++
++/* Read up to max mixes of POD_MIXES_DIR, sorted by name. Returns how many. */
++int pod_mixes_load(struct pod_mix *m, int max);
++
++/* Play the mix from its first track. False when it doesn't play (gone, or
++   the party mode). */
++bool pod_mixes_play(const struct pod_mix *m);
+ 
+-/* the library's Mixes row: lists POD_MIXES_DIR and plays the one selected.
+-   Returns GO_TO_WPS when a mix plays, GO_TO_PREVIOUS to stay in the library */
+-int pod_mixes(void);
++/* the index of the mix that is the current playlist, or -1 */
++int pod_mixes_find(const struct pod_mix *m, int count);
+ 
+ #endif
+diff --git a/apps/tagtree.c b/apps/tagtree.c
+index cfa3e927b44ea31110627d92a85e63d3f0e2087c..126d24fb0bd33da6e440dff6aaa15231b6571b94 100644
+--- a/apps/tagtree.c
++++ b/apps/tagtree.c
+@@ -120,7 +120,6 @@ enum variables {
+     menu_load,
+     menu_reload,
+     menu_shuffle_songs,
+-    menu_mixes,
+     menu_deck,
+ };
+ 
+@@ -382,7 +381,6 @@ static int get_tag(int *tag)
+         TAG_MATCH("rating", tag_rating) \
+         TAG_MATCH("%limit", var_limit) \
+         TAG_MATCH("%strip", var_strip) \
+-        TAG_MATCH("%mixes", menu_mixes) \
+         TAG_MATCH("bitrate", tag_bitrate) \
+         TAG_MATCH("comment", tag_comment) \
+         TAG_MATCH("discnum", tag_discnumber) \
+@@ -879,8 +877,8 @@ static bool parse_search(struct menu_entry *entry, const char *str)
+         return true;
+     }
+ 
+-    /* pod: the Mixes and Albums rows have no tags, they open /Mixes and the deck */
+-    if (entry->type == menu_mixes || entry->type == menu_deck)
++    /* pod: the Albums row has no tags, it opens the deck */
++    if (entry->type == menu_deck)
+         return true;
+ 
+     if (entry->type != menu_next && entry->type != menu_shuffle_songs)
+@@ -2003,12 +2001,6 @@ static int load_root(struct tree_context *c)
+                 dptr->customaction = ONPLAY_CUSTOMACTION_SHUFFLE_SONGS;
+                 break;
+ 
+-            case menu_mixes:
+-                dptr->newtable = TABLE_ROOT;
+-                dptr->extraseek = 0;
+-                dptr->customaction = ONPLAY_CUSTOMACTION_MIXES;
+-                break;
+-
+             case menu_deck:
+                 dptr->newtable = TABLE_ROOT;
+                 dptr->extraseek = 0;
+@@ -2772,7 +2764,7 @@ static int tagtree_play_folder(struct tree_context* c, bool shuffle)
+ /* pod: PLAY plays the highlighted row in order, or shuffled for Shuffle All.
+  * A track plays from its place in the list (2). Anything else plays the
+  * tracks under it: an album, Songs, an artist by album. The root rows that
+- * are menus (Artists, Albums, Mixes, ...) are not playable (0). Returns 1
++ * are menus (Artists, Albums, ...) are not playable (0). Returns 1
+  * when the row started playing, <0 on an error. */
+ int tagtree_play_selection(struct tree_context *c, bool shuffle)
+ {
+diff --git a/apps/tree.c b/apps/tree.c
+index bbe7588b37b747496448690f5da420f360cf2f50..c1083f07ee787c87a3b6262ad5aa44b0af635cce 100644
+--- a/apps/tree.c
++++ b/apps/tree.c
+@@ -71,7 +71,6 @@
+ #include "list.h"
+ #include "pod_deck.h"
+ #include "pod_letter.h"
+-#include "pod_mixes.h"
+ #include "splash.h"
+ #include "quickscreen.h"
+ #include "shortcuts.h"
+@@ -860,18 +859,6 @@ static int dirbrowse(void)
+                     button = ACTION_STD_CONTEXT;
+                     do_restore_display = false;
+                 }
+-                else if (customaction == ONPLAY_CUSTOMACTION_MIXES)
+-                {
+-                    /* the Mixes row opens /Mixes, its context menu is empty */
+-                    if (button == ACTION_STD_OK)
+-                    {
+-                        int rc = pod_mixes();
+-                        if (rc != GO_TO_PREVIOUS)
+-                            return exit_to_new_screen(rc);
+-                        restore = true;
+-                    }
+-                    button = ACTION_NONE;
+-                }
+                 else if (customaction == ONPLAY_CUSTOMACTION_DECK)
+                 {
+                     /* the Albums row opens the deck, its context menu is empty */

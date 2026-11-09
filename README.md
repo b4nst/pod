@@ -22,10 +22,9 @@ settings menu, and you open it by holding MENU.
 |              | PLAY              | play the highlighted item in order (on Artists, Albums, Recently Added: now playing) |
 |              | double PLAY       | play it shuffled (Shuffle All: PLAY)      |
 |              | hold SELECT       | play shuffled / play next / play last / info |
-|              | SELECT on a mix   | plays it (Mixes, `/Mixes/*.m3u8`), then now playing |
-| Deck (Albums)| wheel             | previous / next album                     |
+| Deck (Albums)| wheel             | previous / next tape (mixtapes first, then albums) |
 |              | << / >>           | previous / next initial (hold repeats)    |
-|              | SELECT / PLAY     | play the album from track 1, open the player |
+|              | SELECT / PLAY     | play the album or mixtape from track 1, open the player |
 |              | double PLAY       | play it shuffled                          |
 |              | MENU              | back (from the player: the list the track came from)  |
 |              | hold MENU         | settings                                  |
@@ -94,7 +93,7 @@ Download it from the
    below keeps it. SCAN first
    imports the iPod's play log into a history kept per iPod on the computer
    (`podlink/devices/<id>` in the user data folder) and backs up the play
-   counts and ratings there. SYNC also writes the mixes to `/Mixes` from the
+   counts and ratings there. SYNC also writes the mixtapes to `/Mixes` from the
    listening history, at most 100 tracks each and never a track you often
    skip: Heavy Rotation (most played in the last 30 days), Forgotten Gems
    (played 5+ times, not for 180 days), Never Played (a different pick every
@@ -217,10 +216,9 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
   16. play log: every play of 3 s or more is a line of `/.pod/plays.log`
       (Audioscrobbler 1.1), kept in RAM and written by the storage idle
       callback (`apps/pod_playlog.c`)
-  17. library root: Artists, Albums, Songs, Mixes, Recently Added, Shuffle
-      All. Mixes (`%mixes`, `apps/pod_mixes.c`) lists `/Mixes/<Name>.m3u8`,
-      one absolute `/Music/...` path per line, and SELECT plays one. With
-      none it says to sync with pod link.
+  17. library root: Artists, Albums, Songs, Recently Added, Shuffle All.
+      `apps/pod_mixes.c` reads `/Mixes/<Name>.m3u8`, one absolute
+      `/Music/...` path per line, for the deck (23)
   18. PLAY in the library plays the highlighted row (`tagtree_play_selection`,
       an artist's tracks by album) and opens the player, a second tap within
       300 ms reshuffles it (`ACTION_TREE_SHUFFLE`), and the Shuffle setting
@@ -239,6 +237,10 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       album per tape, with a bargraph of initials, a generated J-card and a
       rack of the next albums. SELECT/PLAY play the album and open the
       player, whose MENU comes back to the deck on the playing album.
+  23. mixtapes: each `/Mixes/<Name>.m3u8` is a tape in the deck, ahead of the
+      albums under `#`, with a ruled J-card and the `#RULE:<text>` line pod
+      link writes at the top of the file on its tape. SELECT/PLAY play it,
+      and the Mixes row is gone from the library root.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

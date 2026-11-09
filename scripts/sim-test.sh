@@ -132,33 +132,36 @@ rm -f "$log"
 [ "$(grep -v '^#' "$log" | awk -F'\t' 'NF == 8 && $7 > 1000000000' | wc -l | tr -d ' ')" = 2 ] || { echo "the play log lines are malformed" >&2; exit 1; }
 echo "play log ok"
 
-# the Mixes row (root row 4) lists /Mixes/*.m3u8 by name and SELECT plays the
-# mix and opens the player; with none it says to sync. The test makes its own
-# Mixes and removes it.
+# a mix in /Mixes is a tape in the deck, ahead of the albums under #: SELECT
+# plays it and opens the player, MENU comes back to it, and >> jumps over the
+# mixes to the first album. The rule line is on its tape, which the dumps show.
+# The test makes its own Mixes and removes it.
 mixes=$root/build/sim/simdisk/Mixes
 rm -rf "$mixes"
-"$root/scripts/sim-shot.sh" "$out/mixes-empty" "W300 F3 S W100 D M W100 D" >/dev/null
 mkdir -p "$mixes"
-printf '/Music/Unit Δelta/Signal - Noise/01 Carrier.flac\n/Music/Unit Δelta/Signal - Noise/02 Low Orbit.flac\n' >"$mixes/Ambient.m3u8"
+printf '#RULE:test rule\n/Music/Unit Δelta/Signal - Noise/01 Carrier.flac\n/Music/Unit Δelta/Signal - Noise/02 Low Orbit.flac\n' >"$mixes/Ambient.m3u8"
 printf '/Music/Neon Cassette/Magnetic Dawn/03 Night Drive.flac\n' >"$mixes/Night Drive.m3u8"
-"$root/scripts/sim-shot.sh" "$out/mixes" "W300 F3 S W100 D S W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/deck-mixes" "W300 F1 S W100 D S W200 D M W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/deck-mixes-jump" "W300 F1 S W100 R D L D" >/dev/null
 rm -rf "$mixes"
-grep -q '^pod: mixes 0' "$out/mixes-empty/sim.log" || { echo "the empty Mixes was not detected" >&2; exit 1; }
-grep -q '^pod: mixes 2' "$out/mixes/sim.log" || { echo "the mixes were not listed" >&2; exit 1; }
-grep -q '^pod: mix /Mixes/Ambient.m3u8' "$out/mixes/sim.log" || { echo "SELECT did not play the mix" >&2; exit 1; }
-for i in 01 02; do
-  [ -f "$out/mixes-empty/$i.png" ] && [ -f "$out/mixes/$i.png" ] || { echo "mixes dump $i is missing" >&2; exit 1; }
+for f in deck-mixes/01 deck-mixes/02 deck-mixes/03 deck-mixes-jump/01; do
+  [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
 done
-[ "$(areadiff mixes-empty/01 mixes/01)" != 0 ] || { echo "the mix list looks like the empty one" >&2; exit 1; }
-echo "mixes ok"
+grep -q '^pod: deck 1/7 Ambient' "$out/deck-mixes/sim.log" || { echo "the mixes are not first in the deck" >&2; exit 1; }
+grep -q '^pod: deck play mix /Mixes/Ambient.m3u8' "$out/deck-mixes/sim.log" || { echo "SELECT did not play the mix" >&2; exit 1; }
+[ "$(grep -c '^pod: deck 1/7' "$out/deck-mixes/sim.log")" -ge 2 ] || { echo "MENU did not go back to the mixtape" >&2; exit 1; }
+grep -q '^pod: deck 3/7 Afterglow' "$out/deck-mixes-jump/sim.log" || { echo ">> did not jump over the mixes" >&2; exit 1; }
+[ "$(grep '^pod: deck' "$out/deck-mixes-jump/sim.log" | tail -1)" = 'pod: deck 1/7 Ambient' ] || { echo "<< did not jump back to the mixes" >&2; exit 1; }
+[ "$(areadiff deck-mixes/01 deck-mixes/02)" != 0 ] || { echo "the player looks like the deck" >&2; exit 1; }
+echo "deck mixes ok"
 
 # PLAY plays the highlighted row in order and opens the player; a double tap
-# plays it shuffled, and Shuffle All (root row 6) shuffles on a single tap.
+# plays it shuffled, and Shuffle All (root row 5) shuffles on a single tap.
 # The dumps are the player, which differs from the library; PLAY on Artists
 # (a menu row) plays nothing.
 "$root/scripts/sim-shot.sh" "$out/play" "W300 D S W100 P W200 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/play-double" "W300 S W100 2P W200 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/play-all" "W300 F5 P W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/play-all" "W300 F4 P W200 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/play-root" "W300 P W200 D" >/dev/null
 ! grep -q '^pod: play shuffled' "$out/play/sim.log" || { echo "PLAY shuffled" >&2; exit 1; }
 for d in play-double play-all; do
