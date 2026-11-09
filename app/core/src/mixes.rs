@@ -1,7 +1,8 @@
-//! The mixes pod link writes to `/Mixes` on every sync, built from the
+//! The mixtapes pod link writes to `/Mixes` on every sync, built from the
 //! listening history of the iPod (see `history`): Heavy Rotation, Forgotten
-//! Gems, Never Played, Mornings and Nights. Each is a `.m3u8` of absolute
-//! `/Music/...` paths, which is what the library's Mixes row plays.
+//! Gems, Never Played, Mornings and Nights. Each is a `.m3u8` that starts
+//! with a `#RULE:` line, what the tape says it is made of, then absolute
+//! `/Music/...` paths. The deck shows them ahead of the albums.
 //!
 //! Loved (the rated tracks) follows the ratings in the history, #11.
 
@@ -25,7 +26,15 @@ const DAYTIME_PLAYS: usize = 2;
 /// Plays before a track can count as often skipped.
 const SKIP_PLAYS: usize = 3;
 
-pub const NAMES: [&str; 5] = ["Heavy Rotation", "Forgotten Gems", "Never Played", "Mornings", "Nights"];
+/// The mixtapes and the rule on each of them, at most 15 characters to fit
+/// the label of a tape.
+pub const MIXES: [(&str, &str); 5] = [
+    ("Heavy Rotation", "most played 30d"),
+    ("Forgotten Gems", "not played 180d"),
+    ("Never Played", "never played"),
+    ("Mornings", "played 5-11 h"),
+    ("Nights", "played 21-4 h"),
+];
 
 /// A line of the play log.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +50,7 @@ pub struct Play {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mix {
     pub name: &'static str,
+    pub rule: &'static str,
     pub paths: Vec<String>,
 }
 
@@ -99,7 +109,7 @@ fn top(mut ranked: Vec<(usize, &str)>) -> Vec<String> {
     ranked.into_iter().take(CAP).map(|(_, p)| p.to_string()).collect()
 }
 
-/// The mixes for `tracks` (every track of the iPod), the stats backup by path
+/// The mixtapes for `tracks` (every track of the iPod), the stats backup by path
 /// and the plays, at time `now`. Plays that match no track are dropped.
 pub fn build(tracks: &[TrackStats], backup: &BTreeMap<String, TrackStats>, plays: &[Play], now: i64) -> Vec<Mix> {
     // the log has the album artist when a track has no artist
@@ -164,10 +174,10 @@ pub fn build(tracks: &[TrackStats], backup: &BTreeMap<String, TrackStats>, plays
     let never = never.into_iter().take(CAP).map(|(_, p)| p.to_string()).collect();
 
     let paths = [top(heavy), top(forgotten), never, top(mornings), top(nights)];
-    NAMES.into_iter().zip(paths).map(|(name, paths)| Mix { name, paths }).collect()
+    MIXES.into_iter().zip(paths).map(|((name, rule), paths)| Mix { name, rule, paths }).collect()
 }
 
-/// Writes the mixes of the iPod at `mount` to `/Mixes`, from its store, and
+/// Writes the mixtapes of the iPod at `mount` to `/Mixes`, from its store, and
 /// returns how many. A mix with no tracks is deleted; other files in `/Mixes`
 /// stay. An iPod without `/.pod` or a store has none. `renames` are the files
 /// sync just replaced: the database still knows them by their old path.
@@ -203,7 +213,8 @@ pub fn write(mount: &Path, store: &Path, now: i64, renames: &[(String, String)])
         }
         fs::create_dir_all(&dir)?;
         let tmp = dir.join(format!("{}.m3u8.tmp", mix.name));
-        fs::write(&tmp, mix.paths.iter().map(|p| format!("{p}\n")).collect::<String>())?;
+        let lines: String = mix.paths.iter().map(|p| format!("{p}\n")).collect();
+        fs::write(&tmp, format!("#RULE:{}\n{lines}", mix.rule))?;
         fs::rename(&tmp, &file)?;
         written += 1;
     }
@@ -401,8 +412,10 @@ mod tests {
 
         assert_eq!(write(dev.path(), store.path(), NOW, &[]).unwrap(), 1);
         let never = lines(&dev.path().join("Mixes/Never Played.m3u8"));
-        assert!(!never.is_empty() && never.iter().all(|p| p.starts_with("/Music/")));
+        assert_eq!(never[0], "#RULE:never played");
+        assert!(never.len() > 1 && never[1..].iter().all(|p| p.starts_with("/Music/")));
         assert!(!never.contains(&paths[0].to_string()), "a missing file is skipped");
+        assert!(MIXES.iter().all(|(_, rule)| rule.len() <= 15), "a rule fits the label");
         assert!(!dev.path().join("Mixes/Nights.m3u8").exists(), "an empty mix is deleted");
         assert!(!dev.path().join("Mixes/Heavy Rotation.m3u8").exists());
         assert_eq!(lines(&dev.path().join("Mixes/Mine.m3u8")), ["/Music/mine.mp3"]);

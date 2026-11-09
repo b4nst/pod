@@ -330,7 +330,7 @@ impl App {
                 let mount = d.mount.clone();
                 self.start("SYNCING", move |progress, cancel| {
                     let (renames, res) = sync::apply(&plan, &mount, progress, cancel);
-                    // a mixes problem is reported, but doesn't fail the sync. The
+                    // a mixtapes problem is reported, but doesn't fail the sync. The
                     // stats follow the files already converted even if it failed
                     let store = if mount.join(".pod").is_dir() {
                         history::device_id(&mount).map(|id| Some(history::stores_dir().join(id)))
@@ -430,10 +430,10 @@ impl App {
                 match mixes {
                     Ok(n) => self.say(
                         false,
-                        format!("SYNCED: {copied} COPIED ({converted} CONVERTED), {deleted} DELETED, {n} MIXES. POD RESCANS AT BOOT"),
+                        format!("SYNCED: {copied} COPIED ({converted} CONVERTED), {deleted} DELETED, {n} MIXTAPES. POD RESCANS AT BOOT"),
                     ),
                     Err(e) => {
-                        self.say(true, format!("SYNCED: {copied} COPIED ({converted} CONVERTED), {deleted} DELETED. MIXES NOT WRITTEN: {e}"))
+                        self.say(true, format!("SYNCED: {copied} COPIED ({converted} CONVERTED), {deleted} DELETED. MIXTAPES NOT WRITTEN: {e}"))
                     }
                 }
             }
@@ -825,7 +825,7 @@ impl App {
         };
         let mut col = column![
             heading("LIBRARY"),
-            text("Copies music from a folder into /Music, and writes the mixes to /Mixes. pod adds the music to the library at the next boot.")
+            text("Copies music from a folder into /Music, and writes the mixtapes to /Mixes. pod adds the music to the library at the next boot.")
                 .size(12)
                 .style(theme::mid),
             row![
