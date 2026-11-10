@@ -100,7 +100,7 @@ echo "scrub ok"
 # rebuild, now or at the next boot (stats still queued when the simulator
 # exits are lost, so this is one run)
 cl=$root/build/sim/simdisk/.pod/database_changelog.txt
-"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F2 S W3500 M W100 MM W100 F5 W50 D S W1500 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F2 S W3500 M W100 MM W100 F6 W50 D S W1500 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/rescan-boot" "W1500" >/dev/null
 grep -q 'playcount="[1-9]' "$cl" || { echo "the changelog has no play count" >&2; exit 1; }
 cat "$out"/rescan/sim.log "$out"/rescan-boot/sim.log | grep -q '^pod: stats imported for [1-9]' || { echo "the stats were not imported" >&2; exit 1; }
@@ -200,7 +200,7 @@ sed -n 3p <<<"$starts" | grep -Eq 'long at [5-9][0-9]{3}$' || { echo "the long t
 [ "$(sed -n 4p <<<"$starts")" = 'pod: start short at 0' ] || { echo "the short track resumed" >&2; exit 1; }
 echo "resume ok"
 
-# the sleep timer (Settings, row 3) cycles Off, 15, 30, 60 min, Album. A
+# the sleep timer (Settings, row 4) cycles Off, 15, 30, 60 min, Album. A
 # minute lasts a second here: 15 min fades over its last 10 s, pauses and
 # clears the timer; Album pauses at the end of Analog Heart, the last track
 # of its album (Carrier, from another one, is next), and so does it with
@@ -212,9 +212,9 @@ rm -rf "$sleepmix"
 mkdir -p "$sleepmix"
 printf '/Music/Neon Cassette/Magnetic Dawn/04 Analog Heart.flac\n/Music/Unit Δelta/Signal - Noise/01 Carrier.flac\n' >"$sleepmix/Sleep.m3u8"
 export POD_SLEEP_FAST=1
-"$root/scripts/sim-shot.sh" "$out/sleep" "W300 2M W100 S F7 F6 S R S W100 MM W100 MM W100 F2 S W50 D M W100 M W100 D W2000 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/sleep-album" "W300 S W100 MM W100 MM W100 F2 S S S S M W100 M W100 D W2600 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/sleep-repeat" "W300 2M W100 S F7 F6 S R S W100 MM W100 MM W100 F1 S F1 S F1 S S S S M W100 M W100 D W2600 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/sleep" "W300 2M W100 S F7 F6 S R S W100 MM W100 MM W100 F3 S W50 D M W100 M W100 D W2000 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/sleep-album" "W300 S W100 MM W100 MM W100 F3 S S S S M W100 M W100 D W2600 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/sleep-repeat" "W300 2M W100 S F7 F6 S R S W100 MM W100 MM W100 F1 S F1 S F2 S S S S M W100 M W100 D W2600 D" >/dev/null
 unset POD_SLEEP_FAST
 rm -rf "$sleepmix"
 for d in sleep sleep-album sleep-repeat; do
@@ -269,3 +269,33 @@ grep -q '^pod: deck 3/6 Magnetic Dawn' "$out/search-track/sim.log" || { echo "ME
 [ "$(areadiff deck-home/01 search-leave/01)" = 0 ] || { echo "hold MENU did not leave for the deck" >&2; exit 1; }
 grep -q '^pod: queue Chrome Tape' "$out/search-queue/sim.log" || { echo "hold SELECT did not queue the track" >&2; exit 1; }
 echo "search ok"
+
+# Infinite play (Settings, row 3) adds up to 10 tracks to the end of the
+# queue when it runs out. Off, the same play (Magnetic Dawn to its 4th track)
+# stops at the end of the album. The earlier tests have played every track
+# within the last 150 plays, which Infinite skips, so the database starts
+# again (and reboots once, like the first boot).
+# Repeat is left on by the sleep tests, and stops Infinite: back to Off.
+rm -f "$root"/build/sim/simdisk/.pod/database_* "$root"/build/sim/simdisk/.pod/database_changelog.txt
+sed -i.bak '/^repeat:/d' "$root/build/sim/simdisk/.pod/config.cfg"
+rm -f "$root"/build/sim/simdisk/.pod/config.cfg.bak
+"$root/scripts/sim-shot.sh" "$out/infinite-boot" "W1500" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/infinite-boot2" "W1500" >/dev/null
+rm -f "$root"/build/sim/simdisk/.pod/.playlist_control* "$root"/build/sim/simdisk/.pod/.resume.cfg*
+sim infinite-off "W300 F1 S W200 R R R W200 D W3000 D"
+rm -f "$root"/build/sim/simdisk/.pod/.playlist_control* "$root"/build/sim/simdisk/.pod/.resume.cfg*
+sim infinite "W300 MM W100 F2 S W100 D M W100 F1 S W200 R R R W200 D W3000 D"
+# the simulator exits before the setting is written: back to the default
+sed -i.bak '/^infinite play/d' "$root/build/sim/simdisk/.pod/config.cfg"
+rm -f "$root"/build/sim/simdisk/.pod/config.cfg.{new,bak}
+! grep -q '^pod: infinite' "$out/infinite-off/sim.log" || { echo "Infinite added tracks while off" >&2; exit 1; }
+grep -q '^pod: infinite +' "$out/infinite/sim.log" || { echo "Infinite added nothing" >&2; exit 1; }
+grep -q '^pod: infinite pick' "$out/infinite/sim.log" || { echo "Infinite picked nothing" >&2; exit 1; }
+for f in infinite/01 infinite/02 infinite-off/01 infinite-off/02; do
+  [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
+done
+# the added tracks play on after the album: more starts than without
+on=$(grep -c '^pod: start' "$out/infinite/sim.log" || true)
+off=$(grep -c '^pod: start' "$out/infinite-off/sim.log" || true)
+[ "$on" -gt "$off" ] || { echo "playback did not go on with Infinite on ($on starts, $off off)" >&2; exit 1; }
+echo "infinite ok"

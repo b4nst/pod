@@ -61,8 +61,16 @@ under the letters. An album puts the deck on its tape, an artist on its first
 album, and a track plays its album from that track and opens the player,
 whose MENU comes back to the tape.
 
-Settings menu: Equalizer, Repeat, Sleep, Backlight, Time & Date, Rescan
+Settings menu: Equalizer, Repeat, Infinite, Sleep, Backlight, Time & Date, Rescan
 Library, System (battery, disk, version).
+
+Infinite (off by default) keeps the music going: when the queue runs out and
+Repeat is off, up to 10 tracks join its end, picked by tags from the library,
+best first: the genre of the last track with a year within 5 and another
+artist, the genre with another artist, the genre, anything. A track played
+among the last 150 plays or one of the last 32 queue entries is never picked.
+The tracks join a few tracks before the end, while the disk is up anyway, and
+show in the queue like any other.
 
 Sleep cycles Off, 15, 30, 60 min and Album with each SELECT, and starts
 again from the choice. The player shows the time left (`Z 27` minutes,
@@ -275,6 +283,10 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       letter strip with the tracks, artists and albums that have a word
       starting with the query, found by scanning the tagcache at each letter.
       A pick puts the deck on a tape or plays the track's album from it.
+  27. Infinite in the settings menu (`apps/pod_infinite.c`): when the audio
+      thread has no track left to buffer and Repeat is off, it appends up to 10
+      tracks picked by tags (`tagcache_get_serial` tells the recent plays) and
+      syncs the control file with `playlist_sync_control`.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

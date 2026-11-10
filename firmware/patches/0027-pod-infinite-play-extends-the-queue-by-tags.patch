@@ -1,0 +1,444 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Tue, 10 Nov 2026 05:12:46 +0100
+Subject: [PATCH] pod: infinite play extends the queue by tags
+
+---
+ apps/SOURCES           |   1 +
+ apps/menus/main_menu.c |   4 +
+ apps/playback.c        |  11 +++
+ apps/playlist.c        |  11 +++
+ apps/playlist.h        |   1 +
+ apps/playlist_viewer.c |   7 ++
+ apps/pod_infinite.c    | 194 +++++++++++++++++++++++++++++++++++++++++
+ apps/pod_infinite.h    |  34 ++++++++
+ apps/settings.h        |   1 +
+ apps/settings_list.c   |   1 +
+ apps/tagcache.c        |   5 ++
+ apps/tagcache.h        |   1 +
+ 12 files changed, 271 insertions(+)
+ create mode 100644 apps/pod_infinite.c
+ create mode 100644 apps/pod_infinite.h
+
+diff --git a/apps/SOURCES b/apps/SOURCES
+index 11874b0f8817bc9e6d4e1ec0971b1103fd860c8e..b814f914cdfe405872030d48d2377215d8c04b32 100644
+--- a/apps/SOURCES
++++ b/apps/SOURCES
+@@ -172,6 +172,7 @@ pcmbuf.c
+ codec_thread.c
+ pod_playlog.c
+ pod_sleep.c
++pod_infinite.c
+ playback.c
+ codecs.c
+ #ifndef HAVE_HARDWARE_BEEP
+diff --git a/apps/menus/main_menu.c b/apps/menus/main_menu.c
+index 373e522002c39b0b61a9ff7e1eb683afa7be5aac..5d99909ae89adfa242379447b448970c500d5639 100644
+--- a/apps/menus/main_menu.c
++++ b/apps/menus/main_menu.c
+@@ -31,6 +31,7 @@
+ #include "menu.h"
+ #include "pod_eq.h"
+ #include "pod_sleep.h"
++#include "pod_infinite.h"
+ #include "tagcache.h"
+ #include "misc.h"
+ #include "exported_menus.h"
+@@ -530,6 +531,8 @@ static int pod_rescan_library(void)
+ MENUITEM_FUNCTION(pod_eq_item, 0, ID2P(LANG_EQUALIZER),
+                   pod_eq_screen, NULL, Icon_EQ);
+ MENUITEM_SETTING(pod_repeat_item, &global_settings.repeat_mode, NULL);
++MENUITEM_FUNCTION_DYNTEXT(pod_infinite_item, 0, pod_infinite_toggle,
++                          pod_infinite_getname, NULL, NULL, NULL, Icon_NOICON);
+ MENUITEM_FUNCTION_DYNTEXT(pod_sleep_item, 0, pod_sleep_cycle,
+                           pod_sleep_getname, NULL, NULL, NULL, Icon_NOICON);
+ MENUITEM_SETTING(pod_backlight_item, &global_settings.backlight_timeout, NULL);
+@@ -542,6 +545,7 @@ MAKE_MENU(main_menu_, ID2P(LANG_SETTINGS), NULL,
+         Icon_Submenu_Entered,
+         &pod_eq_item,
+         &pod_repeat_item,
++        &pod_infinite_item,
+         &pod_sleep_item,
+         &pod_backlight_item,
+ #if CONFIG_RTC
+diff --git a/apps/playback.c b/apps/playback.c
+index e6202d2f1cd6fc89c02e1346b7d6c521b2e66b45..946ca3ce863df24751ce2284dccb39a0c8bcb10a 100644
+--- a/apps/playback.c
++++ b/apps/playback.c
+@@ -49,6 +49,7 @@
+ #include "audiohw.h"
+ #include "general.h"
+ #include "iap-usb.h"
++#include "pod_infinite.h"
+ #include <stdio.h>
+ 
+ #ifdef HAVE_TAGCACHE
+@@ -2058,6 +2059,7 @@ static int audio_load_track(void)
+     int fd = -1;
+     char path_buf[MAX_PATH + 1];
+     const char *path;
++    bool extended = false;
+ 
+     while (1)
+     {
+@@ -2066,7 +2068,16 @@ static int audio_load_track(void)
+                              sizeof (path_buf));
+ 
+         if (!path)
++        {
++            /* the end of the queue: Infinite play adds tracks, once */
++            if (!extended)
++            {
++                extended = true;
++                if (pod_infinite_extend(playlist_peek_offset - 1) > 0)
++                    continue;
++            }
+             break;
++        }
+ 
+         /* Test for broken playlists by probing for the files */
+         if (file_exists(path))
+diff --git a/apps/playlist.c b/apps/playlist.c
+index 78db08f181665aa99bcb7e68e7d3c4fca04d2e1c..6ba9d693466b1d82a0cbfa3b0dda25493b57141f 100644
+--- a/apps/playlist.c
++++ b/apps/playlist.c
+@@ -2730,6 +2730,17 @@ int playlist_insert_track(struct playlist_info* playlist, const char *filename,
+     return result;
+ }
+ 
++/* Flush the control file of the current playlist without telling the audio
++   thread, for callers running on it */
++void playlist_sync_control(void)
++{
++    struct playlist_info* playlist = &current_playlist;
++
++    playlist_write_lock(playlist);
++    sync_control_unlocked(playlist);
++    playlist_write_unlock(playlist);
++}
++
+ /* returns true if playlist has been modified by the user */
+ bool playlist_modified(const struct playlist_info* playlist)
+ {
+diff --git a/apps/playlist.h b/apps/playlist.h
+index a9062216647d5a015d31cc6bc3b50e4f8e5121ba..451533f163ee9d4c564bfc946e30dbfb3a06876f 100644
+--- a/apps/playlist.h
++++ b/apps/playlist.h
+@@ -147,6 +147,7 @@ struct playlist_info* playlist_load(const char* dir, const char* file,
+ int playlist_set_current(struct playlist_info* playlist);
+ void playlist_close(struct playlist_info* playlist);
+ void playlist_sync(struct playlist_info* playlist);
++void playlist_sync_control(void);
+ int playlist_insert_track(struct playlist_info* playlist, const char *filename,
+                           int position, bool queue, bool sync);
+ int playlist_insert_context_create(struct playlist_info* playlist,
+diff --git a/apps/playlist_viewer.c b/apps/playlist_viewer.c
+index 1c2412d51110b5e07365075d497881e38fb78604..5cf9b741d467acc6b9a9e3f5ace34630c7ad9659 100644
+--- a/apps/playlist_viewer.c
++++ b/apps/playlist_viewer.c
+@@ -374,6 +374,13 @@ static bool update_playlist(bool force)
+ 
+     if (force || nb_tracks != viewer.num_tracks)
+     {
++        /* The queue grew (Infinite) under a picked up track: its raw index
++           may now point to another track, drop the pick */
++        if (nb_tracks != viewer.num_tracks && !viewer.playlist)
++        {
++            viewer.moving_track = -1;
++            viewer.moving_playlist_index = -1;
++        }
+         /* Reload tracks */
+         viewer.num_tracks = nb_tracks;
+         if (viewer.num_tracks <= 0)
+diff --git a/apps/pod_infinite.c b/apps/pod_infinite.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..bebd8c33b28e9d7246188be7f0674a6d4c416c50
+--- /dev/null
++++ b/apps/pod_infinite.c
+@@ -0,0 +1,194 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++/*
++ * Infinite play: when the queue runs out, up to INFINITE_ADD tracks from the
++ * library join its end. They are picked by tags, best first: the genre and a
++ * year within 5 of the last track by another artist, the genre by another
++ * artist, the genre, anything. A track played in the last RECENT_PLAYS plays
++ * or among the last QUEUE_LOOKBACK of the queue is never picked.
++ */
++
++#include "config.h"
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include "system.h"
++#include "file.h"
++#include "playlist.h"
++#include "settings.h"
++#include "tagcache.h"
++#include "pod_infinite.h"
++
++#define INFINITE_ADD    10
++#define RECENT_PLAYS    150
++#define QUEUE_LOOKBACK  32
++#define YEAR_SPAN       5
++#define TIERS           4
++#define TAG_BUF         64
++
++/* static: the audio thread's stack is small */
++static struct tagcache_search tcs;
++static char path[MAX_PATH];
++static char seed_genre[TAG_BUF], seed_artist[TAG_BUF];
++static char genre[TAG_BUF], artist[TAG_BUF];
++static int queued[QUEUE_LOOKBACK];
++static int pick[TIERS][INFINITE_ADD];
++static int seen[TIERS];
++
++int pod_infinite_toggle(void)
++{
++    global_settings.pod_infinite = !global_settings.pod_infinite;
++    settings_save();
++    return 0;
++}
++
++char *pod_infinite_getname(int selected_item, void *data, char *buffer,
++                           size_t buffer_len)
++{
++    (void)selected_item;
++    (void)data;
++    snprintf(buffer, buffer_len, "Infinite: %s",
++             global_settings.pod_infinite ? "On" : "Off");
++    return buffer;
++}
++
++static bool is_queued(int idx_id, int count)
++{
++    int i;
++
++    for (i = 0; i < count; i++)
++        if (queued[i] == idx_id)
++            return true;
++    return false;
++}
++
++/* Keep a random INFINITE_ADD of the tracks seen in each tier */
++static void sample(int tier, int idx_id)
++{
++    int n = seen[tier]++;
++
++    if (n < INFINITE_ADD)
++        pick[tier][n] = idx_id;
++    else if ((n = rand() % seen[tier]) < INFINITE_ADD)
++        pick[tier][n] = idx_id;
++}
++
++int pod_infinite_extend(int last)
++{
++    int i, t, count = 0, added = 0;
++    bool full = false;
++    long serial, seed_year;
++
++    if (!global_settings.pod_infinite
++        || global_settings.repeat_mode != REPEAT_OFF
++        || !playlist_peek(last, path, sizeof(path)))
++        return 0;
++
++    /* a full queue splashes for 2 s on every insert */
++    if (playlist_amount() + INFINITE_ADD
++        > global_settings.max_files_in_playlist)
++        return 0;
++
++    /* the last track is the seed: not in the library, nothing to go by */
++    if (!tagcache_find_index(&tcs, path))
++        return 0;
++    tagcache_retrieve(&tcs, tcs.idx_id, tag_genre, seed_genre, TAG_BUF);
++    tagcache_retrieve(&tcs, tcs.idx_id, tag_artist, seed_artist, TAG_BUF);
++    seed_year = tagcache_get_numeric(&tcs, tag_year);
++    tagcache_search_finish(&tcs);
++
++    /* the tracks the queue ends with */
++    for (i = 0; i < QUEUE_LOOKBACK
++                && playlist_peek(last - i, path, sizeof(path)); i++)
++    {
++        if (!tagcache_find_index(&tcs, path))
++            continue;
++        queued[count++] = tcs.idx_id;
++        tagcache_search_finish(&tcs);
++    }
++
++    /* tag_lastplayed is a play counter of the library, not a time */
++    serial = tagcache_get_serial();
++    memset(seen, 0, sizeof(seen));
++    if (!tagcache_search(&tcs, tag_filename))
++        return 0;
++    while (tagcache_get_next(&tcs, path, sizeof(path)))
++    {
++        long played = tagcache_get_numeric(&tcs, tag_lastplayed);
++        bool same_genre, other_artist, near_year;
++
++        if ((played > 0 && serial - played < RECENT_PLAYS)
++            || is_queued(tcs.idx_id, count))
++            continue;
++
++        tagcache_retrieve(&tcs, tcs.idx_id, tag_genre, genre, TAG_BUF);
++        tagcache_retrieve(&tcs, tcs.idx_id, tag_artist, artist, TAG_BUF);
++        same_genre = seed_genre[0] && !strcasecmp(genre, seed_genre);
++        other_artist = strcasecmp(artist, seed_artist) != 0;
++        i = tagcache_get_numeric(&tcs, tag_year);
++        near_year = seed_year > 0 && i > 0 && abs(i - seed_year) <= YEAR_SPAN;
++
++        if (same_genre && near_year && other_artist)
++            t = 0;
++        else if (same_genre && other_artist)
++            t = 1;
++        else if (same_genre)
++            t = 2;
++        else
++            t = 3;
++        sample(t, tcs.idx_id);
++    }
++
++    /* best tiers first */
++    for (t = 0; t < TIERS && !full && added < INFINITE_ADD; t++)
++    {
++        int n = MIN(seen[t], INFINITE_ADD);
++
++        for (i = 0; i < n && !full && added < INFINITE_ADD; i++)
++        {
++            if (!tagcache_retrieve(&tcs, pick[t][i], tag_filename, path,
++                                   sizeof(path)))
++                continue;
++            if (playlist_insert_track(NULL, path, PLAYLIST_INSERT_LAST,
++                                      false, false) < 0)
++            {
++                /* full: stop, each failure splashes for 2 s */
++                full = true;
++                break;
++            }
++            added++;
++#ifdef SIMULATOR
++            tagcache_retrieve(&tcs, pick[t][i], tag_title, genre, TAG_BUF);
++            fprintf(stderr, "pod: infinite pick %s\n", genre);
++#endif
++        }
++    }
++    tagcache_search_finish(&tcs);
++
++    if (added)
++    {
++        /* playlist_sync would post a flush to this very thread */
++        playlist_sync_control();
++#ifdef SIMULATOR
++        fprintf(stderr, "pod: infinite +%d\n", added);
++#endif
++    }
++    return added;
++}
+diff --git a/apps/pod_infinite.h b/apps/pod_infinite.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..2ce5eef1bd66062c049cbc7a3087d5e122dbd12c
+--- /dev/null
++++ b/apps/pod_infinite.h
+@@ -0,0 +1,34 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++#ifndef _POD_INFINITE_H
++#define _POD_INFINITE_H
++
++/* The menu item: Infinite play on or off, saved */
++int pod_infinite_toggle(void);
++char *pod_infinite_getname(int selected_item, void *data, char *buffer,
++                           size_t buffer_len);
++
++/* The queue has run out: append tracks picked by tags, by the tracks around
++   the last one (steps from the playing track, as playlist_peek takes them).
++   Returns how many were added, 0 when off or Repeat is on. Runs on the audio
++   thread. */
++int pod_infinite_extend(int last);
++
++#endif
+diff --git a/apps/settings.h b/apps/settings.h
+index 9c2aa87362538539e4f4bf717e519f5285c23a3d..2805ee853a0fe18a451b133e1ed26f6257d48b59 100644
+--- a/apps/settings.h
++++ b/apps/settings.h
+@@ -652,6 +652,7 @@ struct user_settings
+     int  recursive_dir_insert; /* should directories be inserted recursively */
+     bool fade_on_stop; /* fade on pause/unpause/stop */
+     bool playlist_shuffle;
++    bool pod_infinite; /* extend the queue by tags when it runs out */
+     bool warnon_erase_dynplaylist; /* warn when erasing dynamic playlist */
+     bool keep_current_track_on_replace_playlist;
+     bool show_shuffled_adding_options; /* whether to display options for adding shuffled tracks to dynamic playlist */
+diff --git a/apps/settings_list.c b/apps/settings_list.c
+index b2ab237b9126aba23d71e3e69594e6f4580f58a0..9f05aa2602576a8111ef365ecb0a41d520f6028d 100644
+--- a/apps/settings_list.c
++++ b/apps/settings_list.c
+@@ -1252,6 +1252,7 @@ const struct settings_list settings[] = {
+                    ,ID2P(LANG_REPEAT_AB)
+ #endif
+                   ), /* CHOICE_SETTING( repeat_mode ) */
++    OFFON_SETTING(0, pod_infinite, LANG_PLAYLIST, false, "infinite play", NULL),
+ #ifdef HAVE_PLAY_FREQ
+      TABLE_SETTING(F_SOUNDSETTING|F_CB_ON_SELECT_ONLY|F_CB_ONLY_IF_CHANGED,
+                   play_frequency, LANG_FREQUENCY, 0, "playback frequency", "auto",
+diff --git a/apps/tagcache.c b/apps/tagcache.c
+index 1827b1cfa0b8d4960d8e8c3ddda711a260ba4c56..dce8f1484c7381c9e2d9ce37933282181c9ab223 100644
+--- a/apps/tagcache.c
++++ b/apps/tagcache.c
+@@ -3770,6 +3770,11 @@ long tagcache_increase_serial(void)
+     return old;
+ }
+ 
++long tagcache_get_serial(void)
++{
++    return current_tcmh.serial;
++}
++
+ void tagcache_update_numeric(int idx_id, int tag, long data)
+ {
+     queue_command(CMD_UPDATE_NUMERIC, idx_id, tag, data);
+diff --git a/apps/tagcache.h b/apps/tagcache.h
+index 9eeb079922f2740d316734abeb482fbbd039e8f3..14a486523fc4be9d110e8bfb9e9bd5bc2869d16b 100644
+--- a/apps/tagcache.h
++++ b/apps/tagcache.h
+@@ -181,6 +181,7 @@ bool tagcache_retrieve(struct tagcache_search *tcs, int idxid,
+ void tagcache_search_finish(struct tagcache_search *tcs);
+ long tagcache_get_numeric(const struct tagcache_search *tcs, int tag);
+ long tagcache_increase_serial(void);
++long tagcache_get_serial(void);
+ bool tagcache_import_changelog(void);
+ bool tagcache_create_changelog(struct tagcache_search *tcs);
+ void tagcache_update_numeric(int idx_id, int tag, long data);
