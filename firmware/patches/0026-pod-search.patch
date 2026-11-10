@@ -1,0 +1,758 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pod <a@b.c>
+Date: Tue, 10 Nov 2026 01:59:38 +0100
+Subject: [PATCH] pod: search
+
+---
+ apps/SOURCES               |   1 +
+ apps/action.h              |   2 +
+ apps/gui/pod_deck.c        |  65 ++++-
+ apps/gui/pod_search.c      | 494 +++++++++++++++++++++++++++++++++++++
+ apps/gui/pod_search.h      |  38 +++
+ apps/keymaps/keymap-ipod.c |  19 ++
+ 6 files changed, 614 insertions(+), 5 deletions(-)
+ create mode 100644 apps/gui/pod_search.c
+ create mode 100644 apps/gui/pod_search.h
+
+diff --git a/apps/SOURCES b/apps/SOURCES
+index d96d6b5f6d30bd684d519d0e1a34c126a34fe096..11874b0f8817bc9e6d4e1ec0971b1103fd860c8e 100644
+--- a/apps/SOURCES
++++ b/apps/SOURCES
+@@ -79,6 +79,7 @@ iap/iap-lingo7.c
+ screen_access.c
+ gui/icon.c
+ gui/pod_deck.c
++gui/pod_search.c
+ gui/pod_eq.c
+ gui/pod_letter.c
+ gui/list.c
+diff --git a/apps/action.h b/apps/action.h
+index c9b1a27cd19f93cda4c0b49a3b31a99ee534df2c..0dee9ee0268b208d9725c1682a81b7f9209916cd 100644
+--- a/apps/action.h
++++ b/apps/action.h
+@@ -133,6 +133,7 @@ enum {
+     CONTEXT_USB_HID_MODE_BROWSER,
+     CONTEXT_USB_HID_MODE_MOUSE,
+     CONTEXT_POD_DECK,
++    CONTEXT_POD_SEARCH,
+     LAST_CONTEXT_PLACEHOLDER,
+ };
+ 
+@@ -167,6 +168,7 @@ enum {
+     ACTION_WPS_BROWSE,
+     ACTION_WPS_SCRUB,
+     ACTION_WPS_LOVE,
++    ACTION_POD_SEARCH,
+     ACTION_WPS_PLAY,
+     ACTION_WPS_SEEKBACK,
+     ACTION_WPS_SEEKFWD,
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index eab4361e6a25e0af9802c01be58373f840fd15ec..90e44e8d3f8b8ca590b0b0d21da1cbafe13bb78d 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -59,6 +59,7 @@
+ #include "pod_letter.h"
+ #include "pod_mixes.h"
+ #include "pod_sleep.h"
++#include "pod_search.h"
+ #include "pod_deck.h"
+ 
+ #define FONT_VALUE      FONT_DIR "/14-Deck-Bold.fnt"
+@@ -375,11 +376,13 @@ static int jump_letter(const struct deck *k, int cur, int dir)
+     return a;
+ }
+ 
+-/* Put the tracks of an album on a new playlist and start it. */
+-static bool deck_play(const struct deck *k, int album)
++/* Put the tracks of an album on a new playlist and start it, at the track
++ * of the tagcache index from, or the first one when it is -1. */
++static bool deck_play(const struct deck *k, int album, int32_t from)
+ {
+     struct tagcache_search tcs;
+     char path[MAX_PATH];
++    int pos = 0;
+ 
+     if (is_mix(&k->albums[album]))
+         return pod_mixes_play(&k->mixes[k->albums[album].end]);
+@@ -396,10 +399,19 @@ static bool deck_play(const struct deck *k, int album)
+     for (int i = k->albums[album].start; i < k->albums[album].end; i++)
+         if (tagcache_retrieve(&tcs, k->tracks[i].idx, tag_filename, path,
+                               sizeof(path)))
++        {
++            if (k->tracks[i].idx == from)
++                pos = playlist_amount();
+             playlist_insert_track(NULL, path, PLAYLIST_INSERT_LAST, false, false);
++        }
+     tagcache_search_finish(&tcs);
+     playlist_sync(NULL);
+-    playlist_start(0, 0, 0);
++#ifdef SIMULATOR
++    if (from >= 0)
++        fprintf(stderr, "pod: deck play %s from %d\n", k->albums[album].album,
++                pos + 1);
++#endif
++    playlist_start(pos, 0, 0);
+     return true;
+ }
+ 
+@@ -411,7 +423,7 @@ static bool deck_insert(const struct deck *k, int album, int position)
+     char path[MAX_PATH];
+ 
+     if (playlist_amount() <= 0)
+-        return deck_play(k, album);
++        return deck_play(k, album, -1);
+     if (is_mix(&k->albums[album]))
+     {
+         snprintf(path, sizeof(path), POD_MIXES_DIR "/%s",
+@@ -472,6 +484,35 @@ static bool deck_insert_menu(const struct deck *k, int album)
+     return added;
+ }
+ 
++/* Put the deck on a pick of the search: the tape of an album, an artist's
++ * first album, or the album of a track, which plays from it. Returns whether
++ * a track plays. */
++static bool deck_pick(const struct deck *k, int *cur,
++                      const struct pod_search_pick *p)
++{
++    struct tagcache_search tcs;
++    char artist[MAX_PATH];
++    int album = find_album(k, p->idx);
++
++    if (p->kind == POD_PICK_ARTIST && tagcache_search(&tcs, tag_filename))
++    {
++        char name[sizeof(k->albums[0].artist)];
++
++        get_tag(&tcs, p->idx, tag_virt_canonicalartist, artist, sizeof(artist));
++        tagcache_search_finish(&tcs);
++        strmemccpy(name, artist, sizeof(name));
++        album = -1;
++        for (int a = 0; a < k->count && album < 0; a++)
++            if (!is_queue(&k->albums[a]) && !is_mix(&k->albums[a])
++                && !strcmp(k->albums[a].artist, name))
++                album = a;
++    }
++    if (album < 0)
++        return false;
++    *cur = album;
++    return p->kind == POD_PICK_TRACK && deck_play(k, album, p->idx);
++}
++
+ static int load_font(const char *path)
+ {
+     int id = font_load(path);
+@@ -950,6 +991,20 @@ int pod_deck(bool on_playing)
+                     cur = MIN(cur + 1, k.count - 1);
+             }
+             break;
++        case ACTION_POD_SEARCH:
++        {
++            struct pod_search_pick pick;
++
++            pod_search(f_value, f_tiny, &pick);
++            if (pick.kind == POD_PICK_USB)
++                goto done;
++            if (pick.kind != POD_PICK_NONE && deck_pick(&k, &cur, &pick))
++            {
++                ret = GO_TO_WPS;
++                goto done;
++            }
++            break;
++        }
+         case ACTION_STD_OK:
+         case ACTION_TREE_WPS:
+             if (is_queue(album_row(&k, cur)))
+@@ -963,7 +1018,7 @@ int pod_deck(bool on_playing)
+ #ifdef SIMULATOR
+             fprintf(stderr, "pod: deck play %s\n", album_row(&k, cur)->album);
+ #endif
+-            if (deck_play(&k, cur))
++            if (deck_play(&k, cur, -1))
+             {
+                 /* PLAY plays in order; a second tap within the window
+                  * shuffles the rest, the track stays */
+diff --git a/apps/gui/pod_search.c b/apps/gui/pod_search.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..e5e47dd430542c0e0cce917ed40bb7127d22a8db
+--- /dev/null
++++ b/apps/gui/pod_search.c
+@@ -0,0 +1,494 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++
++/*
++ * Search, from the deck. A strip of letters to scrub with the wheel, SELECT
++ * adds the one under the cursor to the query, and the results narrow under
++ * it: tracks, artists and albums with a word that starts with the query,
++ * case and accents ignored. >> moves into the results, << or MENU back.
++ *
++ * Each change scans the tagcache again. The hits are kept in static arrays
++ * for the same reason the deck's rows are: no buflib while a track plays.
++ */
++
++#include "config.h"
++#include <stdio.h>
++#include <stdbool.h>
++#include <string.h>
++#include <ctype.h>
++#include <stdlib.h>
++#include "string-extra.h"
++#include "system.h"
++#include "kernel.h"
++#include "action.h"
++#include "settings.h"
++#include "font.h"
++#include "screen_access.h"
++#include "misc.h"
++#include "playlist.h"
++#include "splash.h"
++#include "root_menu.h"
++#include "tagcache.h"
++#include "lang.h"
++#include "rbunicode.h"
++#include "pod_search.h"
++
++/* light theme, as the deck */
++#define POD_PAPER       LCD_WHITE
++#define POD_MID         LCD_DARKGRAY
++#define POD_INK         LCD_BLACK
++
++#define QUERY_MAX       15
++#define CELLS           37      /* A-Z, 0-9, space */
++#define CELL_W          9
++#define CELL_N          15      /* the cells in view */
++#define TEXT_MAX        32
++
++enum { G_TRACKS, G_ARTISTS, G_ALBUMS, GROUPS };
++
++static const int cap[GROUPS] = { 16, 8, 8 };
++static const char *const group_name[GROUPS] = { "TRACKS", "ARTISTS", "ALBUMS" };
++
++struct hit {
++    uint32_t hash;              /* of the artist, or the album and artist */
++    int32_t idx;                /* a track of it */
++    char text[TEXT_MAX];
++};
++
++/* a line of the results: a header, or a hit */
++struct line {
++    char group;
++    int8_t hit;                 /* -1 for the header */
++};
++
++struct search {
++    char query[QUERY_MAX + 1];  /* upper case */
++    int len;
++    int cell;                   /* the cursor on the strip */
++    bool results;               /* the focus is in the results */
++    struct hit hits[GROUPS][16];
++    int found[GROUPS];
++    struct line lines[GROUPS + 16 + 8 + 8];
++    int count;
++    int sel, top;
++};
++
++static struct search s;
++
++/* Latin-1 from U+00C0 and U+00E0 to their base letter, and U+0100-U+017F by
++ * ranges. * is for what is not a letter. */
++static const char latin1[] = "aaaaaaaceeeeiiiidnooooo*ouuuuyts"
++                             "aaaaaaaceeeeiiiidnooooo*ouuuuyty";
++
++static const struct { uint16_t first, last; char base; } latin_ext[] = {
++    { 0x100, 0x105, 'a' }, { 0x106, 0x10d, 'c' }, { 0x10e, 0x111, 'd' },
++    { 0x112, 0x11b, 'e' }, { 0x11c, 0x123, 'g' }, { 0x124, 0x127, 'h' },
++    { 0x128, 0x133, 'i' }, { 0x134, 0x135, 'j' }, { 0x136, 0x138, 'k' },
++    { 0x139, 0x142, 'l' }, { 0x143, 0x14b, 'n' }, { 0x14c, 0x153, 'o' },
++    { 0x154, 0x159, 'r' }, { 0x15a, 0x161, 's' }, { 0x162, 0x167, 't' },
++    { 0x168, 0x173, 'u' }, { 0x174, 0x175, 'w' }, { 0x176, 0x178, 'y' },
++    { 0x179, 0x17e, 'z' }, { 0x17f, 0x17f, 's' },
++};
++
++static char fold_char(ucschar_t c)
++{
++    if (c < 0x80)
++        return tolower((int)c);
++    if (c >= 0xc0 && c < 0x100)
++        return latin1[c - 0xc0];
++    for (unsigned i = 0; i < ARRAYLEN(latin_ext); i++)
++        if (c >= latin_ext[i].first && c <= latin_ext[i].last)
++            return latin_ext[i].base;
++    return '*';
++}
++
++/* lower case ASCII, cut to fit */
++static void fold(const char *name, char *out, int size)
++{
++    const unsigned char *p = (const unsigned char *)name;
++    int n = 0;
++
++    while (*p && n < size - 1)
++    {
++        ucschar_t c;
++
++        p = utf8decode(p, &c);
++        out[n++] = fold_char(c);
++    }
++    out[n] = '\0';
++}
++
++/* whether a word of name starts with the query */
++static bool match_word_start(const char *name, const char *query)
++{
++    char f[TEXT_MAX * 2];
++
++    fold(name, f, sizeof(f));
++    for (int i = 0; f[i]; i++)
++    {
++        int j = 0;
++
++        if (i > 0 && isalnum((unsigned char)f[i - 1]))
++            continue;
++        while (query[j] && f[i + j] == tolower((unsigned char)query[j]))
++            j++;
++        if (!query[j])
++            return true;
++    }
++    return false;
++}
++
++static uint32_t hash_str(uint32_t h, const char *str)
++{
++    for (; *str; str++)
++        h = (h ^ (unsigned char)tolower((unsigned char)*str)) * 16777619u;
++    return h;
++}
++
++static int cmp_hit(const void *a, const void *b)
++{
++    return strcasecmp(((const struct hit *)a)->text, ((const struct hit *)b)->text);
++}
++
++static void add_hit(int group, int32_t idx, const char *text, uint32_t hash)
++{
++    struct hit *h;
++
++    if (s.found[group] >= cap[group])
++        return;
++    if (group != G_TRACKS)
++        for (int i = 0; i < s.found[group]; i++)
++            if (s.hits[group][i].hash == hash)
++                return;
++    h = &s.hits[group][s.found[group]++];
++    h->hash = hash;
++    h->idx = idx;
++    strmemccpy(h->text, text, sizeof(h->text));
++}
++
++/* the lines of the results: the groups that have hits, under a header */
++static void build_lines(void)
++{
++    s.count = 0;
++    for (int g = 0; g < GROUPS; g++)
++    {
++        if (!s.found[g])
++            continue;
++        s.lines[s.count++] = (struct line){ g, -1 };
++        for (int i = 0; i < s.found[g]; i++)
++            s.lines[s.count++] = (struct line){ g, i };
++    }
++    s.sel = s.top = 0;
++}
++
++static void search_run(void)
++{
++    struct tagcache_search tcs;
++    char path[MAX_PATH], title[MAX_PATH], album[MAX_PATH], artist[MAX_PATH];
++
++    memset(s.found, 0, sizeof(s.found));
++    if (s.len > 0 && tagcache_search(&tcs, tag_filename))
++    {
++        cpu_boost(true);
++        while (tagcache_get_next(&tcs, path, sizeof(path)))
++        {
++            int32_t idx = tcs.idx_id;
++
++            if (!tagcache_retrieve(&tcs, idx, tag_title, title, sizeof(title)))
++                title[0] = '\0';
++            if (!tagcache_retrieve(&tcs, idx, tag_album, album, sizeof(album)))
++                album[0] = '\0';
++            if (!tagcache_retrieve(&tcs, idx, tag_virt_canonicalartist, artist,
++                                   sizeof(artist)))
++                artist[0] = '\0';
++            if (*title && match_word_start(title, s.query))
++                add_hit(G_TRACKS, idx, title, 0);
++            if (*artist && match_word_start(artist, s.query))
++                add_hit(G_ARTISTS, idx, artist, hash_str(2166136261u, artist));
++            if (*album && match_word_start(album, s.query))
++                add_hit(G_ALBUMS, idx, album,
++                        hash_str(hash_str(2166136261u, album) * 16777619u, artist));
++        }
++        tagcache_search_finish(&tcs);
++        cpu_boost(false);
++        for (int g = 0; g < GROUPS; g++)
++            qsort(s.hits[g], s.found[g], sizeof(struct hit), cmp_hit);
++    }
++    build_lines();
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: search \"%s\" %d %d %d\n", s.query, s.found[G_TRACKS],
++            s.found[G_ARTISTS], s.found[G_ALBUMS]);
++#endif
++}
++
++static char cell_char(int cell)
++{
++    if (cell < 26)
++        return 'A' + cell;
++    return cell < 36 ? '0' + cell - 26 : ' ';
++}
++
++/* the next line with a hit in a direction, or the same one */
++static int step(int from, int dir)
++{
++    for (int i = from + dir; i >= 0 && i < s.count; i += dir)
++        if (s.lines[i].hit >= 0)
++            return i;
++    return from;
++}
++
++static const struct hit *selected(void)
++{
++    return &s.hits[(int)s.lines[s.sel].group][s.lines[s.sel].hit];
++}
++
++static int text_width(int font, const char *str)
++{
++    int w, h;
++    font_getstringsize(str, &w, &h, font);
++    return w;
++}
++
++/* a line of text cut to fit the screen */
++static void put_text(struct screen *d, int font, int x, int y, const char *str)
++{
++    char buf[TEXT_MAX];
++    int n = strlen(str);
++
++    strmemccpy(buf, str, sizeof(buf));
++    while (n > 0 && x + text_width(font, buf) > LCD_WIDTH - 2)
++        buf[--n] = '\0';
++    d->putsxy(x, y, buf);
++}
++
++static void draw(struct screen *d, int f_value, int f_tiny)
++{
++    int vh = font_get(f_value)->height, th = font_get(f_tiny)->height;
++    int sy = 3 + vh + 3, y0 = sy + th + 7, rh = th + 2;
++    int vis = (LCD_HEIGHT - y0) / rh;
++    int first = MAX(0, MIN(s.cell - CELL_N / 2, CELLS - CELL_N));
++
++    /* keep the selected line in view, with its header when it is the first */
++    if (s.sel < s.top)
++        s.top = s.sel > 0 && s.lines[s.sel - 1].hit < 0 ? s.sel - 1 : s.sel;
++    else if (s.sel >= s.top + vis)
++        s.top = s.sel - vis + 1;
++
++    d->set_background(POD_PAPER);
++    d->clear_display();
++    d->set_drawmode(DRMODE_FG);
++
++    /* the query, and the block that is the cursor */
++    d->set_foreground(POD_INK);
++    d->setfont(f_value);
++    d->putsxy(3, 3, s.query);
++    d->fillrect(5 + text_width(f_value, s.query), 4, 5, vh - 2);
++
++    /* the strip: the cell under the cursor inverted, an outline in the
++     * results */
++    d->setfont(f_tiny);
++    for (int i = 0; i < CELL_N; i++)
++    {
++        int c = first + i, x = 1 + i * CELL_W;
++        char str[2] = { cell_char(c) == ' ' ? '_' : cell_char(c), '\0' };
++
++        d->set_foreground(POD_INK);
++        if (c == s.cell && !s.results)
++        {
++            d->fillrect(x, sy, CELL_W - 1, th + 3);
++            d->set_foreground(POD_PAPER);
++        }
++        else if (c == s.cell)
++            d->drawrect(x, sy, CELL_W - 1, th + 3);
++        else
++            d->set_foreground(POD_MID);
++        d->putsxy(x + (CELL_W - 1 - text_width(f_tiny, str)) / 2, sy + 1, str);
++    }
++    d->set_foreground(POD_INK);
++    d->hline(0, LCD_WIDTH - 1, sy + th + 5);
++
++    if (s.len > 0 && !s.count)
++    {
++        d->set_foreground(POD_MID);
++        d->putsxy((LCD_WIDTH - text_width(f_tiny, "NO MATCH")) / 2, y0 + 8,
++                  "NO MATCH");
++    }
++    for (int i = 0; i < vis && s.top + i < s.count; i++)
++    {
++        const struct line *l = &s.lines[s.top + i];
++        int y = y0 + i * rh;
++
++        if (l->hit < 0)
++        {
++            d->set_foreground(POD_MID);
++            d->putsxy(2, y + 1, group_name[(int)l->group]);
++            continue;
++        }
++        d->set_foreground(POD_INK);
++        if (s.results && s.top + i == s.sel)
++        {
++            d->fillrect(0, y, LCD_WIDTH, rh);
++            d->set_foreground(POD_PAPER);
++        }
++        put_text(d, f_tiny, 5, y + 1, s.hits[(int)l->group][l->hit].text);
++    }
++
++    d->setfont(FONT_UI);
++    d->set_drawmode(DRMODE_SOLID);
++    d->set_foreground(LCD_DEFAULT_FG);
++    d->set_background(LCD_DEFAULT_BG);
++    d->update();
++}
++
++/* the selected line is the pick */
++static void pick_line(struct pod_search_pick *pick)
++{
++    pick->kind = POD_PICK_TRACK + s.lines[s.sel].group;
++    pick->idx = selected()->idx;
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: search pick %s %s\n",
++            pick->kind == POD_PICK_TRACK ? "track"
++            : pick->kind == POD_PICK_ARTIST ? "artist" : "album",
++            selected()->text);
++#endif
++}
++
++/* Hold SELECT on a track: add it to the playlist. With nothing to add to it
++ * plays, as a pick. */
++static bool queue_track(const struct hit *h)
++{
++    struct tagcache_search tcs;
++    char path[MAX_PATH];
++    bool queued = false;
++
++    if (!tagcache_search(&tcs, tag_filename))
++    {
++        splash(HZ, ID2P(LANG_TAGCACHE_BUSY));
++        return false;
++    }
++    if (tagcache_retrieve(&tcs, h->idx, tag_filename, path, sizeof(path)))
++        queued = playlist_insert_track(NULL, path, PLAYLIST_INSERT_LAST, true,
++                                       true) >= 0;
++    tagcache_search_finish(&tcs);
++    if (queued)
++    {
++#ifdef SIMULATOR
++        fprintf(stderr, "pod: queue %s\n", h->text);
++#endif
++        splash(HZ, "Queued");
++    }
++    return queued;
++}
++
++void pod_search(int f_value, int f_tiny, struct pod_search_pick *pick)
++{
++    struct screen *d = &screens[SCREEN_MAIN];
++
++    s.query[0] = '\0';
++    s.len = 0;
++    s.cell = 0;
++    s.results = false;
++    search_run();
++    pick->kind = POD_PICK_NONE;
++
++    while (true)
++    {
++        draw(d, f_value, f_tiny);
++
++        int button = get_action(CONTEXT_POD_SEARCH, TIMEOUT_BLOCK);
++
++        switch (button)
++        {
++        case ACTION_STD_NEXT:
++        case ACTION_STD_NEXTREPEAT:
++            if (s.results)
++                s.sel = step(s.sel, 1);
++            else
++                s.cell = MIN(s.cell + 1, CELLS - 1);
++            break;
++        case ACTION_STD_PREV:
++        case ACTION_STD_PREVREPEAT:
++            if (s.results)
++                s.sel = step(s.sel, -1);
++            else
++                s.cell = MAX(s.cell - 1, 0);
++            break;
++        case ACTION_TREE_LETTER_NEXT:
++            if (!s.results && s.count)
++            {
++                s.results = true;
++                s.sel = step(0, 1);
++            }
++            break;
++        case ACTION_TREE_LETTER_PREV:
++            s.results = false;
++            break;
++        case ACTION_STD_OK:
++        case ACTION_TREE_WPS:
++            if (s.results)
++            {
++                pick_line(pick);
++                return;
++            }
++            if (button == ACTION_STD_OK && s.len < QUERY_MAX)
++            {
++                s.query[s.len++] = cell_char(s.cell);
++                s.query[s.len] = '\0';
++                search_run();
++            }
++            break;
++        case ACTION_STD_CONTEXT:
++            if (!s.results || s.lines[s.sel].group != G_TRACKS)
++                break;
++            if (playlist_amount() <= 0)
++            {
++                /* the repeats of the hold are the deck's otherwise */
++                action_wait_for_release();
++                pick_line(pick);
++                return;
++            }
++            queue_track(selected());
++            action_wait_for_release();
++            break;
++        case ACTION_STD_CANCEL:
++            if (s.results)
++                s.results = false;
++            else if (s.len > 0)
++            {
++                s.query[--s.len] = '\0';
++                search_run();
++            }
++            else
++                return;
++            break;
++        case ACTION_STD_MENU:
++            /* the deck would take the repeats of the hold for settings */
++            action_wait_for_release();
++            return;
++        default:
++            if (default_event_handler(button) == SYS_USB_CONNECTED)
++            {
++                pick->kind = POD_PICK_USB;
++                return;
++            }
++            break;
++        }
++    }
++}
+diff --git a/apps/gui/pod_search.h b/apps/gui/pod_search.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..5ac5f5b406a85c61e0f11917b4a5e231c5007719
+--- /dev/null
++++ b/apps/gui/pod_search.h
+@@ -0,0 +1,38 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++#ifndef _POD_SEARCH_H_
++#define _POD_SEARCH_H_
++
++#include <stdint.h>
++
++/* what the search ended on: nothing (the user left), a pick, or USB */
++enum { POD_PICK_NONE, POD_PICK_TRACK, POD_PICK_ARTIST, POD_PICK_ALBUM,
++       POD_PICK_USB };
++
++struct pod_search_pick {
++    int kind;
++    int32_t idx;                /* tagcache index of a track of the pick */
++};
++
++/* Search the library by the first letters of the words of a title, an
++ * artist or an album, drawn with the deck's fonts. */
++void pod_search(int f_value, int f_tiny, struct pod_search_pick *pick);
++
++#endif /* _POD_SEARCH_H_ */
+diff --git a/apps/keymaps/keymap-ipod.c b/apps/keymaps/keymap-ipod.c
+index a3038c52252f970a41e109f48d95c51d4474de80..d4dc11d2db873e77805c10d299fad07834775032 100644
+--- a/apps/keymaps/keymap-ipod.c
++++ b/apps/keymaps/keymap-ipod.c
+@@ -160,11 +160,28 @@ static const struct button_mapping button_context_deck[]  = {
+     { ACTION_STD_CONTEXT,           BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
+     { ACTION_TREE_WPS,              BUTTON_PLAY|BUTTON_REL,             BUTTON_PLAY },
+     { ACTION_TREE_SHUFFLE,          BUTTON_PLAY|BUTTON_DOUBLE,          BUTTON_NONE },
++    { ACTION_POD_SEARCH,            BUTTON_MENU|BUTTON_DOUBLE,          BUTTON_NONE },
+     { ACTION_STD_MENU,              BUTTON_MENU|BUTTON_REPEAT,          BUTTON_MENU },
+ 
+     LAST_ITEM_IN_LIST
+ }; /* button_context_deck */
+ 
++static const struct button_mapping button_context_search[]  = {
++    { ACTION_STD_NEXT,              BUTTON_SCROLL_FWD,                  BUTTON_NONE },
++    { ACTION_STD_NEXTREPEAT,        BUTTON_SCROLL_FWD|BUTTON_REPEAT,    BUTTON_NONE },
++    { ACTION_STD_PREV,              BUTTON_SCROLL_BACK,                 BUTTON_NONE },
++    { ACTION_STD_PREVREPEAT,        BUTTON_SCROLL_BACK|BUTTON_REPEAT,   BUTTON_NONE },
++    { ACTION_TREE_LETTER_PREV,      BUTTON_LEFT,                        BUTTON_NONE },
++    { ACTION_TREE_LETTER_NEXT,      BUTTON_RIGHT,                       BUTTON_NONE },
++    { ACTION_STD_OK,                BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
++    { ACTION_STD_CONTEXT,           BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
++    { ACTION_TREE_WPS,              BUTTON_PLAY|BUTTON_REL,             BUTTON_PLAY },
++    { ACTION_STD_CANCEL,            BUTTON_MENU|BUTTON_REL,             BUTTON_MENU },
++    { ACTION_STD_MENU,              BUTTON_MENU|BUTTON_REPEAT,          BUTTON_MENU },
++
++    LAST_ITEM_IN_LIST
++}; /* button_context_search */
++
+ static const struct button_mapping button_context_yesno[]  = {
+     { ACTION_YESNO_ACCEPT,          BUTTON_SELECT,                  BUTTON_NONE },
+     { ACTION_STD_CANCEL,          BUTTON_PLAY,                  BUTTON_NONE },
+@@ -516,6 +533,8 @@ const struct button_mapping* get_context_mapping(int context)
+             return button_context_eq;
+         case CONTEXT_POD_DECK:
+             return button_context_deck;
++        case CONTEXT_POD_SEARCH:
++            return button_context_search;
+         case CONTEXT_SETTINGS_COLOURCHOOSER:
+         case CONTEXT_SETTINGS_TIME:
+         case CONTEXT_SETTINGS:

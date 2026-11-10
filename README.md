@@ -5,8 +5,9 @@ theme. bΔnst ⧉ design.
 
 ![screens](docs/screens.png)
 
-It boots into your music library and has a cassette-deck player. There is one
-settings menu, and you open it by holding MENU, in the library or the deck.
+It boots into a cassette deck with your albums as tapes, and has a cassette-deck
+player. There is one settings menu, and you open it by holding MENU on the
+deck. A double MENU on the deck searches the library.
 
 ![deck](docs/deck.png)
 
@@ -14,21 +15,21 @@ settings menu, and you open it by holding MENU, in the library or the deck.
 
 | Where        | Button            | Action                                    |
 |--------------|-------------------|-------------------------------------------|
-| Library      | wheel / SELECT    | move / open, play                         |
-|              | MENU              | back (at the library root: now playing)   |
-|              | << / >>           | previous / next letter (hold repeats)     |
-|              | fast wheel        | shows the letter you are on               |
-|              | hold MENU         | settings                                  |
-|              | PLAY              | play the highlighted item in order (on Artists, Albums, Recently Added: now playing) |
-|              | double PLAY       | play it shuffled (Shuffle All: PLAY)      |
-|              | hold SELECT       | play shuffled / play next / play last / info |
-| Deck (Albums)| wheel             | previous / next tape (mixtapes first, then albums) |
+| Deck (home)  | wheel             | previous / next tape (queue, mixtapes, then albums) |
 |              | << / >>           | previous / next initial (hold repeats)    |
 |              | SELECT / PLAY     | play the album or mixtape from track 1, open the player (the queue tape: open the player) |
 |              | double PLAY       | play it shuffled                          |
 |              | hold SELECT       | on an album or mixtape: play next / play last |
-|              | MENU              | back (from the player: the list the track came from)  |
+|              | MENU              | nothing                                   |
+|              | double MENU       | search                                    |
 |              | hold MENU         | settings                                  |
+| Search       | wheel             | on the strip: A-Z, 0-9, space. In the results: move |
+|              | SELECT            | on the strip: add the letter. In the results: pick |
+|              | PLAY              | in the results: pick                      |
+|              | >> / <<           | into the results / back to the strip      |
+|              | MENU              | delete the last letter (none: back to the deck) |
+|              | hold MENU         | back to the deck                          |
+|              | hold SELECT       | on a track, with something playing: add it at the end of the queue |
 | Player       | wheel             | volume (the counter shows the dB value)   |
 |              | SELECT            | scrub: wheel seeks (SEEK), ends after 3 s or SELECT |
 |              | PREV / NEXT       | skip, hold to seek                        |
@@ -53,6 +54,12 @@ plays or resumes it. SELECT on an album still replaces it, and hold SELECT on
 an album or mixtape adds it after the playing track (Play next) or at the end
 (Play last), staying on the deck. In the player, hold MENU opens the queue as
 a list of titles to reorder or trim.
+
+Search matches the first letters of a word of a title, an artist or an album,
+ignoring case and accents, and lists the tracks, artists and albums that match
+under the letters. An album puts the deck on its tape, an artist on its first
+album, and a track plays its album from that track and opens the player,
+whose MENU comes back to the tape.
 
 Settings menu: Equalizer, Repeat, Sleep, Backlight, Time & Date, Rescan
 Library, System (battery, disk, version).
@@ -114,7 +121,7 @@ Download it from the
 
 Eject, and the iPod boots pod. On the first boot pod scans the library, then
 restarts by itself once to commit the database. After that it boots straight
-into the library, and new music is picked up at boot.
+into the deck, and new music is picked up at boot.
 
 pod needs a Windows formatted (FAT32) iPod: one restored on a Mac is HFS+,
 and pod link says so.
@@ -199,10 +206,10 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
   3. the EQ screen (`apps/gui/pod_eq.c`): five DSP bands pinned to a low
      shelf, three peaks and a high shelf. The plot is the actual biquad
      magnitude response.
-  4. navigation: the library is the root, MENU is back (at the root: now
-     playing), `<<`/`>>` do nothing in lists, hold MENU in the library or the
-     deck opens the settings menu, the context menus are cut down, the first
-     scan reboots by itself
+  4. navigation: the library is the root (the deck since 25), MENU is back
+     (at the root: now playing), `<<`/`>>` do nothing in lists, hold MENU in
+     the library or the deck opens the settings menu, the context menus are
+     cut down, the first scan reboots by itself
   5. full-screen splash, codecs: MP3, AAC/ALAC, FLAC, Vorbis, Opus, WAV, AIFF,
      WavPack, APE
   6. full-screen "DATA LINK" USB screen in place of the stock logo
@@ -230,9 +237,10 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
   16. play log: every play of 3 s or more is a line of `/.pod/plays.log`
       (Audioscrobbler 1.1), kept in RAM and written by the storage idle
       callback (`apps/pod_playlog.c`)
-  17. library root: Artists, Albums, Songs, Recently Added, Shuffle All.
-      `apps/pod_mixes.c` reads `/Mixes/<Name>.m3u8`, one absolute
-      `/Music/...` path per line, for the deck (23)
+  17. library root: Artists, Albums, Songs, Recently Added, Shuffle All (only
+      Albums is left, see 25). `apps/pod_mixes.c` reads
+      `/Mixes/<Name>.m3u8`, one absolute `/Music/...` path per line, for the
+      deck (23)
   18. PLAY in the library plays the highlighted row (`tagtree_play_selection`,
       an artist's tracks by album) and opens the player, a second tap within
       300 ms reshuffles it (`ACTION_TREE_SHUFFLE`), and the Shuffle setting
@@ -260,6 +268,13 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       SELECT on an album inserts it (Play next / Play last), and hold MENU in
       the player opens the playlist viewer as an editor: SELECT picks up and
       drops a track, hold SELECT removes it.
+  25. the deck is home: it opens at boot and in place of the library lists,
+      which `tagnavi_user.config` no longer has, MENU on it does nothing, and
+      the tape you left stays after the settings. With no tapes it says so.
+  26. search (`apps/gui/pod_search.c`): a double MENU on the deck opens a
+      letter strip with the tracks, artists and albums that have a word
+      starting with the query, found by scanning the tagcache at each letter.
+      A pick puts the deck on a tape or plays the track's album from it.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,
@@ -273,7 +288,7 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
 - `firmware/device/README.txt`, `firmware/licenses/`: shipped in `/.pod` with the GPL text and
   Rockbox's third party notices (`/.pod/docs`)
 - `firmware/theme/`: static files: default `config.cfg`, `themes/pod.cfg`, library
-  menu (`tagnavi_user.config`)
+  root (`tagnavi_user.config`)
 
 ### CI and releases
 

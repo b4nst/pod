@@ -1,0 +1,216 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pod <pod@localhost>
+Date: Tue, 10 Nov 2026 01:53:57 +0100
+Subject: [PATCH] pod: the deck is home
+
+---
+ apps/gui/pod_deck.c        | 55 +++++++++++++++++++++++++-------------
+ apps/gui/pod_deck.h        |  7 ++---
+ apps/keymaps/keymap-ipod.c |  1 -
+ apps/root_menu.c           | 34 +++++------------------
+ 4 files changed, 48 insertions(+), 49 deletions(-)
+
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index 6312b45fc288abc19685a4326c133df92529af90..eab4361e6a25e0af9802c01be58373f840fd15ec 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -19,9 +19,9 @@
+  ****************************************************************************/
+ 
+ /*
+- * The cassette deck, browse mode: one tape per album (an artist's and
+- * another's of the same name are two), after a tape per mix of /Mixes and
+- * the queue, the current playlist, first of all. A bargraph with the
++ * The cassette deck, home, in browse mode: one tape per album (an artist's
++ * and another's of the same name are two), after a tape per mix of /Mixes
++ * and the queue, the current playlist, first of all. A bargraph with the
+  * initials round the corner, the J-card and the tape of the current album,
+  * and a rack of the next ones below.
+  *
+@@ -846,6 +846,20 @@ static void draw_status(struct screen *d, int font)
+     }
+ }
+ 
++/* no tapes: tell where they come from */
++static void draw_empty(struct screen *d, int f_value, int f_tiny)
++{
++    const char *title = "NO TAPES", *sub = "SYNC WITH POD LINK";
++
++    draw_status(d, f_tiny);
++    d->set_foreground(POD_INK);
++    d->setfont(f_value);
++    d->putsxy((LCD_WIDTH - text_width(f_value, title)) / 2, 40, title);
++    d->set_foreground(POD_MID);
++    d->setfont(f_tiny);
++    d->putsxy((LCD_WIDTH - text_width(f_tiny, sub)) / 2, 60, sub);
++}
++
+ static void draw(struct screen *d, const struct deck *k, int cur, int f_value,
+                  int f_tiny)
+ {
+@@ -856,11 +870,16 @@ static void draw(struct screen *d, const struct deck *k, int cur, int f_value,
+     /* text goes over filled shapes, so never paint glyph backgrounds */
+     d->set_drawmode(DRMODE_FG);
+ 
+-    draw_bargraph(d, k, cur, f_tiny);
+-    draw_status(d, f_tiny);
+-    draw_card(d, CARD_X, CARD_Y, CARD_W, CARD_H, t, f_value, f_tiny);
+-    draw_tape(d, t, album_sub(k, t), f_tiny);
+-    draw_rack(d, k, cur, f_tiny);
++    if (!k->count)
++        draw_empty(d, f_value, f_tiny);
++    else
++    {
++        draw_bargraph(d, k, cur, f_tiny);
++        draw_status(d, f_tiny);
++        draw_card(d, CARD_X, CARD_Y, CARD_W, CARD_H, t, f_value, f_tiny);
++        draw_tape(d, t, album_sub(k, t), f_tiny);
++        draw_rack(d, k, cur, f_tiny);
++    }
+ 
+     d->setfont(FONT_UI);
+     d->set_drawmode(DRMODE_SOLID);
+@@ -874,15 +893,13 @@ int pod_deck(bool on_playing)
+     struct screen *d = &screens[SCREEN_MAIN];
+     struct deck k;
+     static int f_value = -1, f_tiny = -1;   /* loaded once */
+-    int cur = 0, ret = GO_TO_PREVIOUS;
++    static int cur = 0;         /* kept: back from the settings, same tape */
++    int ret = GO_TO_ROOT;       /* only USB leaves, and the deck reopens */
+ 
+-    if (!deck_load(&k))
+-    {
+-        splash(HZ, ID2P(LANG_NO_FILES));
+-        return GO_TO_PREVIOUS;
+-    }
++    deck_load(&k);
+     if (on_playing)
+-        cur = MAX(0, playing_album(&k));
++        cur = playing_album(&k);
++    cur = MAX(0, MIN(cur, k.count - 1));
+ 
+     if (f_value < 0)
+     {
+@@ -897,12 +914,16 @@ int pod_deck(bool on_playing)
+     {
+ #ifdef SIMULATOR
+         fprintf(stderr, "pod: deck %d/%d %s\n", cur + 1, k.count,
+-                album_row(&k, cur)->album);
++                k.count ? album_row(&k, cur)->album : "");
+ #endif
+         draw(d, &k, cur, f_value, f_tiny);
+ 
+         int button = get_action(CONTEXT_POD_DECK, TIMEOUT_BLOCK);
+ 
++        /* with no tapes only hold MENU and USB act */
++        if (!k.count && button != ACTION_STD_MENU && !(button & SYS_EVENT))
++            button = ACTION_NONE;
++
+         switch (button)
+         {
+         case ACTION_STD_NEXT:
+@@ -966,8 +987,6 @@ int pod_deck(bool on_playing)
+                 goto done;
+             }
+             break;
+-        case ACTION_STD_CANCEL:
+-            goto done;
+         case ACTION_STD_MENU:
+             ret = GO_TO_MAINMENU;
+             goto done;
+diff --git a/apps/gui/pod_deck.h b/apps/gui/pod_deck.h
+index 9d90dc81a97ffb7066808398e209d81c244c9096..a97d0595e482da0c5441e9b9c3088e0a94e18120 100644
+--- a/apps/gui/pod_deck.h
++++ b/apps/gui/pod_deck.h
+@@ -22,9 +22,10 @@
+ 
+ #include <stdbool.h>
+ 
+-/* The cassette deck: the albums of the library as tapes. SELECT or PLAY
+- * plays one and returns GO_TO_WPS. on_playing opens on the album of the
+- * playing track instead of the first one. */
++/* The cassette deck, home: the albums of the library as tapes. SELECT or
++ * PLAY plays one and returns GO_TO_WPS, hold MENU returns GO_TO_MAINMENU,
++ * and only USB returns GO_TO_ROOT. on_playing opens on the album of the
++ * playing track instead of the one it was left on. */
+ int pod_deck(bool on_playing);
+ 
+ #endif /* _POD_DECK_H_ */
+diff --git a/apps/keymaps/keymap-ipod.c b/apps/keymaps/keymap-ipod.c
+index d39c2dbd79a2a409a6ce6ac11d335fb773cdabfa..a3038c52252f970a41e109f48d95c51d4474de80 100644
+--- a/apps/keymaps/keymap-ipod.c
++++ b/apps/keymaps/keymap-ipod.c
+@@ -160,7 +160,6 @@ static const struct button_mapping button_context_deck[]  = {
+     { ACTION_STD_CONTEXT,           BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
+     { ACTION_TREE_WPS,              BUTTON_PLAY|BUTTON_REL,             BUTTON_PLAY },
+     { ACTION_TREE_SHUFFLE,          BUTTON_PLAY|BUTTON_DOUBLE,          BUTTON_NONE },
+-    { ACTION_STD_CANCEL,            BUTTON_MENU|BUTTON_REL,             BUTTON_MENU },
+     { ACTION_STD_MENU,              BUTTON_MENU|BUTTON_REPEAT,          BUTTON_MENU },
+ 
+     LAST_ITEM_IN_LIST
+diff --git a/apps/root_menu.c b/apps/root_menu.c
+index 55383e41e817d1219f97100255341a7e4cc45797..48e355f58ff4a35315dfce526857251c342c5b96 100644
+--- a/apps/root_menu.c
++++ b/apps/root_menu.c
+@@ -114,20 +114,12 @@ static void rootmenu_track_changed_callback(unsigned short id, void* param)
+ static int browser(void* param)
+ {
+     int ret_val;
+-#ifdef HAVE_TAGCACHE
+-    struct tree_context* tc = tree_get_context();
+-#endif
+     int filter = SHOW_SUPPORTED;
+     char folder[MAX_PATH] = "/";
+     /* stuff needed to remember position in file browser */
+     /*static char last_folder[MAX_PATH] = "/"*/
+     char *last_folder = global_status.browse_last_folder;
+ 
+-    /* and stuff for the database browser */
+-#ifdef HAVE_TAGCACHE
+-    static int last_db_dirlevel = 0, last_db_selection = 0, last_ft_dirlevel = 0;
+-#endif
+-
+     switch ((intptr_t)param)
+     {
+         case GO_TO_FILEBROWSER:
+@@ -274,19 +266,14 @@ static int browser(void* param)
+                         ROCKBOX_DIR "/tagnavi.config");
+                 return GO_TO_PREVIOUS;
+             }
+-            filter = SHOW_ID3DB;
+-            last_ft_dirlevel = tc->dirlevel;
+-            /* from the player, MENU opens the deck on the playing album */
+-            if (last_screen == GO_TO_WPS)
+-            {
+-                int rc = pod_deck(true);
+-                if (rc != GO_TO_PREVIOUS)
+-                    return rc;
+-            }
+-            tc->dirlevel = last_db_dirlevel;
+-            tc->selected_item = last_db_selection;
++            /* the deck is home: from the player it opens on the playing album */
+             push_current_activity(ACTIVITY_DATABASEBROWSER);
+-        break;
++            ret_val = pod_deck(last_screen == GO_TO_WPS);
++            if (ret_val == GO_TO_WPS)
++                pop_current_activity_without_refresh();
++            else
++                pop_current_activity();
++            return ret_val;
+ #endif /*HAVE_TAGCACHE*/
+     }
+ 
+@@ -316,13 +303,6 @@ static int browser(void* param)
+                 last_folder[1] = '\0';
+             }
+         break;
+-#ifdef HAVE_TAGCACHE
+-        case GO_TO_DBBROWSER:
+-            last_db_dirlevel = tc->dirlevel;
+-            last_db_selection = tc->selected_item;
+-            tc->dirlevel = last_ft_dirlevel;
+-        break;
+-#endif
+     }
+     return ret_val;
+ }
