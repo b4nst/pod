@@ -1,0 +1,297 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Tue, 10 Nov 2026 22:14:58 +0100
+Subject: [PATCH] pod: the deck draws the album covers
+
+---
+ apps/SOURCES          |   1 +
+ apps/gui/pod_covers.c | 149 ++++++++++++++++++++++++++++++++++++++++++
+ apps/gui/pod_covers.h |  37 +++++++++++
+ apps/gui/pod_deck.c   |  22 +++++++
+ 4 files changed, 209 insertions(+)
+ create mode 100644 apps/gui/pod_covers.c
+ create mode 100644 apps/gui/pod_covers.h
+
+diff --git a/apps/SOURCES b/apps/SOURCES
+index b814f914cdfe405872030d48d2377215d8c04b32..a3cac534dffcce187fa296068152ad1fc1d25bee 100644
+--- a/apps/SOURCES
++++ b/apps/SOURCES
+@@ -79,6 +79,7 @@ iap/iap-lingo7.c
+ screen_access.c
+ gui/icon.c
+ gui/pod_deck.c
++gui/pod_covers.c
+ gui/pod_search.c
+ gui/pod_eq.c
+ gui/pod_letter.c
+diff --git a/apps/gui/pod_covers.c b/apps/gui/pod_covers.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..5a8e7f849a640dbf95bbb890837520e5cc172f3c
+--- /dev/null
++++ b/apps/gui/pod_covers.c
+@@ -0,0 +1,149 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++
++/*
++ * The covers pod link syncs to /.pod/covers.bin: a sorted index of album
++ * hashes, then a record per hash. The index stays in RAM, the records are
++ * read when drawn and the last few kept, with no file open in between.
++ * Static buffers only, as the deck does (see pod_deck.c).
++ */
++
++#include "config.h"
++#include <stdio.h>
++#include <stdbool.h>
++#include <string.h>
++#include "system.h"
++#include "file.h"
++#include "rbpaths.h"
++#include "pod_covers.h"
++
++#define COVERS_FILE     ROCKBOX_DIR "/covers.bin"
++#define HEADER_BYTES    18
++#define COVERS_MAX      8192    /* as many as the deck has albums */
++#define SLOTS           16
++
++struct slot {
++    int rec;                    /* -1: free */
++    bool bad;                   /* it could not be read */
++    unsigned age;
++    unsigned char data[POD_COVER_BYTES];
++};
++
++static uint32_t cover_hash[COVERS_MAX];
++static int cover_count;         /* hashes kept */
++static int file_count;          /* records in the file */
++static struct slot slots[SLOTS];
++static unsigned tick;
++
++/* the header is not aligned */
++static uint32_t le(const unsigned char *p, int n)
++{
++    uint32_t v = 0;
++
++    while (n--)
++        v = v << 8 | p[n];
++    return v;
++}
++
++void pod_covers_load(void)
++{
++    unsigned char h[HEADER_BYTES];
++    int fd = open(COVERS_FILE, O_RDONLY);
++
++    cover_count = file_count = 0;
++    for (int i = 0; i < SLOTS; i++)
++        slots[i].rec = -1;
++    if (fd >= 0 && read(fd, h, sizeof(h)) == sizeof(h) && !memcmp(h, "PODC", 4)
++        && le(h + 4, 2) == 1
++        && le(h + 6, 2) == 38 && le(h + 8, 2) == 59
++        && le(h + 10, 2) == 12 && le(h + 12, 2) == 19)
++    {
++        uint32_t n = le(h + 14, 4);
++        int want = MIN(n, COVERS_MAX);
++
++        if (ffilesize(fd) >= (off_t)HEADER_BYTES
++                            + (off_t)n * (4 + POD_COVER_BYTES)
++            && read(fd, cover_hash, want * 4) == want * 4)
++        {
++            for (int i = 0; i < want; i++)
++                cover_hash[i] = letoh32(cover_hash[i]);
++            cover_count = want;
++            file_count = n;
++        }
++    }
++    if (fd >= 0)
++        close(fd);
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: covers %d\n", cover_count);
++#endif
++}
++
++int pod_covers_find(uint32_t hash)
++{
++    int lo = 0, hi = cover_count - 1;
++
++    while (lo <= hi)
++    {
++        int mid = (lo + hi) / 2;
++
++        if (cover_hash[mid] == hash)
++            return mid;
++        if (cover_hash[mid] < hash)
++            lo = mid + 1;
++        else
++            hi = mid - 1;
++    }
++    return -1;
++}
++
++const unsigned char *pod_covers_get(int rec)
++{
++    struct slot *s = &slots[0];
++    bool ok = false;
++    int fd;
++
++    for (int i = 0; i < SLOTS; i++)
++        if (slots[i].rec == rec)
++        {
++            slots[i].age = ++tick;
++            return slots[i].bad ? NULL : slots[i].data;
++        }
++    for (int i = 1; i < SLOTS; i++)
++        if (slots[i].rec == -1 || (s->rec != -1 && slots[i].age < s->age))
++            s = &slots[i];
++
++    /* a record that can't be read is kept as bad, so it is not read again at
++     * each redraw */
++    fd = open(COVERS_FILE, O_RDONLY);
++    if (fd >= 0)
++    {
++        ok = lseek(fd, HEADER_BYTES + 4 * (off_t)file_count
++                       + (off_t)rec * POD_COVER_BYTES, SEEK_SET) >= 0
++             && read(fd, s->data, POD_COVER_BYTES) == POD_COVER_BYTES;
++        close(fd);
++    }
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: cover read %d\n", rec);
++#endif
++    s->rec = rec;
++    s->age = ++tick;
++    s->bad = !ok;
++    return ok ? s->data : NULL;
++}
+diff --git a/apps/gui/pod_covers.h b/apps/gui/pod_covers.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..b37604bcd034c775e430fdcf3a80a5dbccc31acd
+--- /dev/null
++++ b/apps/gui/pod_covers.h
+@@ -0,0 +1,37 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++#ifndef _POD_COVERS_H_
++#define _POD_COVERS_H_
++
++#include <stdint.h>
++
++#define POD_COVER_BYTES 647     /* a 38x59 card, then a 12x19 thumbnail */
++
++/* Read the index of /.pod/covers.bin: none when it is missing or not ours */
++void pod_covers_load(void);
++
++/* The record of an album hash, or -1 */
++int pod_covers_find(uint32_t hash);
++
++/* The 2 bpp card and thumbnail of a record, read when first asked for, or
++ * NULL when the file can't give them */
++const unsigned char *pod_covers_get(int rec);
++
++#endif /* _POD_COVERS_H_ */
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index 90e44e8d3f8b8ca590b0b0d21da1cbafe13bb78d..32a45b7c2bfe1c37d5c8cb6c0167004f1cabbfec 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -57,6 +57,7 @@
+ #include "menu.h"
+ #include "lang.h"
+ #include "pod_letter.h"
++#include "pod_covers.h"
+ #include "pod_mixes.h"
+ #include "pod_sleep.h"
+ #include "pod_search.h"
+@@ -114,6 +115,7 @@ struct deck_album {
+     int start, end;             /* its tracks, in play order */
+     char album[24];             /* to sort and to show */
+     char artist[16];
++    int16_t cover;              /* its record in the covers, or -1 */
+ };
+ 
+ /* a mixtape is a deck_album with no tracks: start is -1 and end its index in
+@@ -212,6 +214,7 @@ static bool queue_load(struct deck *k)
+         k->count = n + 1;
+         k->queue = true;
+         q->start = q->end = -1;
++        q->cover = -1;
+         strmemccpy(q->album, "Queue", sizeof(q->album));
+     }
+     snprintf(q->artist, sizeof(q->artist), "%d tracks", playlist_amount());
+@@ -241,11 +244,13 @@ static bool load_albums(struct deck *k)
+         a->end = k->count;
+         strmemccpy(a->album, mixes[k->count].name, sizeof(a->album));
+         a->artist[0] = '\0';
++        a->cover = -1;
+     }
+     if (total <= 0 || !tagcache_search(&tcs, tag_filename))
+         return m > 0;
+     total = MIN(total, DECK_MAX_TRACKS);
+ 
++    pod_covers_load();
+     cpu_boost(true);
+     while (k->track_count < total && tagcache_get_next(&tcs, path, sizeof(path)))
+     {
+@@ -279,6 +284,7 @@ static bool load_albums(struct deck *k)
+         a = &k->albums[k->count++];
+         a->start = i;
+         a->end = i + 1;
++        a->cover = pod_covers_find(k->tracks[i].hash);
+         get_tag(&tcs, k->tracks[i].idx, tag_album, album, sizeof(album));
+         get_tag(&tcs, k->tracks[i].idx, tag_virt_canonicalartist, artist,
+                 sizeof(artist));
+@@ -735,6 +741,22 @@ static void draw_card(struct screen *d, int x, int y, int w, int h,
+         draw_mix_card(d, x, y, w, h, t->album, tiny);
+         return;
+     }
++    if (t->cover >= 0)
++    {
++        const unsigned char *p = pod_covers_get(t->cover);
++
++        if (p)
++        {
++            /* native 2 bpp: the J-card, then the thumbnail */
++            if (w > THUMB_W)
++                d->bitmap(p, x, y, CARD_W, CARD_H);
++            else
++                d->bitmap(p + 590, x, y, THUMB_W, THUMB_H);
++            d->set_foreground(POD_INK);
++            d->drawrect(x, y, w, h);
++            return;
++        }
++    }
+     d->set_foreground(POD_PAPER);
+     d->fillrect(x, y, w, h);
+     d->set_foreground(POD_FAINT);

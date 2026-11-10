@@ -11,6 +11,9 @@ deck. A double MENU on the deck searches the library.
 
 ![deck](docs/deck.png)
 
+The J-card and the rack show the cover of each album from `/.pod/covers.bin`
+(SYNC writes it), or a generated card when it has none.
+
 ## Controls
 
 | Where        | Button            | Action                                    |
@@ -290,6 +293,9 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       thread has no track left to buffer and Repeat is off, it appends up to 10
       tracks picked by tags (`tagcache_get_serial` tells the recent plays) and
       syncs the control file with `playlist_sync_control`.
+  28. covers (`apps/gui/pod_covers.c`): the deck's J-card and rack draw the
+      album's record of `/.pod/covers.bin`, read when drawn through a cache of
+      16, and a generated card when there is none.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, cassette, reels, meters) and write the WPS/SBS from the same layout
   constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,

@@ -15,4 +15,8 @@ make -C "$sim" install >/dev/null 2>&1
 "$root/scripts/build-theme.sh" "$src" >/dev/null
 cp -R "$root/build/theme/.pod/." "$sim/simdisk/.pod/"
 [ -d "$sim/simdisk/Music" ] || python3 "$root/scripts/mk-test-library.py" "$sim/simdisk"
+# the covers SYNC would write: one album gets a cover.jpg
+art="$sim/simdisk/Music/Unit Δelta/Signal - Noise/cover.jpg"
+[ -f "$art" ] || magick -size 200x200 xc:white -fill black -draw "rectangle 50,50 150,150" "$art"
+cargo run -q --manifest-path "$root/app/Cargo.toml" -p pod-core --example covers -- "$sim/simdisk"
 echo "simulator ready"

@@ -84,6 +84,24 @@ grep -q '^pod: play shuffled' "$out/deck-shuffle/sim.log" || { echo "a double PL
 [ "$(areadiff deck-home/01 deck-home/02)" = 0 ] || { echo "MENU left the deck" >&2; exit 1; }
 echo "deck ok"
 
+# The J-card shows the cover of the album, from /.pod/covers.bin: Signal /
+# Noise has one (a black square), Afterglow keeps the generated hatch, and
+# without the file both do
+covers=$root/build/sim/simdisk/.pod/covers.bin
+cardiff() {
+  magick compare -metric AE "$out/$1.png[114x177+51+57]" "$out/$2.png[114x177+51+57]" null: 2>&1 | cut -d' ' -f1
+}
+"$root/scripts/sim-shot.sh" "$out/covers" "W300 D F2 D" >/dev/null
+mv "$covers" "$covers.off"
+"$root/scripts/sim-shot.sh" "$out/nocovers" "W300 D F2 D" >/dev/null
+mv "$covers.off" "$covers"
+grep -q '^pod: covers 1' "$out/covers/sim.log" || { echo "the deck did not read covers.bin" >&2; exit 1; }
+grep -q '^pod: covers 0' "$out/nocovers/sim.log" || { echo "the deck found covers without covers.bin" >&2; exit 1; }
+[ "$(cardiff covers/01 covers/02)" != 0 ] || { echo "the covers did not draw" >&2; exit 1; }
+[ "$(cardiff covers/01 nocovers/01)" = 0 ] || { echo "an album without a cover changed" >&2; exit 1; }
+[ "$(cardiff covers/02 nocovers/02)" != 0 ] || { echo "the cover did not replace the hatch" >&2; exit 1; }
+echo "covers ok"
+
 # SELECT in the player scrubs: the wheel moves the position (the counter
 # changes) and no longer the volume
 "$root/scripts/sim-shot.sh" "$out/scrub" "W300 F1 S W200 S W20 D F8 W20 D S W20 D" >/dev/null
