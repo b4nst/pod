@@ -166,8 +166,8 @@ Everything comes from the devenv shell (ARM GCC, host compilers, SDL2,
 ImageMagick, fonts):
 
 ```sh
-devenv shell -- scripts/build.sh                        # everything -> dist/
-devenv shell -- scripts/build.sh ipodmini2g ipodpatcher # pick targets
+devenv tasks run firmware:build                                    # everything -> dist/
+devenv tasks run firmware:build --input targets="ipodmini2g ipodpatcher" # pick targets
 ```
 
 Rockbox is the `firmware/rockbox` submodule, pinned to the revision the
@@ -180,8 +180,8 @@ adds the theme.
 ### pod link
 
 ```sh
-devenv shell -- bash -c 'cd app && cargo run -p podlink'
-devenv shell -- bash -c 'cd app && cargo test'
+devenv tasks run app:run    # release build
+devenv tasks run app:test   # fmt, clippy and tests, as in CI
 ```
 
 `app/core` (`pod-core`) does the work without a UI: device detection,
@@ -196,6 +196,7 @@ iPod disk image (see the comment at its top).
 
 ```sh
 devenv shell -- scripts/sim-setup.sh   # builds build/sim from build/src, adds a test library
+devenv tasks run sim:test              # firmware:build, sim-setup on build/rockbox, smoke test
 devenv shell -- scripts/sim-shot.sh build/shots/x "W200 D S W60 D MM W80 D"
 ```
 

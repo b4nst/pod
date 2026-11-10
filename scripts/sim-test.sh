@@ -64,7 +64,7 @@ echo "double tap ok"
 areadiff() {
   magick compare -metric AE "$out/$1.png[2000x2000+0+45]" "$out/$2.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1
 }
-"$root/scripts/sim-shot.sh" "$out/deck" "W300 D F2 D R D L D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/deck" "W300 D F2 W20 D R W20 D L W20 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/deck-play" "W300 F2 S W200 D M W100 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/deck-shuffle" "W300 F2 2P W200 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/deck-home" "W300 D M W100 D" >/dev/null
@@ -146,7 +146,7 @@ mkdir -p "$mixes"
 printf '#RULE:test rule\n/Music/Unit Δelta/Signal - Noise/01 Carrier.flac\n/Music/Unit Δelta/Signal - Noise/02 Low Orbit.flac\n' >"$mixes/Ambient.m3u8"
 printf '/Music/Neon Cassette/Magnetic Dawn/03 Night Drive.flac\n' >"$mixes/Night Drive.m3u8"
 "$root/scripts/sim-shot.sh" "$out/deck-mixes" "W300 D S W200 D M W100 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/deck-mixes-jump" "W300 R D L D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/deck-mixes-jump" "W300 R W20 D L W20 D" >/dev/null
 rm -rf "$mixes"
 for f in deck-mixes/01 deck-mixes/02 deck-mixes/03 deck-mixes-jump/01; do
   [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }

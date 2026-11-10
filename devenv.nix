@@ -1,4 +1,4 @@
-{ pkgs, lib, ... }:
+{ pkgs, lib, config, ... }:
 
 let
   # Rockbox's configure looks for an `arm-elf-eabi-` prefixed toolchain.
@@ -65,4 +65,49 @@ in
   # the agent loop (scripts/agent-loop.sh), started with `devenv up`. It runs
   # the `claude` CLI from your PATH.
   processes.agents.exec = "scripts/agent-loop.sh";
+
+  # `devenv tasks run <name>`. One build.sh run per task: each one starts
+  # from a fresh build/rockbox, so targets can't be separate tasks. Each task
+  # writes what it made to $DEVENV_TASK_OUTPUT_FILE, printed on success.
+  tasks = {
+    # --input targets="ipodmini1g ipodpatcher" to pick targets
+    "firmware:build" = {
+      exec = ''
+        set -euo pipefail
+        stamp=$(mktemp)
+        scripts/build.sh $(jq -r '.targets' <<<"$DEVENV_TASK_INPUT")
+        find dist -type f -newer "$stamp" | sort | jq -R . | jq -s '{built: .}' >"$DEVENV_TASK_OUTPUT_FILE"
+        rm "$stamp"
+      '';
+      input.targets = "all";
+    };
+    "sim:setup" = {
+      exec = "scripts/sim-setup.sh build/rockbox";
+      after = [ "firmware:build" ];
+    };
+    "sim:test" = {
+      exec = ''
+        set -euo pipefail
+        scripts/sim-test.sh build/shots/test
+        find build/shots/test -name '*.png' | wc -l | jq '{shots: "build/shots/test", screendumps: .}' >"$DEVENV_TASK_OUTPUT_FILE"
+      '';
+      after = [ "sim:setup" ];
+    };
+    "app:run" = {
+      exec = "cargo run --release -p podlink";
+      cwd = "${config.devenv.root}/app";
+    };
+    # what CI checks
+    "app:test" = {
+      exec = ''
+        set -euo pipefail
+        cargo fmt --check
+        cargo clippy --all-targets --features pod-core/fixtures -- -D warnings
+        cargo test 2>&1 | tee /dev/stderr \
+          | awk '/^test result: ok\./ { p += $4; i += $8 } END { printf "{\"passed\": %d, \"ignored\": %d}", p, i }' \
+          >"$DEVENV_TASK_OUTPUT_FILE"
+      '';
+      cwd = "${config.devenv.root}/app";
+    };
+  };
 }
