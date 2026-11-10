@@ -353,6 +353,7 @@ pub fn apply(
     manifest.profile = plan.profile;
     let mut renames = Vec::new();
     let res = run(plan, mount, &mut manifest, &mut renames, progress, cancel);
+    remove_apple_double(&mount.join("Music"));
     let saved = manifest.save(mount);
     (renames, res.and(saved))
 }
@@ -367,7 +368,7 @@ fn run(
 ) -> Result<()> {
     let music = mount.join("Music");
     for (rel, _) in &plan.deletes {
-        fs::remove_file(music.join(rel))?;
+        remove(&music.join(rel))?;
         manifest.files.remove(&slash(rel));
     }
     if !plan.deletes.is_empty() {
@@ -517,11 +518,30 @@ fn convert(c: &CopyOp, music: &Path, stop: &AtomicBool) -> Result<()> {
 /// `c` is written: delete the other form of the file.
 fn replaced(c: &CopyOp, music: &Path, manifest: &mut Manifest, renames: &mut Vec<(String, String)>) -> Result<()> {
     if let Some(old) = &c.old {
-        fs::remove_file(music.join(old))?;
+        remove(&music.join(old))?;
         manifest.files.remove(&slash(old));
         renames.push((device_path(old), device_path(&c.dst)));
     }
     Ok(())
+}
+
+/// Delete a file that may be gone already: on FAT, macOS deletes `._x.mp3`
+/// along with `x.mp3`.
+fn remove(p: &Path) -> Result<()> {
+    match fs::remove_file(p) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(Error::Other(format!("{}: {e}", p.display()))),
+        _ => Ok(()),
+    }
+}
+
+/// macOS writes the xattrs of every file it creates on FAT (if only
+/// `com.apple.provenance`) to a `._` file next to it. pod has no use for them.
+fn remove_apple_double(music: &Path) {
+    for e in WalkDir::new(music).into_iter().filter_map(|e| e.ok()) {
+        if e.file_type().is_file() && e.file_name().to_string_lossy().starts_with("._") {
+            let _ = fs::remove_file(e.path());
+        }
+    }
 }
 
 fn remove_empty_dirs(root: &Path) {
@@ -608,6 +628,28 @@ pub(crate) mod tests {
         apply(&p, &ipod, &mut |_| {}, &no()).1.unwrap();
         assert!(!ipod.join("Music/Old").exists(), "empty folders are removed");
         assert_eq!(fs::read(ipod.join("Music/Artist/Album/01 Song.mp3")).unwrap(), b"changed!");
+    }
+
+    #[test]
+    fn deletes_what_is_gone_and_apple_double() {
+        let dir = tempfile::tempdir().unwrap();
+        let (src, ipod) = (dir.path().join("src"), dir.path().join("ipod"));
+        put(&src.join("A/keep.mp3"), b"keep");
+        put(&ipod.join("Music/A/._keep.mp3"), b"xattr");
+        put(&ipod.join("Music/Old/gone.mp3"), b"old");
+        put(&ipod.join("Music/Old/._gone.mp3"), b"xattr");
+        let p = plan(&src, &ipod, Mode::Mirror, Profile::Off, &no()).unwrap();
+        assert_eq!(p.deletes.len(), 3);
+        // what macOS does when `gone.mp3` goes first
+        fs::remove_file(ipod.join("Music/Old/._gone.mp3")).unwrap();
+        apply(&p, &ipod, &mut |_| {}, &no()).1.unwrap();
+        assert!(!ipod.join("Music/Old").exists());
+
+        put(&ipod.join("Music/A/._keep.mp3"), b"xattr");
+        let p = plan(&src, &ipod, Mode::Update, Profile::Off, &no()).unwrap();
+        apply(&p, &ipod, &mut |_| {}, &no()).1.unwrap();
+        assert!(!ipod.join("Music/A/._keep.mp3").exists(), "UPDATE clears them too");
+        assert!(ipod.join("Music/A/keep.mp3").exists());
     }
 
     #[test]
