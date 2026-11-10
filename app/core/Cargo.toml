@@ -17,6 +17,7 @@ required-features = ["fixtures"]
 [dependencies]
 filetime = "0.2"
 fs4 = "1.1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 lofty = "0.22"
 rubato = "0.16"
 serde = { version = "1", features = ["derive"] }

@@ -30,6 +30,8 @@ const MEDIA: &[&str] = &[
     "jpeg", "png", "bmp", "m3u", "m3u8",
 ];
 
+const IMAGES_AND_LISTS: &[&str] = &["jpg", "jpeg", "png", "bmp", "m3u", "m3u8"];
+
 /// Room left free for pod's database and settings.
 const RESERVE: u64 = 16 * 1000 * 1000;
 
@@ -153,8 +155,17 @@ fn is_media(p: &Path) -> bool {
     p.extension().and_then(|e| e.to_str()).is_some_and(|e| MEDIA.contains(&e.to_ascii_lowercase().as_str()))
 }
 
+/// A media file that pod plays: not a picture or a playlist.
+pub(crate) fn is_audio(p: &Path) -> bool {
+    is_media(p)
+        && !p
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| IMAGES_AND_LISTS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
 /// Finder litter and other hidden files.
-fn is_hidden(name: &str) -> bool {
+pub(crate) fn is_hidden(name: &str) -> bool {
     name.starts_with('.')
 }
 
@@ -390,7 +401,7 @@ fn run(
                 }
                 to.write_all(&buf[..n])?;
                 done += n as u64;
-                progress(Progress { done, total, item: item.clone() });
+                progress(Progress { done, total, item: item.clone(), ..Default::default() });
             }
             to.sync_all()?;
             Ok(())
@@ -439,7 +450,12 @@ fn run(
                 Ok((i, Ok(()))) => {
                     let c = jobs[i];
                     done += c.size;
-                    progress(Progress { done, total, item: c.dst.to_string_lossy().into_owned() });
+                    progress(Progress {
+                        done,
+                        total,
+                        item: c.dst.to_string_lossy().into_owned(),
+                        ..Default::default()
+                    });
                     let m = fs::metadata(&c.src);
                     let entry = m.map(|m| Entry {
                         src: c.rel.clone(),

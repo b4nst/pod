@@ -100,7 +100,7 @@ pub fn install(
             }
             out.write_all(&buf[..n])?;
             done += n as u64;
-            progress(Progress { done, total, item: name.to_string_lossy().into_owned() });
+            progress(Progress { done, total, item: name.to_string_lossy().into_owned(), ..Default::default() });
         }
         out.sync_all()?;
         drop(out);

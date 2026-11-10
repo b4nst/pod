@@ -1,6 +1,7 @@
 //! Everything pod link does to an iPod, without the UI: find it, flash the
 //! bootloader, install firmware releases and sync music.
 
+pub mod covers;
 pub mod device;
 pub mod flash;
 pub mod history;
@@ -58,11 +59,14 @@ impl From<ureq::Error> for Error {
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Progress of a long task: bytes done of bytes total, and what it is on.
+/// A `step` is a part of the task with its own count of things, not bytes.
 #[derive(Debug, Clone, Default)]
 pub struct Progress {
     pub done: u64,
     pub total: u64,
     pub item: String,
+    /// empty for the task itself
+    pub step: &'static str,
 }
 
 /// `1.2 MB`, base 10 like the Finder and Explorer.

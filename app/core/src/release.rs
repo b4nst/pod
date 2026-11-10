@@ -93,7 +93,7 @@ fn get(url: &str, progress: &mut dyn FnMut(Progress), name: &str, cancel: &Atomi
             break;
         }
         data.extend_from_slice(&buf[..n]);
-        progress(Progress { done: data.len() as u64, total, item: name.into() });
+        progress(Progress { done: data.len() as u64, total, item: name.into(), ..Default::default() });
     }
     Ok(data)
 }

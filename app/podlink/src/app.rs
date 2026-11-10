@@ -11,11 +11,10 @@ use pod_core::device::{self, Device};
 use pod_core::flash::{self, Action, Report};
 use pod_core::history::{self, Imported};
 use pod_core::ipod::Bootloader;
-use pod_core::mixes;
 use pod_core::release::{self, Release};
 use pod_core::sync::{self, Manifest, Mode, Plan};
 use pod_core::transcode::Profile;
-use pod_core::{Error, Model, Progress, human_bytes, upgrade};
+use pod_core::{Error, Model, Progress, covers, human_bytes, mixes, upgrade};
 
 use crate::deck::{Cassette, Delta, Dots, Hatch, Ipod, Meter};
 use crate::theme::{self, DECK, DECK_BOLD, MONO, MONO_BOLD};
@@ -69,7 +68,13 @@ enum Done {
     Flashed(Report),
     Upgraded(upgrade::Info),
     Planned(Plan, Result<Imported, String>),
-    Synced { copied: usize, converted: usize, deleted: usize, mixes: Result<usize, String> },
+    Synced {
+        copied: usize,
+        converted: usize,
+        deleted: usize,
+        mixes: Result<usize, String>,
+        covers: Result<usize, String>,
+    },
     Ejected,
 }
 
@@ -350,11 +355,21 @@ impl App {
                         Ok(None) => Ok(0),
                         Err(e) => Err(e.to_string()),
                     });
+                    // the files are written by now: a cancel is a covers problem too
+                    let covers = if mount.join(".pod").is_dir() {
+                        match covers::write(&mount, progress, cancel) {
+                            Err(Error::Cancelled) => Err("CANCELLED".to_string()),
+                            r => r.map(|r| r.covers).map_err(|e| e.to_string()),
+                        }
+                    } else {
+                        Ok(0)
+                    };
                     Ok(Done::Synced {
                         copied: plan.copies.len(),
                         converted: plan.converted(),
                         deleted: plan.deletes.len(),
                         mixes,
+                        covers,
                     })
                 })
             }
@@ -425,16 +440,13 @@ impl App {
                 }
                 self.plan = Some(p);
             }
-            Done::Synced { copied, converted, deleted, mixes } => {
+            Done::Synced { copied, converted, deleted, mixes, covers } => {
                 self.plan = None;
-                match mixes {
-                    Ok(n) => self.say(
-                        false,
-                        format!("SYNCED: {copied} COPIED ({converted} CONVERTED), {deleted} DELETED, {n} MIXTAPES. POD RESCANS AT BOOT"),
-                    ),
-                    Err(e) => {
-                        self.say(true, format!("SYNCED: {copied} COPIED ({converted} CONVERTED), {deleted} DELETED. MIXTAPES NOT WRITTEN: {e}"))
-                    }
+                let head = format!("SYNCED: {copied} COPIED ({converted} CONVERTED), {deleted} DELETED");
+                match (mixes, covers) {
+                    (Ok(m), Ok(c)) => self.say(false, format!("{head}, {m} MIXTAPES, {c} COVERS. POD RESCANS AT BOOT")),
+                    (Err(e), _) => self.say(true, format!("{head}. MIXTAPES NOT WRITTEN: {e}")),
+                    (_, Err(e)) => self.say(true, format!("{head}. COVERS NOT WRITTEN: {e}")),
                 }
             }
             Done::Ejected => self.say(false, "EJECTED. SAFE TO UNPLUG"),
@@ -520,6 +532,7 @@ impl App {
 
     fn header(&self) -> Element<'_, Message> {
         let chip = match (self.job.as_ref(), self.device()) {
+            (Some(j), _) if !j.progress.step.is_empty() => j.progress.step,
             (Some(j), _) => j.label,
             (None, Some(_)) => "LINKED",
             (None, None) => "NO DEVICE",
@@ -610,7 +623,11 @@ impl App {
                 (
                     f,
                     format!("{:>3}%", (f * 100.0) as u32),
-                    format!("{}/{}", human_bytes(j.progress.done), human_bytes(j.progress.total)),
+                    if j.progress.step.is_empty() {
+                        format!("{}/{}", human_bytes(j.progress.done), human_bytes(j.progress.total))
+                    } else {
+                        format!("{}/{}", j.progress.done, j.progress.total)
+                    },
                     j.progress.item.clone(),
                 )
             }
