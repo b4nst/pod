@@ -5,8 +5,8 @@ theme. bΔnst ⧉ design.
 
 ![screens](docs/screens.png)
 
-It boots into a cassette deck with your albums as tapes, and has a cassette-deck
-player. There is one settings menu, and you open it by holding MENU on the
+It boots into a cassette deck with your albums as tapes, by artist then title,
+and the player is the same deck in play mode. There is one settings menu, and you open it by holding MENU on the
 deck. A double MENU on the deck searches the library.
 
 ![deck](docs/deck.png)
@@ -19,7 +19,7 @@ The J-card and the rack show the cover of each album from `/.pod/covers.bin`
 | Where        | Button            | Action                                    |
 |--------------|-------------------|-------------------------------------------|
 | Deck (home)  | wheel             | previous / next tape (queue, mixtapes, then albums) |
-|              | << / >>           | previous / next initial (hold repeats)    |
+|              | << / >>           | previous / next artist initial (hold repeats) |
 |              | SELECT / PLAY     | play the album or mixtape from track 1, open the player (the queue tape: open the player) |
 |              | double PLAY       | play it shuffled                          |
 |              | hold SELECT       | on an album or mixtape: play next / play last |
@@ -51,6 +51,14 @@ The J-card and the rack show the cover of each album from `/.pod/covers.bin`
 |              | PLAY              | EQ on / bypass                            |
 |              | MENU              | done (saved)                              |
 
+The player is the deck on the playing album: the J-card and the tape, whose
+hubs turn while it plays, a heart on the label when the track is loved, and
+the bargraph round the corner lit up to where the queue is, with the track
+numbers inside. Below them the title, the elapsed time in 7-segment digits
+(dimmed on pause), the time left or SEEK, and the peak meters. Turning the
+wheel lights the bargraph by the volume and puts the dB value in the counter
+for 1.5 s.
+
 The queue is the current playlist. It is the first tape of the deck whenever
 there is one, also after a reboot before anything plays, and SELECT on it
 plays or resumes it. SELECT on an album still replaces it, and hold SELECT on
@@ -76,7 +84,7 @@ The tracks join a few tracks before the end, while the disk is up anyway, and
 show in the queue like any other.
 
 Sleep cycles Off, 15, 30, 60 min and Album with each SELECT, and starts
-again from the choice. The player shows the time left (`Z 27` minutes,
+again from the choice. The player shows the time left under the battery (`Z 27` minutes,
 `Z 27S` in the last minute, `Z ALB` until the album is near its end). The last 10 s fade
 out, then it pauses, and the idle poweroff turns the iPod off later. Album
 pauses at the end of the playing album; shuffled, almost every track ends an
@@ -297,9 +305,18 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
   28. covers (`apps/gui/pod_covers.c`): the deck's J-card and rack draw the
       album's record of `/.pod/covers.bin`, read when drawn through a cache of
       16, and a generated card when there is none.
+  29. the deck goes by artist, then title, and its letters are the artists'
+      initials
+  30. the player is the deck in play mode: `%pD` draws the bargraph on the
+      queue (or the volume), the J-card and the tape of the playing album
+      with turning hubs, the loved heart and its flash, and `%pC` the
+      7-segment counter with the time left and SEEK, from `pod_deck.c`. The
+      skin adds the title band and the peak meters, and no longer uses
+      `%pW`, `%pS` or `%pH`.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
-  screen, cassette, reels, meters) and write the WPS/SBS from the same layout
-  constants. Levels are ink (0 = bare panel, 3 = full ink): dark on light,
+  screen, battery, meters) and write the WPS/SBS from the same layout
+  constants. `firmware/tools/iso.py`, the old player's cassette, is what pod
+  link's cassette is ported from. Levels are ink (0 = bare panel, 3 = full ink): dark on light,
   because a dark background shows up as a frame on the backlit LCD.
 - `scripts/build-theme.sh`: rasterizes JetBrains Mono and Orbitron to Rockbox
   fonts and runs the generator. Orbitron's license reserves its name for

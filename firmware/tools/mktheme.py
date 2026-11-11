@@ -10,7 +10,6 @@ import math
 import os
 import sys
 
-import iso
 from canvas import BDF, Canvas, PAPER, FAINT, MID, INK, lcd, vstack, load_pgm_levels
 
 LCD_W, LCD_H = 138, 110
@@ -132,55 +131,22 @@ save(vstack(states), "state.bmp")
 
 # ---------------------------------------------------------------- WPS
 
-# cassette, projected; the window region animates
-CAS = iso.Cassette(22, 22, 0.84)
-WBOX = CAS.window_box()
-TAPE_LEVELS = 6
-REEL_FRAMES = 4
-
-COL_X = 109                        # HUD readout column right of the cassette
-TITLE_Y = 70
-TIME_Y = 90
-VU = (70, 91, 66, 3)
+# The player is the deck in play mode: the firmware draws the bargraph, the
+# J-card and the tape (%pD) and the 7-segment counter (%pC). The skin adds
+# the title band and the peak meters below them.
+DECK_H = 81
+BAND_Y, BAND_H = 82, 12
+COUNTER = (0, 96, 76, 14)
+VU = (84, 98, 50, 3)
 VU_GAP = 6
-PROG = (2, 104, 134, 5)
 
 wps_bg = Canvas(LCD_W, LCD_H)
 c = wps_bg
-dot_grid(c, 0, 13, LCD_W - 1, 66)
-
-# status row
-c.hline(0, LCD_W - 1, 10, INK)
-battery_outline(c, INK)
-
-iso.draw(CAS, c)
-
-# HUD column: side, tape position, track; dotted leader from the take-up hub
-cx = COL_X
-c.rect(cx, 13, 29, 8, INK)
-c.text_center(tiny, cx + 14, 14, "SIDE A", PAPER)
-c.text(tiny, cx, 26, "POS", MID)
-c.text(tiny, cx, 44, "TRK", MID)
-rx, ry = CAS.ip(iso.HUB_R, iso.HUB_Y)
-crosshair(c, rx, ry - 12, INK, 2)
-c.hline(rx + 3, cx - 2, ry - 12, INK, step=2)
-c.vline(cx - 2, 26, ry - 12, INK, step=2)
-c.hline(cx - 2, cx - 1, 26, INK)
-crosshair(c, 4, 64)
-crosshair(c, LCD_W - 5, 64)
-
-# title strip
-c.hline(0, LCD_W - 1, TITLE_Y - 2, INK)
-
-# counter and meters
-c.hline(0, LCD_W - 1, TIME_Y - 2, FAINT, step=2)
+c.rect(0, BAND_Y, LCD_W, BAND_H, INK)
 c.text(tiny, VU[0] - 6, VU[1] - 1, "L", INK)
 c.text(tiny, VU[0] - 6, VU[1] + VU_GAP - 1, "R", INK)
 segments(c, VU[0], VU[1], VU[2], VU[3], FAINT)
 segments(c, VU[0], VU[1] + VU_GAP, VU[2], VU[3], FAINT)
-
-# tape position
-segments(c, *PROG, FAINT)
 save(wps_bg, "wps_bg.bmp")
 
 vu = Canvas(VU[2], VU[3])
@@ -191,108 +157,24 @@ for xx in range(vu.w * 3 // 4, vu.w):
             vu.set(xx, yy, INK)
 save(vu, "vu.bmp")
 
-prog = Canvas(PROG[2], PROG[3])
-segments(prog, 0, 0, prog.w, prog.h, INK)
-save(prog, "progress.bmp")
-
-# hearts: loved (filled) and unloved (outline) flashed over the cassette, and
-# a 5x5 mark in the HUD while a loved track plays
-HEART = ("..##...##..",
-         ".####.####.",
-         "###########",
-         "###########",
-         "###########",
-         ".#########.",
-         "..#######..",
-         "...#####...",
-         "....###....",
-         ".....#.....")
-flash = []
-for hollow in (False, True):
-    h = Canvas(15, 14)
-    for yy, row in enumerate(HEART):
-        for xx, ch in enumerate(row):
-            if ch != "#":
-                continue
-            edge = any(not (0 <= yy + dy < len(HEART) and 0 <= xx + dx < len(row))
-                       or HEART[yy + dy][xx + dx] != "#"
-                       for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
-            if edge or not hollow:
-                h.set(2 + xx, 2 + yy, INK)
-    flash.append(h)
-save(vstack(flash), "heart.bmp")
-mark = Canvas(5, 5)
-for yy, row in enumerate((".#.#.", "#####", "#####", ".###.", "..#..")):
-    for xx, ch in enumerate(row):
-        if ch == "#":
-            mark.set(xx, yy, INK)
-save(mark, "loved.bmp")
-HEART_XY = ((WBOX[0] + WBOX[2] - 15) // 2, (WBOX[1] + WBOX[3] - 14) // 2)
-
-# one strip per tape level, one subimage per hub angle, cropped from a full
-# render so the edges line up with the backdrop
-bx0, by0, bx1, by1 = WBOX
-for lvl in range(TAPE_LEVELS):
-    frames = []
-    for f in range(REEL_FRAMES):
-        full = Canvas(LCD_W, LCD_H)
-        dot_grid(full, 0, 13, LCD_W - 1, 66)
-        iso.draw(CAS, full, tape=lvl / (TAPE_LEVELS - 1), angle=f * 30)
-        frames.append(full.crop(bx0, by0, bx1 - bx0, by1 - by0))
-    save(vstack(frames), f"tape{lvl}.bmp")
-
-tapes = "|".join(f"%xd(T{i},%pW)" for i in range(TAPE_LEVELS))
-
 wps = f"""# pod - cassette deck WPS for the iPod mini (bΔnst ⧉ design)
 %wd
 %X(wps_bg.bmp)
 %Fl(2,10-Deck-Medium.fnt)
-%Fl(3,14-Deck-Bold.fnt)
-%Fl(4,06-Tiny.fnt)
-%xl(S,state.bmp,1,2,5)
-""" + "".join(
-    f"%xl(T{i},tape{i}.bmp,{bx0},{by0},{REEL_FRAMES})\n"
-    for i in range(TAPE_LEVELS)) + f"""
-%xl(H,heart.bmp,{HEART_XY[0]},{HEART_XY[1]},2)
-%xl(h,loved.bmp,{COL_X + 22},44)
-%xd(S,%mp)
-%?px<{tapes}>
-%?pH<%xd(H,1)|%xd(H,2)|>
-%?if(%rr,>,1)<%xd(h)|>
 
-# status row
-%V(10,3,40,6,4)%Vf({lcd(INK)})
-%?pS<SEEK|%?mp<STOP|PLAY|PAUSE|FFWD|REW>>
-%V(52,3,34,6,4)%Vf({lcd(MID)})
-%ac%?cc<%cH:%cM|>
-%V(84,3,32,6,4)%Vf({lcd(MID)})
-%ar%?ps<SHF|>%?mm<| RPT| RP1|| A-B>
-%V({BAT_FILL[0]},{BAT_FILL[1]},{BAT_FILL[2]},{BAT_FILL[3]},1)
-%bl(0,0,{BAT_FILL[2]},{BAT_FILL[3]},image,batt.bmp)
+# the deck: bargraph, J-card, tape, battery and sleep
+%V(0,0,{LCD_W},{DECK_H},1)
+%pD
 
-# HUD column
-%V({COL_X},32,{LCD_W - COL_X},{orb.height},2)%Vf({lcd(INK)})
-%px%%
-%V({COL_X},50,{LCD_W - COL_X},{orb.height},2)%Vf({lcd(INK)})
-%pp/%pe
-%V({COL_X},60,{LCD_W - COL_X},6,4)%Vf({lcd(INK)})
-%?pZ<Z %pZ|>
-
-# title, artist and album
-%V(2,{TITLE_Y},{LCD_W - 4},{UI_H},1)%Vf({lcd(INK)})
+# title band
+%V(3,{BAND_Y + (BAND_H - orb.height) // 2},{LCD_W - 6},{orb.height},2)%Vf({lcd(PAPER)})%Vb({lcd(INK)})
 %s%?it<%it|%fn>
-%V(2,{TITLE_Y + UI_H + 1},{LCD_W - 30},6,4)%Vf({lcd(MID)})
-%s%?ia<%ia|UNKNOWN ARTIST>%?id< - %id|>
-%V({LCD_W - 28},{TITLE_Y + UI_H + 1},26,6,4)%Vf({lcd(MID)})
-%ar-%pr
 
-# counter, meters, tape position
-%V(2,{TIME_Y},56,{orbb.height},3)%Vf({lcd(INK)})
-%?mv(1)<%pv|%pc>
+# counter and meters
+%V({COUNTER[0]},{COUNTER[1]},{COUNTER[2]},{COUNTER[3]},1)
+%pC
 %V({VU[0]},{VU[1]},{VU[2]},{VU[3] + VU_GAP},1)
 %pL(0,0,{VU[2]},{VU[3]},image,vu.bmp)%pR(0,{VU_GAP},{VU[2]},{VU[3]},image,vu.bmp)
-%V({PROG[0]},{PROG[1]},{PROG[2]},{PROG[3]},1)
-%pb(0,0,{PROG[2]},{PROG[3]},image,progress.bmp)
 """
 
 # ---------------------------------------------------------------- SBS (lists)
