@@ -11,8 +11,10 @@ deck. A double MENU on the deck searches the library.
 
 ![deck](docs/deck.png)
 
-The deck reads the covers of `/.pod/covers.bin` (SYNC writes them) but draws
-generated cards until the new deck draws them.
+The deck draws the covers of `/.pod/covers.bin` (SYNC writes them) in a
+gallery of the current album and its neighbours, with a generated card for an
+album that has none. SELECT steps through three panes beside the bargraph:
+the album, its tracks and its stats.
 
 ## Controls
 
@@ -20,10 +22,12 @@ generated cards until the new deck draws them.
 |--------------|-------------------|-------------------------------------------|
 | Deck (home)  | wheel             | previous / next tape (queue, mixtapes, then albums) |
 |              | << / >>           | previous / next artist initial (hold repeats) |
-|              | SELECT / PLAY     | play the album or mixtape from track 1, open the player (the queue tape: open the player) |
+|              | wheel (Tracks)    | previous / next track                     |
+|              | SELECT            | next pane: Details, Tracks, Stats (a mix or the queue: Details only; back to Details after 5 s) |
+|              | PLAY              | play the album or mixtape from track 1 (from the selected track in Tracks), open the player (the queue tape: open the player) |
 |              | double PLAY       | play it shuffled                          |
 |              | hold SELECT       | on an album or mixtape: play next / play last |
-|              | MENU              | nothing                                   |
+|              | MENU              | the player when something plays, else search |
 |              | double MENU       | search                                    |
 |              | hold MENU         | settings                                  |
 | Search       | wheel             | on the strip: A-Z, 0-9, space. In the results: move |
@@ -315,6 +319,10 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       7-segment counter with the time left and SEEK, from `pod_deck.c`. The
       skin adds the title band and the peak meters, and no longer uses
       `%pW`, `%pS` or `%pH`.
+  31. deck v2 (`apps/gui/pod_deck.c`): the bargraph in JetBrains Mono, the
+      gallery of covers, a small cassette and pane dots in the corner, and
+      the Details, Tracks and Stats panes under SELECT. PLAY plays, and MENU
+      goes to the player or the search.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod

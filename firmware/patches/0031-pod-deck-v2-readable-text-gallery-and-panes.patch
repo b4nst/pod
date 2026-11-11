@@ -1,0 +1,628 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pod <pod@localhost>
+Date: Wed, 11 Nov 2026 19:04:30 +0100
+Subject: [PATCH] pod: deck v2, readable text, gallery and panes
+
+---
+ apps/gui/pod_deck.c        | 385 ++++++++++++++++++++++++++++++-------
+ apps/keymaps/keymap-ipod.c |   1 +
+ 2 files changed, 313 insertions(+), 73 deletions(-)
+
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index aca4ded1ddf0e8851448f6738ea118ec269522fa..0c8fa536400d1c00f2c45096ecd0944ab6fd94fb 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -22,9 +22,9 @@
+  * The cassette deck, home, in browse mode: one tape per album (an artist's
+  * and another's of the same name are two), after a tape per mix of /Mixes
+  * and the queue, the current playlist, first of all. A bargraph with the
+- * artists' initials round the corner, the J-card and the tape of the current
+- * album, and a rack of the next ones below. The albums go by artist, then
+- * title.
++ * artists' initials round the corner, a gallery of the covers below, and
++ * three panes beside the bargraph for SELECT to step through: the album,
++ * its tracks and its stats. The albums go by artist, then title.
+  *
+  * The player is the deck in play mode: the WPS draws the top of it with %pD,
+  * on the playing album, with the hubs turning and the bargraph on the queue
+@@ -79,20 +79,19 @@
+ #define POD_MID         LCD_DARKGRAY
+ #define POD_INK         LCD_BLACK
+ 
+-/* bargraph: ticks every 4 px up the left edge, round a 20 px corner and
+- * across the top. A tick is 2 px along the path and 6 across. */
++/* bargraph: ticks every 4 px up the left edge, round a 19 px corner and
++ * across the top. A tick is 2 px along the path and 5 across. */
+ #define BAR_STEP        4
+ #define BAR_X           3       /* the vertical run */
+-#define BAR_Y0          55      /* its lowest tick */
+-#define BAR_R           20      /* corner radius, its centre at (R+3, R+3) */
++#define BAR_Y0          54      /* its lowest tick */
++#define BAR_R           19      /* corner radius, its centre at (R+3, R+3) */
+ #define BAR_TOP         3       /* the horizontal run */
+-#define BAR_XEND        111     /* before the battery */
+ #define BAR_V           8       /* ticks of the vertical run */
+-#define BAR_A           9       /* ticks of the corner */
+-#define BAR_H           22      /* ticks of the horizontal run */
++#define BAR_A           7       /* ticks of the corner */
++#define BAR_H           17      /* ticks of the horizontal run, up to x 90 */
+ #define BAR_N           (BAR_V + BAR_A + BAR_H)
+ #define BAR_LABEL       9       /* labels sit this far inside the ticks */
+-#define LABEL_GAP       2       /* ticks: 8 px between two labels */
++#define LABEL_GAP       3       /* ticks: 12 px between two labels */
+ 
+ /* J-card, tape and rack */
+ #define CARD_X          17
+@@ -103,19 +102,31 @@
+ #define TAPE_Y          19
+ #define TAPE_W          74
+ #define TAPE_H          46
+-#define THUMB_W         12
+-#define THUMB_H         19
+-#define THUMB_X         3
+-#define THUMB_Y         86
+-#define THUMB_STEP      15
+-#define THUMB_N         9       /* the previous album, the current one, 7 more */
++
++/* the gallery: the previous album, the current one raised, the next two */
++#define GALLERY_Y       81
++#define GALLERY_X       1       /* the previous one; the next two follow */
++#define CURRENT_X       32
++#define CURRENT_Y       60
++
++/* the panes, beside the bargraph */
++#define PANE_X          22
++#define PANE_Y          19
++#define PANE_W          114
++#define PANE_ROW        12
++#define PANE_N          3
++#define PANE_BACK       (HZ * 5)    /* back to the first after the last press */
++#define STAR_W          8
+ 
+ /* a track: the album it belongs to is told by a hash of the whole album and
+  * artist, the text is only kept for the albums */
+ struct deck_track {
+     uint32_t hash;
+     int32_t idx;                /* tagcache index of the track */
++    int32_t last;               /* its play serial, see tagcache_get_serial */
+     uint16_t disc, track;
++    uint16_t secs, plays;
++    uint8_t rating;             /* 0-10, two a star */
+ };
+ 
+ struct deck_album {
+@@ -128,7 +139,7 @@ struct deck_album {
+ /* a mixtape is a deck_album with no tracks: start is -1 and end its index in
+  * the mixes. They come first, under the # initial. The queue has neither:
+  * start and end are -1, and it comes before them. */
+-#define DECK_MAX_TRACKS 32768   /* 384 KB, a CF card full of music */
++#define DECK_MAX_TRACKS 32768   /* 768 KB, a CF card full of music */
+ #define DECK_MAX_ALBUMS 8192    /* 384 KB */
+ 
+ struct deck {
+@@ -145,8 +156,8 @@ static struct deck_track rows[DECK_MAX_TRACKS];
+ static struct deck_album shelf[DECK_MAX_ALBUMS];
+ static struct pod_mix mixes[POD_MIXES_MAX];
+ 
+-/* cos of 0, 11.25, ... 90 degrees in 64ths: the corner of the bargraph */
+-static const unsigned char corner_cos[BAR_A] = { 64, 63, 59, 53, 45, 36, 24, 12, 0 };
++/* cos of 0, 15, ... 90 degrees in 64ths: the corner of the bargraph */
++static const unsigned char corner_cos[BAR_A] = { 64, 62, 55, 45, 32, 17, 0 };
+ 
+ /* cos of 0, 15, ... 345 degrees in 64ths: the teeth of a turning hub */
+ static const signed char hub_cos[24] = {
+@@ -283,6 +294,10 @@ static bool load_albums(struct deck *k)
+         t->hash = hash_tags(album, artist);
+         t->disc = MAX(0, tagcache_get_numeric(&tcs, tag_discnumber));
+         t->track = MAX(0, tagcache_get_numeric(&tcs, tag_tracknumber));
++        t->secs = MIN(65535, MAX(0, tagcache_get_numeric(&tcs, tag_length)) / 1000);
++        t->plays = MIN(65535, MAX(0, tagcache_get_numeric(&tcs, tag_playcount)));
++        t->rating = MIN(10, MAX(0, tagcache_get_numeric(&tcs, tag_rating)));
++        t->last = MAX(0, tagcache_get_numeric(&tcs, tag_lastplayed));
+     }
+ 
+     /* an album is a run of one hash, already in play order */
+@@ -610,13 +625,13 @@ static void bar_tick(struct screen *d, int s)
+ 
+     bar_pos(s, &x, &y, &ix, &iy);
+     if (s < BAR_V)
+-        d->fillrect(x - 3, y - 1, 6, 2);
++        d->fillrect(x - 2, y - 1, 5, 2);
+     else if (s >= BAR_V + BAR_A)
+-        d->fillrect(x - 1, y - 3, 2, 6);
++        d->fillrect(x - 1, y - 2, 2, 5);
+     else
+     {
+-        int x0 = x - 3 * ix / 64, y0 = y - 3 * iy / 64;
+-        int x1 = x + 3 * ix / 64, y1 = y + 3 * iy / 64;
++        int x0 = x - 2 * ix / 64, y0 = y - 2 * iy / 64;
++        int x1 = x + 2 * ix / 64, y1 = y + 2 * iy / 64;
+         /* two px wide: shift by one across the steeper axis */
+         d->drawline(x0, y0, x1, y1);
+         d->drawline(x0 + (ix < iy), y0 + (ix >= iy), x1 + (ix < iy),
+@@ -731,7 +746,7 @@ static void card_name(struct screen *d, int font, int x, int y, int w,
+ static void draw_mix_card(struct screen *d, int x, int y, int w, int h,
+                           const char *name, int font)
+ {
+-    bool thumb = w <= THUMB_W;
++    bool thumb = w <= POD_COVER_SMALL;
+     int step = thumb ? 4 : 10;
+ 
+     d->set_foreground(POD_PAPER);
+@@ -749,7 +764,7 @@ static void draw_mix_card(struct screen *d, int x, int y, int w, int h,
+  * thumbnail has three lines. */
+ static void draw_queue_card(struct screen *d, int x, int y, int w, int h)
+ {
+-    bool thumb = w <= THUMB_W;
++    bool thumb = w <= POD_COVER_SMALL;
+     int step = thumb ? 5 : 7;
+ 
+     d->set_foreground(POD_PAPER);
+@@ -799,7 +814,7 @@ static void draw_card(struct screen *d, int x, int y, int w, int h,
+     d->drawrect(x, y, w, h);
+ 
+     int tw = text_width(font, str), th = font_get(font)->height;
+-    if (w > THUMB_W)
++    if (w > POD_COVER_SMALL)
+     {
+         /* the J-card: the initial on a label */
+         int lw = tw + 8, lh = th + 4;
+@@ -809,19 +824,19 @@ static void draw_card(struct screen *d, int x, int y, int w, int h,
+         d->drawrect(x + (w - lw) / 2, y + 10, lw, lh);
+     }
+     d->setfont(font);
+-    d->putsxy(x + (w - tw) / 2, w > THUMB_W ? y + 12 : y + (h - th) / 2, str);
++    d->putsxy(x + (w - tw) / 2, w > POD_COVER_SMALL ? y + 12 : y + (h - th) / 2, str);
+ }
+ 
+-/* the album and artist, upper case, cut to w */
++/* a name cut to w, in upper case or not */
+ static void tape_text(struct screen *d, int font, int x, int y, int w,
+-                      const char *s)
++                      const char *s, bool upper)
+ {
+     char buf[34];
+     int n = 0;
+ 
+     while (s[n] && n < (int)sizeof(buf) - 1)
+     {
+-        buf[n] = toupper((unsigned char)s[n]);
++        buf[n] = upper ? toupper((unsigned char)s[n]) : s[n];
+         n++;
+     }
+     buf[n] = '\0';
+@@ -887,11 +902,11 @@ static void draw_tape(struct screen *d, const struct deck_album *t,
+     /* label: album and artist, or mixtape and rule */
+     d->drawrect(x + 3, y + 3, TAPE_W - 6, 16);
+     d->setfont(font);
+-    tape_text(d, font, x + 6, y + 5, TAPE_W - (loved ? 20 : 14), t->album);
++    tape_text(d, font, x + 6, y + 5, TAPE_W - (loved ? 20 : 14), t->album, true);
+     if (loved)
+         draw_loved(d, r - 11, y + 6);
+     d->set_foreground(POD_MID);
+-    tape_text(d, font, x + 6, y + 12, TAPE_W - 14, sub);
++    tape_text(d, font, x + 6, y + 12, TAPE_W - 14, sub, true);
+ 
+     /* the hubs, joined by the tape along their bottoms */
+     draw_hub(d, x + 20, y + 29, frame);
+@@ -907,24 +922,41 @@ static void draw_tape(struct screen *d, const struct deck_album *t,
+     d->vline(r - 22, b - 2, b - 1);
+ }
+ 
+-static void draw_rack(struct screen *d, const struct deck *k, int cur, int font)
++/* One album of the gallery: its cover, or a generated card of that size */
++static void draw_cover(struct screen *d, const struct deck_album *a, int x,
++                       int y, int size, int font)
+ {
+-    for (int i = 0; i < THUMB_N; i++)
++    bool large = size == POD_COVER_LARGE;
++
++    if (a->cover >= 0 && (large ? pod_covers_draw_large(d, a->cover, x, y)
++                                : pod_covers_draw_small(d, a->cover, x, y)))
++        return;
++    draw_card(d, x, y, size, size, a, font, font);
++}
++
++/* The previous album and the next two small, the current one large and
++ * raised, with a bar over it */
++static void draw_gallery(struct screen *d, const struct deck *k, int cur,
++                         int font)
++{
++    for (int i = -1; i <= 2; i++)
+     {
+-        int a = cur - 1 + i;
+-        int x = THUMB_X + i * THUMB_STEP;
++        int a = cur + i;
+ 
+-        if (cur == 0)
+-            a = i;          /* nothing before the first: start with it */
+         if (a < 0 || a >= k->count)
+             continue;
+-        draw_card(d, x, THUMB_Y, THUMB_W, THUMB_H, album_row(k, a), font, font);
+-        if (a == cur)
++        if (i == 0)
+         {
++            draw_cover(d, album_row(k, a), CURRENT_X, CURRENT_Y,
++                       POD_COVER_LARGE, font);
+             d->set_foreground(POD_INK);
+-            d->drawrect(x - 1, THUMB_Y - 1, THUMB_W + 2, THUMB_H + 2);
+-            d->fillrect(x + 4, THUMB_Y - 5, 4, 3);
++            d->fillrect(CURRENT_X, CURRENT_Y - 4, POD_COVER_LARGE, 2);
+         }
++        else
++            draw_cover(d, album_row(k, a),
++                       i < 0 ? GALLERY_X : CURRENT_X + POD_COVER_LARGE + 3
++                               + (i - 1) * (POD_COVER_SMALL + 3),
++                       GALLERY_Y, POD_COVER_SMALL, font);
+     }
+ }
+ 
+@@ -942,9 +974,43 @@ static const char *sleep_text(char *buf, size_t size)
+     return buf;
+ }
+ 
+-/* The battery and the sleep timer. In browse mode a corner icon says
+- * whether something plays, in play mode the sleep timer has its time left. */
+-static void draw_status(struct screen *d, int font, bool play)
++/* a 19x11 cassette: the hubs' notches step every 200 ms while it plays */
++static void draw_mini_cassette(struct screen *d, int x, int y, bool paused)
++{
++    static const signed char notch[8][2] = {
++        { -1, -1 }, { 0, -1 }, { 1, -1 }, { 1, 0 },
++        { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 },
++    };
++    int step = paused ? 0 : (current_tick / (HZ / 5)) % 8;
++
++    d->set_foreground(paused ? POD_MID : POD_INK);
++    d->drawrect(x, y, 19, 11);
++    d->hline(x + 5, x + 13, y + 8);
++    for (int h = 0; h < 2; h++)
++    {
++        int cx = x + 5 + h * 8, cy = y + 4;
++
++        d->fillrect(cx - 1, cy - 1, 3, 3);
++        d->set_foreground(POD_PAPER);
++        d->drawpixel(cx + notch[step][0], cy + notch[step][1]);
++        d->set_foreground(paused ? POD_MID : POD_INK);
++    }
++}
++
++/* the panes: 2x2 dots, the current one inked */
++static void draw_dots(struct screen *d, int pane, int n)
++{
++    for (int i = 0; i < n; i++)
++    {
++        d->set_foreground(i == pane ? POD_INK : POD_FAINT);
++        d->fillrect(136 - (n - i) * 4 + 2, 11, 2, 2);
++    }
++}
++
++/* The battery and the sleep timer. In browse mode a cassette says whether
++ * something plays and dots which pane (of n) is shown, in play mode the sleep
++ * timer has its time left. */
++static void draw_status(struct screen *d, int font, bool play, int pane, int n)
+ {
+     int level = battery_level();
+     int status = audio_status();
+@@ -966,17 +1032,12 @@ static void draw_status(struct screen *d, int font, bool play)
+         d->putsxy(play ? 136 - text_width(font, z) : 117, 10, z);
+     }
+ 
+-    /* playing or paused */
+-    if (!play && (status & AUDIO_STATUS_PLAY))
++    if (!play)
+     {
+-        if (status & AUDIO_STATUS_PAUSE)
+-        {
+-            d->fillrect(126, 10, 2, 7);
+-            d->fillrect(130, 10, 2, 7);
+-        }
+-        else
+-            for (int i = 0; i < 4; i++)
+-                d->vline(126 + i, 10 + i, 16 - i);
++        if (status & AUDIO_STATUS_PLAY)
++            draw_mini_cassette(d, 96, 0, status & AUDIO_STATUS_PAUSE);
++        if (n > 1)
++            draw_dots(d, pane, n);
+     }
+ }
+ 
+@@ -985,7 +1046,7 @@ static void draw_empty(struct screen *d, int f_value, int f_tiny)
+ {
+     const char *title = "NO TAPES", *sub = "SYNC WITH POD LINK";
+ 
+-    draw_status(d, f_tiny, false);
++    draw_status(d, f_tiny, false, 0, 1);
+     d->set_foreground(POD_INK);
+     d->setfont(f_value);
+     d->putsxy((LCD_WIDTH - text_width(f_value, title)) / 2, 40, title);
+@@ -994,8 +1055,124 @@ static void draw_empty(struct screen *d, int f_value, int f_tiny)
+     d->putsxy((LCD_WIDTH - text_width(f_tiny, sub)) / 2, 60, sub);
+ }
+ 
+-static void draw(struct screen *d, const struct deck *k, int cur, int f_value,
+-                 int f_tiny)
++/* the mixes and the queue have the first pane only */
++static int pane_count(const struct deck_album *a)
++{
++    return is_queue(a) || is_mix(a) ? 1 : PANE_N;
++}
++
++/* a row of a pane, cut to its width */
++static void pane_text(struct screen *d, int row, unsigned fg, const char *s)
++{
++    d->set_foreground(fg);
++    tape_text(d, FONT_UI, PANE_X, PANE_Y + row * PANE_ROW, PANE_W, s, false);
++}
++
++/* a 7x7 star: 0 empty, 1 half, 2 full */
++static void draw_star(struct screen *d, int x, int y, int state)
++{
++    static const char star[7][8] = {
++        "...#...", "..###..", "#######", ".#####.", "..###..", ".##.##.",
++        ".#...#.",
++    };
++
++    for (int j = 0; j < 7; j++)
++        for (int i = 0; i < 7; i++)
++            if (star[j][i] == '#')
++            {
++                d->set_foreground(state == 2 || (state == 1 && i < 4)
++                                  ? POD_INK : POD_FAINT);
++                d->drawpixel(x + i, y + j);
++            }
++}
++
++/* the artist and album with the length of the tape, or a mix's rule */
++static void draw_pane_details(struct screen *d, const struct deck *k,
++                              const struct deck_album *t)
++{
++    char buf[24];
++    int n = t->end - t->start, secs = 0;
++
++    if (t->start < 0)
++    {
++        pane_text(d, 0, POD_INK, t->album);
++        pane_text(d, 1, POD_MID, album_sub(k, t));
++        return;
++    }
++    for (int i = t->start; i < t->end; i++)
++        secs += k->tracks[i].secs;
++    pane_text(d, 0, POD_MID, t->artist);
++    pane_text(d, 1, POD_INK, t->album);
++    snprintf(buf, sizeof(buf), "%d track%s  %d:%02d", n, n == 1 ? "" : "s",
++             secs / 60, secs % 60);
++    pane_text(d, 2, POD_MID, buf);
++}
++
++/* three titles around the selected one, which is inverted */
++static void draw_pane_tracks(struct screen *d, const struct deck *k,
++                             const struct deck_album *t, int sel)
++{
++    struct tagcache_search tcs;
++    char title[MAX_PATH], buf[40];
++    int n = t->end - t->start;
++    int first = MAX(0, MIN(sel - 1, n - PANE_N));
++    bool found = tagcache_search(&tcs, tag_filename);
++
++    for (int r = 0; r < PANE_N && first + r < n; r++)
++    {
++        int i = first + r;
++
++        title[0] = '\0';
++        if (found)
++            get_tag(&tcs, k->tracks[t->start + i].idx, tag_title, title,
++                    sizeof(title));
++        snprintf(buf, sizeof(buf), "%02d %.32s", i + 1, title);
++        if (i == sel)
++        {
++            d->set_foreground(POD_INK);
++            d->fillrect(PANE_X - 1, PANE_Y + r * PANE_ROW, PANE_W + 1,
++                        PANE_ROW);
++        }
++        pane_text(d, r, i == sel ? POD_PAPER : POD_INK, buf);
++    }
++    if (found)
++        tagcache_search_finish(&tcs);
++}
++
++/* how often it was played, how long ago, and the average rating */
++static void draw_pane_stats(struct screen *d, const struct deck *k,
++                            const struct deck_album *t)
++{
++    char buf[24];
++    int plays = 0, rated = 0, sum = 0, halves;
++    long last = 0;
++
++    for (int i = t->start; i < t->end; i++)
++    {
++        const struct deck_track *r = &k->tracks[i];
++
++        plays += r->plays;
++        last = MAX(last, r->last);
++        if (r->rating)
++        {
++            rated++;
++            sum += r->rating;
++        }
++    }
++    snprintf(buf, sizeof(buf), "played %d", plays);
++    pane_text(d, 0, POD_INK, buf);
++    /* the tagcache only keeps a counter of the plays of the library */
++    snprintf(buf, sizeof(buf), "last %ld plays ago",
++             tagcache_get_serial() - last);
++    pane_text(d, 1, POD_MID, last ? buf : "never");
++    halves = rated ? (sum + rated / 2) / rated : 0;
++    for (int i = 0; i < 5; i++)
++        draw_star(d, PANE_X + i * STAR_W, PANE_Y + 2 * PANE_ROW + 2,
++                  halves >= 2 * i + 2 ? 2 : halves == 2 * i + 1 ? 1 : 0);
++}
++
++static void draw(struct screen *d, const struct deck *k, int cur, int pane,
++                 int sel, int f_value, int f_tiny)
+ {
+     const struct deck_album *t = album_row(k, cur);
+ 
+@@ -1008,11 +1185,16 @@ static void draw(struct screen *d, const struct deck *k, int cur, int f_value,
+         draw_empty(d, f_value, f_tiny);
+     else
+     {
+-        draw_bargraph(d, k, cur, f_tiny);
+-        draw_status(d, f_tiny, false);
+-        draw_card(d, CARD_X, CARD_Y, CARD_W, CARD_H, t, f_value, f_tiny);
+-        draw_tape(d, t, album_sub(k, t), f_tiny, 0, false);
+-        draw_rack(d, k, cur, f_tiny);
++        draw_bargraph(d, k, cur, FONT_UI);
++        draw_status(d, FONT_UI, false, pane, pane_count(t));
++        d->setfont(FONT_UI);
++        if (pane == 1)
++            draw_pane_tracks(d, k, t, sel);
++        else if (pane == 2)
++            draw_pane_stats(d, k, t);
++        else
++            draw_pane_details(d, k, t);
++        draw_gallery(d, k, cur, f_tiny);
+     }
+ 
+     d->setfont(FONT_UI);
+@@ -1028,6 +1210,10 @@ int pod_deck(bool on_playing)
+     struct deck *k = &deck;
+     static int cur = 0;         /* kept: back from the settings, same tape */
+     int ret = GO_TO_ROOT;       /* only USB leaves, and the deck reopens */
++    int pane = 0, sel = 0;      /* the pane shown, and the track of Tracks */
++    int shown = -1;             /* the tape they belong to */
++    long pressed = current_tick;
++    bool idle = false;          /* the last action was a timeout */
+ 
+     deck_load(k);
+     if (on_playing)
+@@ -1040,13 +1226,31 @@ int pod_deck(bool on_playing)
+ 
+     while (true)
+     {
++        if (cur != shown)
++        {
++            pane = sel = 0;
++            shown = cur;
++        }
+ #ifdef SIMULATOR
+-        fprintf(stderr, "pod: deck %d/%d %s\n", cur + 1, k->count,
+-                k->count ? album_row(k, cur)->album : "");
++        if (!idle)
++            fprintf(stderr, "pod: deck %d/%d %s\n", cur + 1, k->count,
++                    k->count ? album_row(k, cur)->album : "");
+ #endif
+-        draw(d, k, cur, f_value, f_tiny);
+-
+-        int button = get_action(CONTEXT_POD_DECK, TIMEOUT_BLOCK);
++        draw(d, k, cur, pane, sel, f_value, f_tiny);
++
++        /* the cassette turns while something plays, and a pane goes back to
++         * the first after a while */
++        int button = get_action(CONTEXT_POD_DECK,
++                                (audio_status() & AUDIO_STATUS_PLAY) || pane
++                                ? HZ / 5 : TIMEOUT_BLOCK);
++
++        idle = button == ACTION_NONE;
++        if (!idle)
++            pressed = current_tick;
++        else if (pane && TIME_AFTER(current_tick, pressed + PANE_BACK))
++            pane = sel = 0;
++        if (!k->count)
++            pane = 0;
+ 
+         /* with no tapes only hold MENU and USB act */
+         if (!k->count && button != ACTION_STD_MENU && !(button & SYS_EVENT))
+@@ -1056,11 +1260,18 @@ int pod_deck(bool on_playing)
+         {
+         case ACTION_STD_NEXT:
+         case ACTION_STD_NEXTREPEAT:
+-            cur = MIN(cur + 1, k->count - 1);
++            if (pane == 1)
++                sel = MIN(sel + 1, album_row(k, cur)->end
++                                   - album_row(k, cur)->start - 1);
++            else
++                cur = MIN(cur + 1, k->count - 1);
+             break;
+         case ACTION_STD_PREV:
+         case ACTION_STD_PREVREPEAT:
+-            cur = MAX(cur - 1, 0);
++            if (pane == 1)
++                sel = MAX(sel - 1, 0);
++            else
++                cur = MAX(cur - 1, 0);
+             break;
+         case ACTION_TREE_LETTER_NEXT:
+             cur = jump_letter(k, cur, 1);
+@@ -1078,6 +1289,26 @@ int pod_deck(bool on_playing)
+                     cur = MIN(cur + 1, k->count - 1);
+             }
+             break;
++        case ACTION_STD_CANCEL:
++        {
++            /* a second tap within the window searches; one goes to the
++             * player when something plays, or searches when nothing does */
++            long until = current_tick + HZ * 3 / 10;
++            bool again = false;
++
++            while (!again && TIME_BEFORE(current_tick, until))
++                again = get_action(CONTEXT_POD_DECK, until - current_tick)
++                        == ACTION_POD_SEARCH;
++            if (!again && (audio_status() & AUDIO_STATUS_PLAY))
++            {
++#ifdef SIMULATOR
++                fprintf(stderr, "pod: deck to player\n");
++#endif
++                ret = GO_TO_WPS;
++                goto done;
++            }
++        }
++        /* fall through */
+         case ACTION_POD_SEARCH:
+         {
+             struct pod_search_pick pick;
+@@ -1093,6 +1324,12 @@ int pod_deck(bool on_playing)
+             break;
+         }
+         case ACTION_STD_OK:
++            pane = (pane + 1) % pane_count(album_row(k, cur));
++            sel = 0;
++#ifdef SIMULATOR
++            fprintf(stderr, "pod: deck pane %d\n", pane);
++#endif
++            break;
+         case ACTION_TREE_WPS:
+             if (is_queue(album_row(k, cur)))
+             {
+@@ -1105,7 +1342,9 @@ int pod_deck(bool on_playing)
+ #ifdef SIMULATOR
+             fprintf(stderr, "pod: deck play %s\n", album_row(k, cur)->album);
+ #endif
+-            if (deck_play(k, cur, -1))
++            if (deck_play(k, cur, pane == 1
++                           ? k->tracks[album_row(k, cur)->start + sel].idx
++                           : -1))
+             {
+                 /* PLAY plays in order; a second tap within the window
+                  * shuffles the rest, the track stays */
+@@ -1277,7 +1516,7 @@ void pod_deck_draw_play(struct screen *d, struct viewport *vp)
+     d->clear_viewport();
+     d->set_drawmode(DRMODE_FG);
+     draw_play_bargraph(d, id3, elapsed, f_tiny);
+-    draw_status(d, f_tiny, true);
++    draw_status(d, f_tiny, true, 0, 1);
+     draw_card(d, CARD_X, CARD_Y, CARD_W, CARD_H, t, f_value, f_tiny);
+     /* the hubs turn every 200 ms of playback, so they stop on pause */
+     draw_tape(d, t, album_sub(&deck, t), f_tiny, (elapsed / 200) % 4,
+diff --git a/apps/keymaps/keymap-ipod.c b/apps/keymaps/keymap-ipod.c
+index d4dc11d2db873e77805c10d299fad07834775032..a724c3a3329d173d7dce42e0966cabc56aa43509 100644
+--- a/apps/keymaps/keymap-ipod.c
++++ b/apps/keymaps/keymap-ipod.c
+@@ -160,6 +160,7 @@ static const struct button_mapping button_context_deck[]  = {
+     { ACTION_STD_CONTEXT,           BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
+     { ACTION_TREE_WPS,              BUTTON_PLAY|BUTTON_REL,             BUTTON_PLAY },
+     { ACTION_TREE_SHUFFLE,          BUTTON_PLAY|BUTTON_DOUBLE,          BUTTON_NONE },
++    { ACTION_STD_CANCEL,            BUTTON_MENU|BUTTON_REL,             BUTTON_MENU },
+     { ACTION_POD_SEARCH,            BUTTON_MENU|BUTTON_DOUBLE,          BUTTON_NONE },
+     { ACTION_STD_MENU,              BUTTON_MENU|BUTTON_REPEAT,          BUTTON_MENU },
+ 

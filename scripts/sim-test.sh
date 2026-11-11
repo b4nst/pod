@@ -5,7 +5,7 @@
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 out=${1:-$root/build/shots/test}
-script="W300 D S W100 D MM W100 D M W100 D"
+script="W300 D P W100 D MM W100 D M W100 D"
 want=$(tr ' ' '\n' <<<"$script" | grep -c '^D$')
 rm -rf "$out"
 # the first boot scans the library and reboots to commit it, which ends the
@@ -30,7 +30,7 @@ echo "sim ok: $got screens"
 # unplugging the headphones pauses and replugging leaves it paused: the time
 # and the reels stop moving, so the last three dumps are identical below the
 # status bar (its clock and battery tick on their own)
-"$root/scripts/sim-shot.sh" "$out/unplug" "W300 F2 S W300 D H W200 D W300 D H W300 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/unplug" "W300 F2 P W300 D H W200 D W300 D H W300 D" >/dev/null
 diffpx() {
   magick compare -metric AE "$out/unplug/$1.png[2000x2000+0+45]" "$out/unplug/$2.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1
 }
@@ -52,20 +52,19 @@ echo "unplug ok"
 grep -q '^pod: double 0x2 mapped' "$out/double/sim.log" || { echo "double tap not detected" >&2; exit 1; }
 for d in slow hold; do
   ! grep -q '^pod: double' "$out/$d/sim.log" || { echo "$d counted as a double tap" >&2; exit 1; }
-  ! grep -q '^pod: search' "$out/$d/sim.log" || { echo "$d opened the search" >&2; exit 1; }
 done
 echo "double tap ok"
 
 # The deck is home: the albums go by artist, then title (Warehouse Sessions,
 # Afterglow, Magnetic Dawn, Signal / Noise, ...), the wheel moves one at a
-# time, >> and << jump by the artist's initial (N, U, back to N), SELECT plays the album from its first track and opens the player, and
-# MENU in the player comes back to the deck on the playing album. A single
-# MENU on the deck does nothing.
+# time, >> and << jump by the artist's initial (N, U, back to N), PLAY plays the album from its first track and opens the player, and
+# MENU in the player comes back to the deck on the playing album. With nothing
+# playing, a single MENU on the deck opens the search.
 areadiff() {
   magick compare -metric AE "$out/$1.png[2000x2000+0+45]" "$out/$2.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1
 }
 "$root/scripts/sim-shot.sh" "$out/deck" "W300 D F1 W20 D R W20 D L W20 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/deck-play" "W300 F3 S W200 D M W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/deck-play" "W300 F3 P W200 D M W100 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/deck-shuffle" "W300 F3 2P W200 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/deck-home" "W300 D M W100 D" >/dev/null
 for f in deck/01 deck/04 deck-play/01 deck-play/02 deck-home/01 deck-home/02; do
@@ -76,19 +75,20 @@ grep -q '^pod: deck 2/5 Afterglow' "$out/deck/sim.log" || { echo "the wheel did 
 grep -q '^pod: deck 4/5 Signal / Noise' "$out/deck/sim.log" || { echo ">> did not jump to the next initial" >&2; exit 1; }
 [ "$(grep '^pod: deck' "$out/deck/sim.log" | tail -1)" = 'pod: deck 2/5 Afterglow' ] || { echo "<< did not jump back" >&2; exit 1; }
 [ "$(areadiff deck/01 deck/04)" != 0 ] || { echo "the deck did not change" >&2; exit 1; }
-grep -q '^pod: deck play Signal / Noise' "$out/deck-play/sim.log" || { echo "SELECT did not play the album" >&2; exit 1; }
+grep -q '^pod: deck play Signal / Noise' "$out/deck-play/sim.log" || { echo "PLAY did not play the album" >&2; exit 1; }
 grep -q '^pod: deck 5/6 Signal / Noise' "$out/deck-play/sim.log" || { echo "MENU did not go back to the deck" >&2; exit 1; }
 [ "$(areadiff deck-play/01 deck-play/02)" != 0 ] || { echo "the player looks like the deck" >&2; exit 1; }
 grep -q '^pod: play shuffled' "$out/deck-shuffle/sim.log" || { echo "a double PLAY did not shuffle the album" >&2; exit 1; }
-! grep -q '^pod: play shuffled' "$out/deck-play/sim.log" || { echo "SELECT shuffled the album" >&2; exit 1; }
-[ "$(areadiff deck-home/01 deck-home/02)" = 0 ] || { echo "MENU left the deck" >&2; exit 1; }
+! grep -q '^pod: play shuffled' "$out/deck-play/sim.log" || { echo "PLAY shuffled the album" >&2; exit 1; }
+grep -q '^pod: search ""' "$out/deck-home/sim.log" || { echo "MENU did not open the search" >&2; exit 1; }
 echo "deck ok"
 
-# covers.bin v2 is read (nothing draws the art before the new deck), a v1
-# file or none is not, and the deck is the same in all three
+# The gallery draws the covers of covers.bin v2: Signal / Noise has one (a
+# black square) in place of its generated card, Warehouse Sessions has none,
+# and a v1 file or none is not read, so the deck is the same in both
 covers=$root/build/sim/simdisk/.pod/covers.bin
 cardiff() {
-  magick compare -metric AE "$out/$1.png[114x177+51+57]" "$out/$2.png[114x177+51+57]" null: 2>&1 | cut -d' ' -f1
+  magick compare -metric AE "$out/$1.png[132x132+96+180]" "$out/$2.png[132x132+96+180]" null: 2>&1 | cut -d' ' -f1
 }
 "$root/scripts/sim-shot.sh" "$out/covers" "W300 D F3 W20 D" >/dev/null
 cp "$covers" "$covers.v2"
@@ -101,13 +101,51 @@ mv "$covers.off" "$covers"
 grep -q '^pod: covers 1' "$out/covers/sim.log" || { echo "the deck did not read covers.bin v2" >&2; exit 1; }
 grep -q '^pod: covers 0' "$out/v1covers/sim.log" || { echo "the deck read a v1 covers.bin" >&2; exit 1; }
 grep -q '^pod: covers 0' "$out/nocovers/sim.log" || { echo "the deck found covers without covers.bin" >&2; exit 1; }
-! grep -q '^pod: cover read' "$out"/{covers,v1covers,nocovers}/sim.log || { echo "the deck read a cover record" >&2; exit 1; }
-[ "$(cardiff covers/02 v1covers/02)" = 0 ] || { echo "the v1 covers changed the deck" >&2; exit 1; }
+grep -q '^pod: cover read' "$out/covers/sim.log" || { echo "the deck did not read a cover" >&2; exit 1; }
+! grep -q '^pod: cover read' "$out"/{v1covers,nocovers}/sim.log || { echo "the deck read a cover record" >&2; exit 1; }
+[ "$(cardiff covers/01 nocovers/01)" = 0 ] || { echo "an album without a cover changed" >&2; exit 1; }
+[ "$(cardiff covers/02 nocovers/02)" != 0 ] || { echo "the cover did not replace the card" >&2; exit 1; }
+[ "$(cardiff v1covers/02 nocovers/02)" = 0 ] || { echo "the v1 covers changed the deck" >&2; exit 1; }
 echo "covers ok"
+
+# Deck v2: SELECT steps the panes of a tape (Details, Tracks, Stats and back,
+# with dots under the battery) and the wheel moves the track in Tracks, a pane
+# goes back to Details 5 s after the last press, PLAY in Tracks plays from the
+# track, MENU goes to the player while something plays (the cassette in the
+# corner is lit, grey when paused) and opens the search when nothing does.
+# The gallery moves with the wheel.
+cassettediff() {
+  magick compare -metric AE "$out/$1.png[57x33+288+0]" "$out/$2.png[57x33+288+0]" null: 2>&1 | cut -d' ' -f1
+}
+"$root/scripts/sim-shot.sh" "$out/gallery" "W300 D F3 W20 D R W20 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/panes" "W300 F3 D S W20 D S W20 D S W20 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/panes-back" "W300 F3 D S W20 D W700 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/panes-play" "W300 F3 S F1 P W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/cassette" "W300 F3 P W200 M W100 D M W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/cassette-pause" "W300 F3 P W200 P W100 M W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/nothing-plays" "W300 M W100 D" >/dev/null
+for f in gallery/03 panes/04 panes-back/03 panes-play/01 cassette/02 cassette-pause/01 nothing-plays/01; do
+  [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
+done
+[ "$(areadiff gallery/01 gallery/02)" != 0 ] || { echo "the gallery did not move" >&2; exit 1; }
+grep -q '^pod: deck pane 1' "$out/panes/sim.log" || { echo "SELECT did not open Tracks" >&2; exit 1; }
+grep -q '^pod: deck pane 2' "$out/panes/sim.log" || { echo "SELECT did not open Stats" >&2; exit 1; }
+[ "$(grep '^pod: deck pane' "$out/panes/sim.log" | tail -1)" = 'pod: deck pane 0' ] || { echo "SELECT did not go back to Details" >&2; exit 1; }
+[ "$(areadiff panes/01 panes/02)" != 0 ] || { echo "Tracks looks like Details" >&2; exit 1; }
+[ "$(areadiff panes/02 panes/03)" != 0 ] || { echo "Stats looks like Tracks" >&2; exit 1; }
+[ "$(areadiff panes/01 panes/04)" = 0 ] || { echo "the panes did not come back to Details" >&2; exit 1; }
+[ "$(areadiff panes-back/01 panes-back/03)" = 0 ] || { echo "a pane did not go back after 5 s" >&2; exit 1; }
+grep -q '^pod: deck play Signal / Noise from 2' "$out/panes-play/sim.log" || { echo "PLAY in Tracks did not play from the track" >&2; exit 1; }
+grep -q '^pod: deck to player' "$out/cassette/sim.log" || { echo "MENU did not go to the player" >&2; exit 1; }
+[ "$(areadiff cassette/01 cassette/02)" != 0 ] || { echo "the player looks like the deck" >&2; exit 1; }
+[ "$(cassettediff gallery/01 cassette/01)" != 0 ] || { echo "the cassette is not shown while it plays" >&2; exit 1; }
+[ "$(cassettediff cassette/01 cassette-pause/01)" != 0 ] || { echo "the cassette is not grey on pause" >&2; exit 1; }
+grep -q '^pod: search ""' "$out/nothing-plays/sim.log" || { echo "MENU with nothing playing did not open the search" >&2; exit 1; }
+echo "deck v2 ok"
 
 # SELECT in the player scrubs: the wheel moves the position (the counter
 # changes) and no longer the volume
-"$root/scripts/sim-shot.sh" "$out/scrub" "W300 F2 S W200 S W20 D F8 W20 D S W20 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/scrub" "W300 F2 P W200 S W20 D F8 W20 D S W20 D" >/dev/null
 for i in 01 02 03; do
   [ -f "$out/scrub/$i.png" ] || { echo "scrub/$i.png is missing" >&2; exit 1; }
 done
@@ -121,7 +159,7 @@ echo "scrub ok"
 # rebuild, now or at the next boot (stats still queued when the simulator
 # exits are lost, so this is one run)
 cl=$root/build/sim/simdisk/.pod/database_changelog.txt
-"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F3 S W3500 M W100 MM W100 F6 W50 D S W1500 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/rescan" "W300 F3 P W3500 M W100 MM W100 F6 W50 D S W1500 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/rescan-boot" "W1500" >/dev/null
 grep -q 'playcount="[1-9]' "$cl" || { echo "the changelog has no play count" >&2; exit 1; }
 cat "$out"/rescan/sim.log "$out"/rescan-boot/sim.log | grep -q '^pod: stats imported for [1-9]' || { echo "the stats were not imported" >&2; exit 1; }
@@ -132,7 +170,7 @@ echo "stats ok"
 # and a 12 s one as L, with a Unix timestamp
 log=$root/build/sim/simdisk/.pod/plays.log
 rm -f "$log"
-"$root/scripts/sim-shot.sh" "$out/playlog" "W300 F2 S W800 R W1800 R W300 U W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/playlog" "W300 F2 P W800 R W1800 R W300 U W200 D" >/dev/null
 [ -f "$log" ] || { echo "no play log" >&2; exit 1; }
 [ "$(grep -c '^#' "$log")" = 3 ] && [ "$(grep -vc '^#' "$log")" = 2 ] || { echo "the play log has the wrong lines" >&2; exit 1; }
 [ "$(grep -v '^#' "$log" | cut -f6 | tr -d '\n')" = SL ] || { echo "the plays are not S then L" >&2; exit 1; }
@@ -148,14 +186,14 @@ rm -rf "$mixes"
 mkdir -p "$mixes"
 printf '#RULE:test rule\n/Music/Unit Δelta/Signal - Noise/01 Carrier.flac\n/Music/Unit Δelta/Signal - Noise/02 Low Orbit.flac\n' >"$mixes/Ambient.m3u8"
 printf '/Music/Neon Cassette/Magnetic Dawn/03 Night Drive.flac\n' >"$mixes/Night Drive.m3u8"
-"$root/scripts/sim-shot.sh" "$out/deck-mixes" "W300 D S W200 D M W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/deck-mixes" "W300 D P W200 D M W100 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/deck-mixes-jump" "W300 R W20 D L W20 D" >/dev/null
 rm -rf "$mixes"
 for f in deck-mixes/01 deck-mixes/02 deck-mixes/03 deck-mixes-jump/01; do
   [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
 done
 grep -q '^pod: deck 1/7 Ambient' "$out/deck-mixes/sim.log" || { echo "the mixes are not first in the deck" >&2; exit 1; }
-grep -q '^pod: deck play mix /Mixes/Ambient.m3u8' "$out/deck-mixes/sim.log" || { echo "SELECT did not play the mix" >&2; exit 1; }
+grep -q '^pod: deck play mix /Mixes/Ambient.m3u8' "$out/deck-mixes/sim.log" || { echo "PLAY did not play the mix" >&2; exit 1; }
 grep -q '^pod: deck 2/8 Ambient' "$out/deck-mixes/sim.log" || { echo "MENU did not go back to the mixtape" >&2; exit 1; }
 grep -q '^pod: deck 3/7 Warehouse Sessions' "$out/deck-mixes-jump/sim.log" || { echo ">> did not jump over the mixes" >&2; exit 1; }
 [ "$(grep '^pod: deck' "$out/deck-mixes-jump/sim.log" | tail -1)" = 'pod: deck 1/7 Ambient' ] || { echo "<< did not jump back to the mixes" >&2; exit 1; }
@@ -168,10 +206,10 @@ echo "deck mixes ok"
 # playlist. Hold SELECT on an album asks Play next / Play last, adds it and
 # stays on the deck. The editor opens with hold MENU in the player: SELECT
 # picks a track up and drops it, hold SELECT removes one, MENU is the player.
-"$root/scripts/sim-shot.sh" "$out/queue" "W300 F3 S W200 M W100 D B9 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/queue-next" "W300 F3 S W200 M W100 F1 SS W50 D S W150 B9 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/queue-edit" "W300 F3 S W200 MM W100 D S F1 D S W50 D SS W50 D M W100 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/queue-play" "W300 F3 S W200 M W100 B9 S W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/queue" "W300 F3 P W200 M W100 D B9 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/queue-next" "W300 F3 P W200 M W100 F1 SS W50 D S W150 B9 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/queue-edit" "W300 F3 P W200 MM W100 D S F1 D S W50 D SS W50 D M W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/queue-play" "W300 F3 P W200 M W100 B9 P W100 D" >/dev/null
 for f in queue/02 queue-next/01 queue-edit/01 queue-edit/04 queue-edit/05 queue-play/01; do
   [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
 done
@@ -183,7 +221,7 @@ grep -q '^pod: queue move 0 -> 1' "$out/queue-edit/sim.log" || { echo "the track
 grep -q '^pod: queue remove' "$out/queue-edit/sim.log" || { echo "the track was not removed" >&2; exit 1; }
 [ "$(areadiff queue-edit/01 queue-edit/04)" != 0 ] || { echo "the queue did not change" >&2; exit 1; }
 [ "$(areadiff queue-edit/04 queue-edit/05)" != 0 ] || { echo "MENU did not go back to the player" >&2; exit 1; }
-grep -q '^pod: deck play queue' "$out/queue-play/sim.log" || { echo "SELECT did not play the queue" >&2; exit 1; }
+grep -q '^pod: deck play queue' "$out/queue-play/sim.log" || { echo "PLAY did not play the queue" >&2; exit 1; }
 [ "$(grep -c '^pod: deck play Signal' "$out/queue-play/sim.log")" = 1 ] || { echo "the queue was replaced" >&2; exit 1; }
 [ "$(areadiff queue/02 queue-play/01)" != 0 ] || { echo "the player looks like the deck" >&2; exit 1; }
 echo "queue ok"
@@ -192,9 +230,9 @@ echo "queue ok"
 # again to unlove (0). A loved track has a small heart on the tape label,
 # also after skipping away and back, so the rating went through the tagcache.
 # The heart is the 21x21 box at 3x, clear of the album and the reels.
-"$root/scripts/sim-shot.sh" "$out/love" "W300 F2 S W100 2S W20 D W200 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/unlove" "W300 F2 S W100 2S W200 2S W20 D W200 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/love-keep" "W300 F2 S W100 2S W100 R W100 L W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/love" "W300 F2 P W100 2S W20 D W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/unlove" "W300 F2 P W100 2S W200 2S W20 D W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/love-keep" "W300 F2 P W100 2S W100 R W100 L W100 D" >/dev/null
 grep -q '^pod: love 10' "$out/love/sim.log" || { echo "double SELECT did not love" >&2; exit 1; }
 grep -q '^pod: love 0' "$out/unlove/sim.log" || { echo "double SELECT did not unlove" >&2; exit 1; }
 markdiff() {
@@ -213,7 +251,7 @@ echo "love ok"
 # Zero Hour (11 min, the Tape Loop tape) plays 8 s, Carrier 6 s, then Zero Hour
 # again starts where it stopped and Carrier at 0. One run, because the resume
 # points are tagcache updates still queued when the simulator exits.
-"$root/scripts/sim-shot.sh" "$out/resume" "W300 F4 S W800 M W100 B1 S W600 M W100 F1 S W300 D M W100 B1 S W300 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/resume" "W300 F4 P W800 M W100 B1 P W600 M W100 F1 P W300 D M W100 B1 P W300 D" >/dev/null
 starts=$(grep '^pod: start' "$out/resume/sim.log")
 [ "$(sed -n 1p <<<"$starts")" = 'pod: start long at 0' ] || { echo "Zero Hour is not a long track" >&2; exit 1; }
 [ "$(sed -n 2p <<<"$starts")" = 'pod: start short at 0' ] || { echo "Carrier is not a short track" >&2; exit 1; }
@@ -234,7 +272,7 @@ mkdir -p "$sleepmix"
 printf '/Music/Neon Cassette/Magnetic Dawn/04 Analog Heart.flac\n/Music/Unit Δelta/Signal - Noise/01 Carrier.flac\n' >"$sleepmix/Sleep.m3u8"
 export POD_SLEEP_FAST=1
 "$root/scripts/sim-shot.sh" "$out/sleep" "W300 2M W100 S F7 F6 S R S W100 MM W100 MM W100 F3 S W50 D M W100 M W100 D W2000 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/sleep-album" "W300 S W100 MM W100 MM W100 F3 S S S S M W100 M W100 D W2600 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/sleep-album" "W300 P W100 MM W100 MM W100 F3 S S S S M W100 M W100 D W2600 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/sleep-repeat" "W300 2M W100 S F7 F6 S R S W100 MM W100 MM W100 F1 S F1 S F2 S S S S M W100 M W100 D W2600 D" >/dev/null
 unset POD_SLEEP_FAST
 rm -rf "$sleepmix"
@@ -270,7 +308,7 @@ sim search-artist "W300 2M W100 F8 F8 F4 S R F1 S W100 D"
 sim search-accent "W300 2M W100 F4 S W50 D"
 sim search-track "W300 2M W100 F2 S F5 S R S W200 D M W100 D"
 sim search-leave "W300 2M W100 F2 S M W50 MM W100 D"
-sim search-queue "W300 S W200 M W100 2M W100 F2 S F5 S R SS W50 D"
+sim search-queue "W300 P W200 M W100 2M W100 F2 S F5 S R SS W50 D"
 for f in search/01 search/02 search-track/01 search-track/02 search-leave/01; do
   [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
 done
@@ -303,9 +341,9 @@ rm -f "$root"/build/sim/simdisk/.pod/config.cfg.bak
 "$root/scripts/sim-shot.sh" "$out/infinite-boot" "W1500" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/infinite-boot2" "W1500" >/dev/null
 rm -f "$root"/build/sim/simdisk/.pod/.playlist_control* "$root"/build/sim/simdisk/.pod/.resume.cfg*
-sim infinite-off "W300 F2 S W200 R R R W200 D W3000 D"
+sim infinite-off "W300 F2 P W200 R R R W200 D W3000 D"
 rm -f "$root"/build/sim/simdisk/.pod/.playlist_control* "$root"/build/sim/simdisk/.pod/.resume.cfg*
-sim infinite "W300 MM W100 F2 S W100 D M W100 F2 S W200 R R R W200 D W3000 D"
+sim infinite "W300 MM W100 F2 S W100 D M W100 F2 P W200 R R R W200 D W3000 D"
 # the simulator exits before the setting is written: back to the default
 sed -i.bak '/^infinite play/d' "$root/build/sim/simdisk/.pod/config.cfg"
 rm -f "$root"/build/sim/simdisk/.pod/config.cfg.{new,bak}
