@@ -137,7 +137,8 @@ Download it from the
    skip: Heavy Rotation (most played in the last 30 days), Forgotten Gems
    (played 5+ times, not for 180 days), Never Played (a different pick every
    day), Mornings (played 5-11 h) and Nights (played 21-4 h).
-   SYNC also writes the covers of the albums on the iPod to `/.pod/covers.bin`,
+   SYNC also writes the covers of the albums on the iPod to `/.pod/covers.bin`
+   (square, 44×44 and 28×28, cropped to the centre),
    from the art in the tracks or a `cover.jpg`, `folder.jpg` or `front.jpg` in
    the album's folder.
 

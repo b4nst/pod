@@ -1,10 +1,10 @@
-//! The covers pod link writes to `/.pod/covers.bin` on every sync: a card and
-//! a thumbnail of the art of each album on the iPod, ready for the 2 bpp LCD,
-//! keyed by the hash the deck groups its tracks by. An album without art gets
+//! The covers pod link writes to `/.pod/covers.bin` on every sync: a large and
+//! a small square cover of the art of each album on the iPod, ready for the
+//! 2 bpp LCD, keyed by the hash the deck groups its tracks by. An album without art gets
 //! no record and the deck draws its generated card.
 //!
-//! File (little endian): `PODC`, `u16` version, `u16` card w/h and thumb w/h,
-//! `u32` count, `count` sorted `u32` hashes, then card and thumb of each
+//! File (little endian): `PODC`, `u16` version, `u16` large w/h and small w/h,
+//! `u32` count, `count` sorted `u32` hashes, then large and small of each
 //! record, in index order. `/.pod/covers.json` remembers where each album's
 //! art came from, so only the albums whose source changed are decoded again.
 
@@ -27,12 +27,12 @@ use walkdir::WalkDir;
 use crate::sync::{is_audio, is_hidden};
 use crate::{Error, Progress, Result};
 
-const CARD: (usize, usize) = (38, 59);
-const THUMB: (usize, usize) = (12, 19);
-const VERSION: u16 = 1;
-/// Bytes of a card and a thumbnail: rows of 4 pixels per byte.
-const CARD_BYTES: usize = CARD.0.div_ceil(4) * CARD.1;
-const RECORD: usize = CARD_BYTES + THUMB.0.div_ceil(4) * THUMB.1;
+const LARGE: (usize, usize) = (44, 44);
+const SMALL: (usize, usize) = (28, 28);
+const VERSION: u16 = 2;
+/// Bytes of a large and a small cover: rows of 4 pixels per byte.
+const LARGE_BYTES: usize = LARGE.0.div_ceil(4) * LARGE.1;
+const RECORD: usize = LARGE_BYTES + SMALL.0.div_ceil(4) * SMALL.1;
 const HEADER: usize = 18;
 /// The STN panel crushes darks: lift the mid-tones before dithering.
 const GAMMA: f32 = 1.8;
@@ -93,13 +93,13 @@ fn pack(ink: &[u8], w: usize, h: usize) -> Vec<u8> {
     out
 }
 
-/// `img` cropped to fill `w`×`h` around its centre, resized and dithered to
-/// the 4 inks, packed.
-fn render(img: &DynamicImage, w: usize, h: usize) -> Vec<u8> {
+/// `img` cropped to a square around its centre, resized to `side` and dithered
+/// to the 4 inks, packed.
+fn render(img: &DynamicImage, side: usize) -> Vec<u8> {
+    let (w, h) = (side, side);
     let (iw, ih) = (img.width() as usize, img.height() as usize);
-    let (cw, ch) = if iw * h > ih * w { (ih * w / h, ih) } else { (iw, iw * h / w) };
-    let (cw, ch) = (cw.max(1), ch.max(1));
-    let crop = img.crop_imm(((iw - cw) / 2) as u32, ((ih - ch) / 2) as u32, cw as u32, ch as u32);
+    let c = iw.min(ih).max(1);
+    let crop = img.crop_imm(((iw - c) / 2) as u32, ((ih - c) / 2) as u32, c as u32, c as u32);
     let small = imageops::resize(&crop.to_luma32f(), w as u32, h as u32, FilterType::Lanczos3);
     let mut v: Vec<f32> = small.pixels().map(|p| p.0[0].clamp(0.0, 1.0).powf(1.0 / GAMMA) * 3.0).collect();
 
@@ -158,7 +158,7 @@ impl Cache {
 fn read_records(path: &Path) -> BTreeMap<u32, Vec<u8>> {
     let Ok(b) = fs::read(path) else { return BTreeMap::new() };
     let u16_at = |i: usize| u16::from_le_bytes([b[i], b[i + 1]]);
-    let sizes = [VERSION, CARD.0 as u16, CARD.1 as u16, THUMB.0 as u16, THUMB.1 as u16];
+    let sizes = [VERSION, LARGE.0 as u16, LARGE.1 as u16, SMALL.0 as u16, SMALL.1 as u16];
     if b.len() < HEADER || &b[..4] != b"PODC" || (0..5).any(|i| u16_at(4 + 2 * i) != sizes[i]) {
         return BTreeMap::new();
     }
@@ -296,7 +296,7 @@ pub fn write(mount: &Path, progress: &mut dyn FnMut(Progress), cancel: &AtomicBo
                 };
                 let Some(img) = bytes.and_then(|b| image::load_from_memory(&b).ok()) else { continue };
                 report.decoded += 1;
-                [render(&img, CARD.0, CARD.1), render(&img, THUMB.0, THUMB.1)].concat()
+                [render(&img, LARGE.0), render(&img, SMALL.0)].concat()
             }
         };
         records.insert(*hash, record);
@@ -306,7 +306,7 @@ pub fn write(mount: &Path, progress: &mut dyn FnMut(Progress), cancel: &AtomicBo
     progress(Progress { done: total, total, item: String::new(), step: "COVERS" });
 
     let mut bin = b"PODC".to_vec();
-    for v in [VERSION, CARD.0 as u16, CARD.1 as u16, THUMB.0 as u16, THUMB.1 as u16] {
+    for v in [VERSION, LARGE.0 as u16, LARGE.1 as u16, SMALL.0 as u16, SMALL.1 as u16] {
         bin.extend(v.to_le_bytes());
     }
     bin.extend((records.len() as u32).to_le_bytes());
@@ -410,12 +410,29 @@ mod tests {
     fn crops_to_the_centre() {
         // black left half, white right half
         let img = DynamicImage::ImageRgb8(RgbImage::from_fn(100, 100, |x, _| Rgb([if x < 50 { 0 } else { 255 }; 3])));
-        let bytes = render(&img, CARD.0, CARD.1);
-        assert_eq!(bytes.len(), CARD_BYTES);
-        let ink = |x: usize, y: usize| bytes[y * CARD.0.div_ceil(4) + x / 4] >> (6 - 2 * (x & 3)) & 3;
-        // the window is 64 px wide, 32 of each colour, so both halves show
-        assert!((0..CARD.1).all(|y| ink(2, y) == 3 && ink(35, y) == 0));
-        assert!(bytes.iter().any(|&b| b != 0));
+        let bytes = render(&img, LARGE.0);
+        assert_eq!(bytes.len(), LARGE_BYTES);
+        let ink = |x: usize, y: usize| bytes[y * LARGE.0.div_ceil(4) + x / 4] >> (6 - 2 * (x & 3)) & 3;
+        assert!((0..LARGE.1).all(|y| ink(2, y) == 3 && ink(41, y) == 0));
+    }
+
+    #[test]
+    fn crops_a_wide_image_to_a_square() {
+        // black sides, white in the middle square: the sides are gone
+        let img = DynamicImage::ImageRgb8(RgbImage::from_fn(200, 100, |x, _| {
+            Rgb([if (50..150).contains(&x) { 255 } else { 0 }; 3])
+        }));
+        assert!(render(&img, LARGE.0).iter().all(|&b| b == 0));
+        assert!(render(&img, SMALL.0).iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn crops_a_tall_image_to_a_square() {
+        let img = DynamicImage::ImageRgb8(RgbImage::from_fn(100, 200, |_, y| {
+            Rgb([if (50..150).contains(&y) { 255 } else { 0 }; 3])
+        }));
+        assert!(render(&img, LARGE.0).iter().all(|&b| b == 0));
+        assert!(render(&img, SMALL.0).iter().all(|&b| b == 0));
     }
 
     #[test]
@@ -428,14 +445,15 @@ mod tests {
         let r = run(m);
         assert_eq!(r, Report { albums: 2, covers: 2, decoded: 2 });
         let bin = fs::read(m.join(".pod/covers.bin")).unwrap();
+        assert_eq!(RECORD, 680);
         assert_eq!(bin.len(), 18 + 4 * 2 + RECORD * 2);
-        assert_eq!(&bin[..18], b"PODC\x01\x00\x26\x00\x3b\x00\x0c\x00\x13\x00\x02\x00\x00\x00");
+        assert_eq!(&bin[..18], b"PODC\x02\x00\x2c\x00\x2c\x00\x1c\x00\x1c\x00\x02\x00\x00\x00");
         let idx = index(&bin);
         assert!(idx[0] < idx[1]);
         // the records follow the index
         let one = idx.iter().position(|&h| h == album_hash("One", "Band")).unwrap();
         let img = image::load_from_memory(&art(ImageFormat::Png, 0)).unwrap();
-        let want = [render(&img, CARD.0, CARD.1), render(&img, THUMB.0, THUMB.1)].concat();
+        let want = [render(&img, LARGE.0), render(&img, SMALL.0)].concat();
         assert_eq!(bin[18 + 8 + one * RECORD..][..RECORD], want[..]);
     }
 
@@ -486,6 +504,29 @@ mod tests {
 
         filetime::set_file_mtime(&cover, FileTime::from_unix_time(1_700_000_000, 0)).unwrap();
         assert_eq!(run(m).decoded, 1);
+    }
+
+    #[test]
+    fn a_resync_rewrites_a_v1_file() {
+        let dir = tempdir().unwrap();
+        let m = dir.path();
+        pod(m);
+        track(&m.join("Music/A"), "1.wav", "Emb", "Band", Some(art(ImageFormat::Png, 0)));
+        run(m);
+        // what the last version left: its header and cache
+        let mut v1 = b"PODC\x01\x00\x26\x00\x3b\x00\x0c\x00\x13\x00\x01\x00\x00\x00".to_vec();
+        v1.extend(album_hash("Emb", "Band").to_le_bytes());
+        v1.extend([0; 647]);
+        fs::write(m.join(".pod/covers.bin"), v1).unwrap();
+        let json = fs::read(m.join(".pod/covers.json")).unwrap();
+        let mut cache: serde_json::Value = serde_json::from_slice(&json).unwrap();
+        cache["version"] = 1.into();
+        fs::write(m.join(".pod/covers.json"), serde_json::to_vec(&cache).unwrap()).unwrap();
+
+        assert_eq!(run(m).decoded, 1);
+        let bin = fs::read(m.join(".pod/covers.bin")).unwrap();
+        assert_eq!(&bin[4..6], b"\x02\x00");
+        assert_eq!(bin.len(), 18 + 4 + RECORD);
     }
 
     #[test]
