@@ -5,10 +5,10 @@ Subject: [PATCH] pod: the deck draws the album covers
 
 ---
  apps/SOURCES          |   1 +
- apps/gui/pod_covers.c | 149 ++++++++++++++++++++++++++++++++++++++++++
- apps/gui/pod_covers.h |  37 +++++++++++
- apps/gui/pod_deck.c   |  22 +++++++
- 4 files changed, 209 insertions(+)
+ apps/gui/pod_covers.c | 170 ++++++++++++++++++++++++++++++++++++++++++
+ apps/gui/pod_covers.h |  42 +++++++++++
+ apps/gui/pod_deck.c   |   6 ++
+ 4 files changed, 219 insertions(+)
  create mode 100644 apps/gui/pod_covers.c
  create mode 100644 apps/gui/pod_covers.h
 
@@ -26,10 +26,10 @@ index b814f914cdfe405872030d48d2377215d8c04b32..a3cac534dffcce187fa296068152ad1f
  gui/pod_letter.c
 diff --git a/apps/gui/pod_covers.c b/apps/gui/pod_covers.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..5a8e7f849a640dbf95bbb890837520e5cc172f3c
+index 0000000000000000000000000000000000000000..ae220616047fe056f52134478333f541643f7f2b
 --- /dev/null
 +++ b/apps/gui/pod_covers.c
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,170 @@
 +/***************************************************************************
 + *             __________               __   ___.
 + *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
@@ -70,6 +70,7 @@ index 0000000000000000000000000000000000000000..5a8e7f849a640dbf95bbb890837520e5
 +#define HEADER_BYTES    18
 +#define COVERS_MAX      8192    /* as many as the deck has albums */
 +#define SLOTS           16
++#define LARGE_BYTES     (POD_COVER_LARGE / 4 * POD_COVER_LARGE)
 +
 +struct slot {
 +    int rec;                    /* -1: free */
@@ -103,9 +104,9 @@ index 0000000000000000000000000000000000000000..5a8e7f849a640dbf95bbb890837520e5
 +    for (int i = 0; i < SLOTS; i++)
 +        slots[i].rec = -1;
 +    if (fd >= 0 && read(fd, h, sizeof(h)) == sizeof(h) && !memcmp(h, "PODC", 4)
-+        && le(h + 4, 2) == 1
-+        && le(h + 6, 2) == 38 && le(h + 8, 2) == 59
-+        && le(h + 10, 2) == 12 && le(h + 12, 2) == 19)
++        && le(h + 4, 2) == 2
++        && le(h + 6, 2) == POD_COVER_LARGE && le(h + 8, 2) == POD_COVER_LARGE
++        && le(h + 10, 2) == POD_COVER_SMALL && le(h + 12, 2) == POD_COVER_SMALL)
 +    {
 +        uint32_t n = le(h + 14, 4);
 +        int want = MIN(n, COVERS_MAX);
@@ -145,7 +146,9 @@ index 0000000000000000000000000000000000000000..5a8e7f849a640dbf95bbb890837520e5
 +    return -1;
 +}
 +
-+const unsigned char *pod_covers_get(int rec)
++/* The 2 bpp covers of a record, read when first asked for, or
++ * NULL when the file can't give them */
++static const unsigned char *pod_covers_get(int rec)
 +{
 +    struct slot *s = &slots[0];
 +    bool ok = false;
@@ -179,12 +182,30 @@ index 0000000000000000000000000000000000000000..5a8e7f849a640dbf95bbb890837520e5
 +    s->bad = !ok;
 +    return ok ? s->data : NULL;
 +}
++
++bool pod_covers_draw_large(struct screen *d, int rec, int x, int y)
++{
++    const unsigned char *p = rec < 0 ? NULL : pod_covers_get(rec);
++
++    if (p)
++        d->bitmap(p, x, y, POD_COVER_LARGE, POD_COVER_LARGE);
++    return p != NULL;
++}
++
++bool pod_covers_draw_small(struct screen *d, int rec, int x, int y)
++{
++    const unsigned char *p = rec < 0 ? NULL : pod_covers_get(rec);
++
++    if (p)
++        d->bitmap(p + LARGE_BYTES, x, y, POD_COVER_SMALL, POD_COVER_SMALL);
++    return p != NULL;
++}
 diff --git a/apps/gui/pod_covers.h b/apps/gui/pod_covers.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..b37604bcd034c775e430fdcf3a80a5dbccc31acd
+index 0000000000000000000000000000000000000000..cfc870132b1d6b49f420409a1c76e04f4518db23
 --- /dev/null
 +++ b/apps/gui/pod_covers.h
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,42 @@
 +/***************************************************************************
 + *             __________               __   ___.
 + *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
@@ -208,8 +229,12 @@ index 0000000000000000000000000000000000000000..b37604bcd034c775e430fdcf3a80a5db
 +#define _POD_COVERS_H_
 +
 +#include <stdint.h>
++#include <stdbool.h>
++#include "screen_access.h"
 +
-+#define POD_COVER_BYTES 647     /* a 38x59 card, then a 12x19 thumbnail */
++#define POD_COVER_LARGE 44
++#define POD_COVER_SMALL 28
++#define POD_COVER_BYTES 680     /* a 44x44 cover, then a 28x28 one: 2 bpp, 4 px a byte */
 +
 +/* Read the index of /.pod/covers.bin: none when it is missing or not ours */
 +void pod_covers_load(void);
@@ -217,13 +242,14 @@ index 0000000000000000000000000000000000000000..b37604bcd034c775e430fdcf3a80a5db
 +/* The record of an album hash, or -1 */
 +int pod_covers_find(uint32_t hash);
 +
-+/* The 2 bpp card and thumbnail of a record, read when first asked for, or
-+ * NULL when the file can't give them */
-+const unsigned char *pod_covers_get(int rec);
++/* Draw the large (44x44) or the small (28x28) cover of a record, false when
++ * there is none or the file can't give it */
++bool pod_covers_draw_large(struct screen *d, int rec, int x, int y);
++bool pod_covers_draw_small(struct screen *d, int rec, int x, int y);
 +
 +#endif /* _POD_COVERS_H_ */
 diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
-index 90e44e8d3f8b8ca590b0b0d21da1cbafe13bb78d..32a45b7c2bfe1c37d5c8cb6c0167004f1cabbfec 100644
+index 90e44e8d3f8b8ca590b0b0d21da1cbafe13bb78d..275cf4e9a14778c1b86a36df417841b178605a2f 100644
 --- a/apps/gui/pod_deck.c
 +++ b/apps/gui/pod_deck.c
 @@ -57,6 +57,7 @@
@@ -272,26 +298,3 @@ index 90e44e8d3f8b8ca590b0b0d21da1cbafe13bb78d..32a45b7c2bfe1c37d5c8cb6c0167004f
          get_tag(&tcs, k->tracks[i].idx, tag_album, album, sizeof(album));
          get_tag(&tcs, k->tracks[i].idx, tag_virt_canonicalartist, artist,
                  sizeof(artist));
-@@ -735,6 +741,22 @@ static void draw_card(struct screen *d, int x, int y, int w, int h,
-         draw_mix_card(d, x, y, w, h, t->album, tiny);
-         return;
-     }
-+    if (t->cover >= 0)
-+    {
-+        const unsigned char *p = pod_covers_get(t->cover);
-+
-+        if (p)
-+        {
-+            /* native 2 bpp: the J-card, then the thumbnail */
-+            if (w > THUMB_W)
-+                d->bitmap(p, x, y, CARD_W, CARD_H);
-+            else
-+                d->bitmap(p + 590, x, y, THUMB_W, THUMB_H);
-+            d->set_foreground(POD_INK);
-+            d->drawrect(x, y, w, h);
-+            return;
-+        }
-+    }
-     d->set_foreground(POD_PAPER);
-     d->fillrect(x, y, w, h);
-     d->set_foreground(POD_FAINT);

@@ -12,7 +12,7 @@ Subject: [PATCH] pod: the player is the deck in play mode
  5 files changed, 426 insertions(+), 71 deletions(-)
 
 diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
-index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804d54f6abe 100644
+index 6251f8ccbb75baf83f7ae08f0a3b0b9706180254..aca4ded1ddf0e8851448f6738ea118ec269522fa 100644
 --- a/apps/gui/pod_deck.c
 +++ b/apps/gui/pod_deck.c
 @@ -26,6 +26,10 @@
@@ -166,7 +166,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
      }
  }
  
-@@ -785,8 +828,9 @@ static void draw_card(struct screen *d, int x, int y, int w, int h,
+@@ -769,8 +812,9 @@ static void draw_card(struct screen *d, int x, int y, int w, int h,
      d->putsxy(x + (w - tw) / 2, w > THUMB_W ? y + 12 : y + (h - th) / 2, str);
  }
  
@@ -178,7 +178,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
  {
      char buf[34];
      int n = 0;
-@@ -797,30 +841,49 @@ static void tape_text(struct screen *d, int font, int x, int y, const char *s)
+@@ -781,30 +825,49 @@ static void tape_text(struct screen *d, int font, int x, int y, const char *s)
          n++;
      }
      buf[n] = '\0';
@@ -238,7 +238,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
  {
      int x = TAPE_X, y = TAPE_Y, r = x + TAPE_W - 1, b = y + TAPE_H - 1;
  
-@@ -840,13 +903,15 @@ static void draw_tape(struct screen *d, const struct deck_album *t,
+@@ -824,13 +887,15 @@ static void draw_tape(struct screen *d, const struct deck_album *t,
      /* label: album and artist, or mixtape and rule */
      d->drawrect(x + 3, y + 3, TAPE_W - 6, 16);
      d->setfont(font);
@@ -258,7 +258,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
      d->set_foreground(POD_INK);
      d->hline(x + 20, r - 20, y + 38);
  
-@@ -879,10 +944,27 @@ static void draw_rack(struct screen *d, const struct deck *k, int cur, int font)
+@@ -863,10 +928,27 @@ static void draw_rack(struct screen *d, const struct deck *k, int cur, int font)
      }
  }
  
@@ -287,7 +287,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
  
      /* battery */
      d->set_foreground(POD_INK);
-@@ -894,10 +976,14 @@ static void draw_status(struct screen *d, int font)
+@@ -878,10 +960,14 @@ static void draw_status(struct screen *d, int font)
      /* the sleep timer is set */
      d->setfont(font);
      if (pod_sleep_left() != POD_SLEEP_OFF)
@@ -304,7 +304,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
      {
          if (status & AUDIO_STATUS_PAUSE)
          {
-@@ -915,7 +1001,7 @@ static void draw_empty(struct screen *d, int f_value, int f_tiny)
+@@ -899,7 +985,7 @@ static void draw_empty(struct screen *d, int f_value, int f_tiny)
  {
      const char *title = "NO TAPES", *sub = "SYNC WITH POD LINK";
  
@@ -313,7 +313,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
      d->set_foreground(POD_INK);
      d->setfont(f_value);
      d->putsxy((LCD_WIDTH - text_width(f_value, title)) / 2, 40, title);
-@@ -939,9 +1025,9 @@ static void draw(struct screen *d, const struct deck *k, int cur, int f_value,
+@@ -923,9 +1009,9 @@ static void draw(struct screen *d, const struct deck *k, int cur, int f_value,
      else
      {
          draw_bargraph(d, k, cur, f_tiny);
@@ -325,7 +325,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
          draw_rack(d, k, cur, f_tiny);
      }
  
-@@ -955,21 +1041,15 @@ static void draw(struct screen *d, const struct deck *k, int cur, int f_value,
+@@ -939,21 +1025,15 @@ static void draw(struct screen *d, const struct deck *k, int cur, int f_value,
  int pod_deck(bool on_playing)
  {
      struct screen *d = &screens[SCREEN_MAIN];
@@ -352,7 +352,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
      FOR_NB_SCREENS(i)
          viewportmanager_theme_enable(i, false, NULL);
      d->set_viewport(NULL);
-@@ -977,41 +1057,41 @@ int pod_deck(bool on_playing)
+@@ -961,41 +1041,41 @@ int pod_deck(bool on_playing)
      while (true)
      {
  #ifdef SIMULATOR
@@ -405,7 +405,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
              }
              break;
          case ACTION_POD_SEARCH:
-@@ -1021,7 +1101,7 @@ int pod_deck(bool on_playing)
+@@ -1005,7 +1085,7 @@ int pod_deck(bool on_playing)
              pod_search(f_value, f_tiny, &pick);
              if (pick.kind == POD_PICK_USB)
                  goto done;
@@ -414,7 +414,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
              {
                  ret = GO_TO_WPS;
                  goto done;
-@@ -1030,7 +1110,7 @@ int pod_deck(bool on_playing)
+@@ -1014,7 +1094,7 @@ int pod_deck(bool on_playing)
          }
          case ACTION_STD_OK:
          case ACTION_TREE_WPS:
@@ -423,7 +423,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
              {
  #ifdef SIMULATOR
                  fprintf(stderr, "pod: deck play queue\n");
-@@ -1039,9 +1119,9 @@ int pod_deck(bool on_playing)
+@@ -1023,9 +1103,9 @@ int pod_deck(bool on_playing)
                  goto done;
              }
  #ifdef SIMULATOR
@@ -435,7 +435,7 @@ index e3f07b781093ea3e9cf34b3f896278aa9f28bddb..8d1767ac2bb60f7a42e6733f99b44804
              {
                  /* PLAY plays in order; a second tap within the window
                   * shuffles the rest, the track stays */
-@@ -1080,3 +1160,255 @@ done:
+@@ -1064,3 +1144,255 @@ done:
          viewportmanager_theme_undo(i, false);
      return ret;
  }

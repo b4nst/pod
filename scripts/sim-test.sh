@@ -84,7 +84,26 @@ grep -q '^pod: play shuffled' "$out/deck-shuffle/sim.log" || { echo "a double PL
 [ "$(areadiff deck-home/01 deck-home/02)" = 0 ] || { echo "MENU left the deck" >&2; exit 1; }
 echo "deck ok"
 
-# The deck covers check comes back with the deck reading covers.bin v2 (#49)
+# covers.bin v2 is read (nothing draws the art before the new deck), a v1
+# file or none is not, and the deck is the same in all three
+covers=$root/build/sim/simdisk/.pod/covers.bin
+cardiff() {
+  magick compare -metric AE "$out/$1.png[114x177+51+57]" "$out/$2.png[114x177+51+57]" null: 2>&1 | cut -d' ' -f1
+}
+"$root/scripts/sim-shot.sh" "$out/covers" "W300 D F3 W20 D" >/dev/null
+cp "$covers" "$covers.v2"
+printf '\001' | dd of="$covers" bs=1 seek=4 conv=notrunc 2>/dev/null
+"$root/scripts/sim-shot.sh" "$out/v1covers" "W300 D F3 W20 D" >/dev/null
+mv "$covers.v2" "$covers"
+mv "$covers" "$covers.off"
+"$root/scripts/sim-shot.sh" "$out/nocovers" "W300 D F3 W20 D" >/dev/null
+mv "$covers.off" "$covers"
+grep -q '^pod: covers 1' "$out/covers/sim.log" || { echo "the deck did not read covers.bin v2" >&2; exit 1; }
+grep -q '^pod: covers 0' "$out/v1covers/sim.log" || { echo "the deck read a v1 covers.bin" >&2; exit 1; }
+grep -q '^pod: covers 0' "$out/nocovers/sim.log" || { echo "the deck found covers without covers.bin" >&2; exit 1; }
+! grep -q '^pod: cover read' "$out"/{covers,v1covers,nocovers}/sim.log || { echo "the deck read a cover record" >&2; exit 1; }
+[ "$(cardiff covers/02 v1covers/02)" = 0 ] || { echo "the v1 covers changed the deck" >&2; exit 1; }
+echo "covers ok"
 
 # SELECT in the player scrubs: the wheel moves the position (the counter
 # changes) and no longer the volume

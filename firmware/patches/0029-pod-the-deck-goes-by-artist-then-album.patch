@@ -8,7 +8,7 @@ Subject: [PATCH] pod: the deck goes by artist, then album
  1 file changed, 6 insertions(+), 5 deletions(-)
 
 diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
-index 32a45b7c2bfe1c37d5c8cb6c0167004f1cabbfec..e3f07b781093ea3e9cf34b3f896278aa9f28bddb 100644
+index 275cf4e9a14778c1b86a36df417841b178605a2f..6251f8ccbb75baf83f7ae08f0a3b0b9706180254 100644
 --- a/apps/gui/pod_deck.c
 +++ b/apps/gui/pod_deck.c
 @@ -22,8 +22,9 @@
