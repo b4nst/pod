@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Tue, 10 Nov 2026 12:25:13 +0100
+Subject: [PATCH] pod: the deck goes by artist, then album
+
+---
+ apps/gui/pod_deck.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index 32a45b7c2bfe1c37d5c8cb6c0167004f1cabbfec..e3f07b781093ea3e9cf34b3f896278aa9f28bddb 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -22,8 +22,9 @@
+  * The cassette deck, home, in browse mode: one tape per album (an artist's
+  * and another's of the same name are two), after a tape per mix of /Mixes
+  * and the queue, the current playlist, first of all. A bargraph with the
+- * initials round the corner, the J-card and the tape of the current album,
+- * and a rack of the next ones below.
++ * artists' initials round the corner, the J-card and the tape of the current
++ * album, and a rack of the next ones below. The albums go by artist, then
++ * title.
+  *
+  * On entry the albums are read from the tagcache: a row per track (album,
+  * artist, disc, track) sorted by album, so an album is a run of rows that is
+@@ -157,10 +158,10 @@ static int cmp_track(const void *a, const void *b)
+ static int cmp_album(const void *a, const void *b)
+ {
+     const struct deck_album *x = a, *y = b;
+-    int d = strcasecmp(x->album, y->album);
++    int d = strcasecmp(x->artist, y->artist);
+ 
+     if (!d)
+-        d = strcasecmp(x->artist, y->artist);
++        d = strcasecmp(x->album, y->album);
+     return d ? d : x->start - y->start;
+ }
+ 
+@@ -318,7 +319,7 @@ static char album_initial(const struct deck *k, int album)
+ 
+     if (is_queue(a))
+         return '>';
+-    return is_mix(a) ? '#' : pod_letter_initial(a->album);
++    return is_mix(a) ? '#' : pod_letter_initial(a->artist);
+ }
+ 
+ /* the second line of a tape: the artist, or what a mix is made of */
