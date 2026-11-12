@@ -263,8 +263,12 @@ fix() {
         return 0
     fi
     worktree "$WORK/issue-$n" "origin/issue-$n" "issue-$n"
+    # fixes fold into the commit they belong to, which auto mode alone
+    # refuses as a history rewrite
     agent implementer "$WORK/issue-$n" \
-        "$(allow "gh pr comment $pr *" "gh run rerun *")" \
+        "$(allow "gh pr comment $pr *" "gh run rerun *" "git commit --amend*" \
+            "git commit --fixup *" "git rebase *" \
+            "GIT_SEQUENCE_EDITOR=true git rebase *")" \
         "Mode: $mode. Issue #$n, PR #$pr, branch issue-$n, head commit $sha."
     # auto mode won't let an agent rewrite a pushed branch, so the loop
     # pushes what it committed, as long as nobody else moved the branch
