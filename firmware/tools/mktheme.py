@@ -131,50 +131,32 @@ save(vstack(states), "state.bmp")
 
 # ---------------------------------------------------------------- WPS
 
-# The player is the deck in play mode: the firmware draws the bargraph, the
-# J-card and the tape (%pD) and the 7-segment counter (%pC). The skin adds
-# the title band and the peak meters below them.
-DECK_H = 81
-BAND_Y, BAND_H = 82, 12
-COUNTER = (0, 96, 76, 14)
-VU = (84, 98, 50, 3)
-VU_GAP = 6
+# The player is the deck in play mode: the firmware draws the bargraph and the
+# panes (%pD) and the 7-segment counter with the cassette (%pC). The skin adds
+# the title band between them.
+DECK_H = 58
+BAND_Y, BAND_H = 59, 14
+COUNTER = (0, 76, LCD_W, LCD_H - 76)
 
 wps_bg = Canvas(LCD_W, LCD_H)
-c = wps_bg
-c.rect(0, BAND_Y, LCD_W, BAND_H, INK)
-c.text(tiny, VU[0] - 6, VU[1] - 1, "L", INK)
-c.text(tiny, VU[0] - 6, VU[1] + VU_GAP - 1, "R", INK)
-segments(c, VU[0], VU[1], VU[2], VU[3], FAINT)
-segments(c, VU[0], VU[1] + VU_GAP, VU[2], VU[3], FAINT)
+wps_bg.rect(0, BAND_Y, LCD_W, BAND_H, INK)
 save(wps_bg, "wps_bg.bmp")
-
-vu = Canvas(VU[2], VU[3])
-segments(vu, 0, 0, vu.w, vu.h, MID)
-for xx in range(vu.w * 3 // 4, vu.w):
-    for yy in range(vu.h):
-        if vu.get(xx, yy) == MID:
-            vu.set(xx, yy, INK)
-save(vu, "vu.bmp")
 
 wps = f"""# pod - cassette deck WPS for the iPod mini (bΔnst ⧉ design)
 %wd
 %X(wps_bg.bmp)
-%Fl(2,10-Deck-Medium.fnt)
 
-# the deck: bargraph, J-card, tape, battery and sleep
+# the deck: bargraph, battery, sleep, panes
 %V(0,0,{LCD_W},{DECK_H},1)
 %pD
 
-# title band
-%V(3,{BAND_Y + (BAND_H - orb.height) // 2},{LCD_W - 6},{orb.height},2)%Vf({lcd(PAPER)})%Vb({lcd(INK)})
-%s%?it<%it|%fn>
+# track band
+%V(3,{BAND_Y + 1},{LCD_W - 6},{BAND_H - 1},1)%Vf({lcd(PAPER)})%Vb({lcd(INK)})
+%s%pp %?it<%it|%fn>
 
-# counter and meters
+# counter and cassette
 %V({COUNTER[0]},{COUNTER[1]},{COUNTER[2]},{COUNTER[3]},1)
 %pC
-%V({VU[0]},{VU[1]},{VU[2]},{VU[3] + VU_GAP},1)
-%pL(0,0,{VU[2]},{VU[3]},image,vu.bmp)%pR(0,{VU_GAP},{VU[2]},{VU[3]},image,vu.bmp)
 """
 
 # ---------------------------------------------------------------- SBS (lists)

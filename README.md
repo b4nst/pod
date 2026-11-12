@@ -37,9 +37,10 @@ the album, its tracks and its stats.
 |              | MENU              | delete the last letter (none: back to the deck) |
 |              | hold MENU         | back to the deck                          |
 |              | hold SELECT       | on a track, with something playing: add it at the end of the queue |
-| Player       | wheel             | volume (the counter shows the dB value)   |
-|              | SELECT            | scrub: wheel seeks (SEEK), ends after 3 s or SELECT |
-|              | PREV / NEXT       | skip, hold to seek                        |
+| Player       | wheel             | volume (the counter shows the dB value); in Rating the stars, in Up next the list |
+|              | SELECT            | next pane: Cover, Rating, Up next (back to Cover after 5 s) |
+|              | PLAY              | pause / resume                            |
+|              | PREV / NEXT       | skip, hold to cue (SEEK)                  |
 |              | MENU              | the deck, on the playing album            |
 |              | hold MENU         | the queue                                 |
 |              | double SELECT     | love / unlove the track (heart)           |
@@ -55,13 +56,19 @@ the album, its tracks and its stats.
 |              | PLAY              | EQ on / bypass                            |
 |              | MENU              | done (saved)                              |
 
-The player is the deck on the playing album: the J-card and the tape, whose
-hubs turn while it plays, a heart on the label when the track is loved, and
-the bargraph round the corner lit up to where the queue is, with the track
-numbers inside. Below them the title, the elapsed time in 7-segment digits
-(dimmed on pause), the time left or SEEK, and the peak meters. Turning the
-wheel lights the bargraph by the volume and puts the dB value in the counter
-for 1.5 s.
+The player is the deck on the playing album: the bargraph round the corner
+lit up to the cue position in the track (the volume while the wheel turns),
+the battery with the sleep timer's time left beside it, and the pane dots.
+SELECT steps through three panes: the Cover with the artist and the album, the
+Rating, five stars in half steps that the wheel sets and saves to the tagcache
+(smart playlists filter on it) with the number of plays under them, and Up
+next, the tracks after the playing one, which the wheel scrolls. Any other pane
+goes back to Cover after 5 s. Below them, a band with the track number and
+title, the elapsed time in 7-segment digits with the time left beside it
+(SEEK while `<<` or `>>` is held to cue, the dB value while the wheel turns),
+and a cassette whose hubs turn while it plays. Paused, the digits and the
+cassette are grey and still. A double SELECT loves the track (rating 10) and
+flashes a heart over the Cover.
 
 The queue is the current playlist. It is the first tape of the deck whenever
 there is one, also after a reboot before anything plays, and SELECT on it
@@ -88,7 +95,7 @@ The tracks join a few tracks before the end, while the disk is up anyway, and
 show in the queue like any other.
 
 Sleep cycles Off, 15, 30, 60 min and Album with each SELECT, and starts
-again from the choice. The player shows the time left under the battery (`Z 27` minutes,
+again from the choice. The player shows the time left beside the battery (`Z 27` minutes,
 `Z 27S` in the last minute, `Z ALB` until the album is near its end). The last 10 s fade
 out, then it pauses, and the idle poweroff turns the iPod off later. Album
 pauses at the end of the playing album; shuffled, almost every track ends an
@@ -325,6 +332,10 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       goes to the player or the search.
   32. the deck loads the library once: again after a tagcache change or USB;
       Stats re-reads its album
+  33. player v2: the bargraph on the cue position, and Cover, Rating and Up
+      next panes under SELECT (`ACTION_WPS_PANE`, in place of the scrub of 13)
+      in `%pD`, the track rating saved to the tagcache, and `%pC` with the
+      cassette. The v1 tape, J-card, meters and corner icon are gone.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod

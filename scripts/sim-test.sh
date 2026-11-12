@@ -143,16 +143,60 @@ grep -q '^pod: deck to player' "$out/cassette/sim.log" || { echo "MENU did not g
 grep -q '^pod: search ""' "$out/nothing-plays/sim.log" || { echo "MENU with nothing playing did not open the search" >&2; exit 1; }
 echo "deck v2 ok"
 
-# SELECT in the player scrubs: the wheel moves the position (the counter
-# changes) and no longer the volume
-"$root/scripts/sim-shot.sh" "$out/scrub" "W300 F2 P W200 S W20 D F8 W20 D S W20 D" >/dev/null
-for i in 01 02 03; do
-  [ -f "$out/scrub/$i.png" ] || { echo "scrub/$i.png is missing" >&2; exit 1; }
+# Player v2: SELECT steps the panes (Cover, Rating, Up next and back, with
+# the dots) and one that isn't Cover goes back after 5 s. The wheel sets the
+# stars in Rating, saved to the tagcache (read back after a skip away and
+# back), and scrolls Up next, which lists the playlist (a mixtape of six
+# tracks here). The counter dims and the cassette stops on pause, shows the dB
+# while the wheel turns and follows the cue. The pane is the area at 3x of the
+# cover, the stars and the list, the counter the bottom of the screen with the
+# cassette.
+panediff() {
+  magick compare -metric AE "$out/$1.png[310x120+66+45]" "$out/$2.png[310x120+66+45]" null: 2>&1 | cut -d' ' -f1
+}
+counterdiff() {
+  magick compare -metric AE "$out/$1.png[414x100+0+228]" "$out/$2.png[414x100+0+228]" null: 2>&1 | cut -d' ' -f1
+}
+playmix=$root/build/sim/simdisk/Mixes
+rm -rf "$playmix"
+mkdir -p "$playmix"
+{
+  for t in '01 Reel to Reel' '02 Chrome Tape' '03 Night Drive' '04 Analog Heart'; do
+    echo "/Music/Neon Cassette/Magnetic Dawn/$t.flac"
+  done
+  printf '/Music/Unit Δelta/Signal - Noise/01 Carrier.flac\n/Music/Unit Δelta/Signal - Noise/02 Low Orbit.flac\n'
+} >"$playmix/Six.m3u8"
+"$root/scripts/sim-shot.sh" "$out/pane-up" "W300 P W200 S W50 S W20 D F1 W20 D F1 W20 D F9 W20 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/pane-up-top" "W300 P W200 S W50 S W20 D F1 W20 D B3 W20 D" >/dev/null
+rm -rf "$playmix"
+"$root/scripts/sim-shot.sh" "$out/pane" "W300 F2 P W200 D S W20 D S W50 D S W50 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/pane-back" "W300 F2 P W200 S W20 D W700 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/rate" "W300 F2 P W200 S F4 W20 D R W100 L W100 S W50 S W50 S W50 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/pause" "W300 F2 P W200 D P W100 D W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/volume" "W300 F2 P W200 F3 W10 D W200 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/cue" "W300 F2 P W200 RR W20 D" >/dev/null
+for f in pane-up/04 pane-up-top/03 pane/04 pane-back/02 rate/02 pause/03 volume/02 cue/01; do
+  [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
 done
-[ "$(magick compare -metric AE "$out/scrub/01.png[2000x2000+0+45]" "$out/scrub/02.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1)" != 0 ] || { echo "the wheel did not scrub" >&2; exit 1; }
-# SELECT again ends the scrub: SEEK is gone from the status row
-[ "$(magick compare -metric AE "$out/scrub/02.png[2000x2000+0+45]" "$out/scrub/03.png[2000x2000+0+45]" null: 2>&1 | cut -d' ' -f1)" != 0 ] || { echo "SELECT did not end the scrub" >&2; exit 1; }
-echo "scrub ok"
+[ "$(grep '^pod: player pane' "$out/pane/sim.log" | cut -d' ' -f4 | tr -d '\n')" = 120 ] || { echo "SELECT did not step Rating, Up next, Cover" >&2; exit 1; }
+[ "$(panediff pane/01 pane/02)" != 0 ] || { echo "Rating looks like Cover" >&2; exit 1; }
+[ "$(panediff pane/02 pane/03)" != 0 ] || { echo "Up next looks like Rating" >&2; exit 1; }
+[ "$(panediff pane/01 pane/04)" = 0 ] || { echo "the panes did not come back to Cover" >&2; exit 1; }
+[ "$(panediff pane-back/02 pane/01)" = 0 ] || { echo "a pane did not go back after 5 s" >&2; exit 1; }
+[ "$(panediff pane-back/01 pane-back/02)" != 0 ] || { echo "Rating is not shown" >&2; exit 1; }
+[ "$(grep '^pod: rate' "$out/rate/sim.log" | tail -1)" = 'pod: rate 4' ] || { echo "the wheel did not rate the track" >&2; exit 1; }
+[ "$(grep '^pod: player pane' "$out/rate/sim.log" | tail -1)" = 'pod: player pane 1 rating 4' ] || { echo "the rating was lost on a skip" >&2; exit 1; }
+[ "$(panediff rate/01 pane/02)" != 0 ] || { echo "the stars did not change" >&2; exit 1; }
+[ "$(grep '^pod: up next' "$out/pane-up/sim.log" | tr '\n' ',')" = 'pod: up next Chrome Tape,pod: up next Night Drive,pod: up next Analog Heart,' ] || { echo "Up next did not list and scroll the playlist" >&2; exit 1; }
+[ "$(grep '^pod: up next' "$out/pane-up-top/sim.log" | tail -1)" = 'pod: up next Chrome Tape' ] || { echo "the wheel did not scroll Up next back" >&2; exit 1; }
+[ "$(panediff pane-up/01 pane-up/02)" != 0 ] || { echo "Up next did not scroll" >&2; exit 1; }
+[ "$(panediff pane-up/03 pane-up/04)" = 0 ] || { echo "Up next scrolled past its end" >&2; exit 1; }
+[ "$(counterdiff pause/01 pause/02)" != 0 ] || { echo "the counter and the cassette did not change on pause" >&2; exit 1; }
+[ "$(counterdiff pause/02 pause/03)" = 0 ] || { echo "the counter moved while paused" >&2; exit 1; }
+[ "$(counterdiff volume/01 volume/02)" != 0 ] || { echo "the counter did not show the volume" >&2; exit 1; }
+cue=$(sed -n 's/^pod: cue //p' "$out/cue/sim.log" | tail -1)
+[ -n "$cue" ] && [ "$cue" -gt 4000 ] || { echo "holding >> did not cue (cue '$cue')" >&2; exit 1; }
+echo "player v2 ok"
 
 # Rescan Library keeps the play stats: the first track plays to the end (20 s),
 # then the rescan exports its count to the changelog and imports it after the
@@ -227,24 +271,25 @@ grep -q '^pod: deck play queue' "$out/queue-play/sim.log" || { echo "PLAY did no
 echo "queue ok"
 
 # double SELECT in the player loves the playing track (rating 10) and does it
-# again to unlove (0). A loved track has a small heart on the tape label,
-# also after skipping away and back, so the rating went through the tagcache.
-# The heart is the 21x21 box at 3x, clear of the album and the reels.
+# again to unlove (0). A heart flashes over the cover for a second, filled
+# after a love and hollow after an unlove. The rating went through the
+# tagcache: it is still 10 in Rating after skipping away and back. The heart
+# is the 15x14 box at 3x, centred on the cover.
 "$root/scripts/sim-shot.sh" "$out/love" "W300 F2 P W100 2S W20 D W200 D" >/dev/null
 "$root/scripts/sim-shot.sh" "$out/unlove" "W300 F2 P W100 2S W200 2S W20 D W200 D" >/dev/null
-"$root/scripts/sim-shot.sh" "$out/love-keep" "W300 F2 P W100 2S W100 R W100 L W100 D" >/dev/null
+"$root/scripts/sim-shot.sh" "$out/love-keep" "W300 F2 P W100 2S W100 R W100 L W100 S W20 D" >/dev/null
 grep -q '^pod: love 10' "$out/love/sim.log" || { echo "double SELECT did not love" >&2; exit 1; }
 grep -q '^pod: love 0' "$out/unlove/sim.log" || { echo "double SELECT did not unlove" >&2; exit 1; }
-markdiff() {
-  magick compare -metric AE "$out/$1.png[21x21+363+72]" "$out/$2.png[21x21+363+72]" null: 2>&1 | cut -d' ' -f1
+flashdiff() {
+  magick compare -metric AE "$out/$1.png[45x42+108+81]" "$out/$2.png[45x42+108+81]" null: 2>&1 | cut -d' ' -f1
 }
 for f in love/01 love/02 unlove/01 unlove/02 love-keep/01; do
   [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
 done
-[ "$(markdiff love/02 unlove/02)" != 0 ] || { echo "the loved mark is not shown" >&2; exit 1; }
-[ "$(markdiff love/01 love/02)" = 0 ] || { echo "the mark went away" >&2; exit 1; }
-[ "$(markdiff love/02 love-keep/01)" = 0 ] || { echo "the love was lost on a skip" >&2; exit 1; }
-[ "$(areadiff love/01 love/02)" != 0 ] || { echo "the heart flash is not shown" >&2; exit 1; }
+[ "$(flashdiff love/01 love/02)" != 0 ] || { echo "the heart flash is not shown" >&2; exit 1; }
+[ "$(flashdiff love/01 unlove/01)" != 0 ] || { echo "the unlove flash looks like the love one" >&2; exit 1; }
+[ "$(flashdiff love/02 unlove/02)" = 0 ] || { echo "the heart stayed" >&2; exit 1; }
+[ "$(grep '^pod: player pane' "$out/love-keep/sim.log" | tail -1)" = 'pod: player pane 1 rating 10' ] || { echo "the love was lost on a skip" >&2; exit 1; }
 echo "love ok"
 
 # a track over 10 minutes picks up where it stopped, a short one starts at 0.
@@ -283,9 +328,9 @@ done
 for f in sleep/01 sleep/02 sleep/03 sleep-album/01 sleep-album/02 sleep-repeat/02; do
   [ -f "$out/$f.png" ] || { echo "$f.png is missing" >&2; exit 1; }
 done
-# the time left is the 72x24 box at 3x under the battery
+# the time left is the 72x27 box at 3x beside the battery
 sleepdiff() {
-  magick compare -metric AE "$out/$1.png[72x24+333+27]" "$out/$2.png[72x24+333+27]" null: 2>&1 | cut -d' ' -f1
+  magick compare -metric AE "$out/$1.png[72x27+276+0]" "$out/$2.png[72x27+276+0]" null: 2>&1 | cut -d' ' -f1
 }
 [ "$(sleepdiff sleep/02 sleep/03)" != 0 ] || { echo "the time left stayed after the pause" >&2; exit 1; }
 [ "$(sleepdiff sleep-album/01 sleep-album/02)" != 0 ] || { echo "the album timer stayed after the pause" >&2; exit 1; }

@@ -1,0 +1,883 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Thu, 12 Nov 2026 12:28:41 +0100
+Subject: [PATCH] pod: player v2, cover, rating and up next panes
+
+---
+ apps/action.h                      |   2 +-
+ apps/gui/pod_deck.c                | 358 ++++++++++++++++-------------
+ apps/gui/pod_deck.h                |   2 +
+ apps/gui/skin_engine/skin_tokens.c |   4 +-
+ apps/gui/wps.c                     | 155 +++++--------
+ apps/gui/wps.h                     |   4 +-
+ apps/keymaps/keymap-ipod.c         |   2 +-
+ 7 files changed, 266 insertions(+), 261 deletions(-)
+
+diff --git a/apps/action.h b/apps/action.h
+index 0dee9ee0268b208d9725c1682a81b7f9209916cd..374d29dcc538b440b5851418b57e786009b7200d 100644
+--- a/apps/action.h
++++ b/apps/action.h
+@@ -166,7 +166,7 @@ enum {
+ 
+     /* WPS codes */
+     ACTION_WPS_BROWSE,
+-    ACTION_WPS_SCRUB,
++    ACTION_WPS_PANE,
+     ACTION_WPS_LOVE,
+     ACTION_POD_SEARCH,
+     ACTION_WPS_PLAY,
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index 16c654844ab487899929276f723fd57f3396890b..b4f30c96bf89e33a1f71278f5cfd7aa14bb1b6fe 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -27,8 +27,10 @@
+  * its tracks and its stats. The albums go by artist, then title.
+  *
+  * The player is the deck in play mode: the WPS draws the top of it with %pD,
+- * on the playing album, with the hubs turning and the bargraph on the queue
+- * (or the volume), and the counter with %pC.
++ * the bargraph on the cue position (or the volume) and three panes for
++ * SELECT to step through, the cover of the playing album, the rating of the
++ * track and the tracks up next, and the bottom with %pC, the time and a
++ * cassette.
+  *
+  * On entry the albums are read from the tagcache: a row per track (album,
+  * artist, disc, track) sorted by album, so an album is a run of rows that is
+@@ -57,6 +59,7 @@
+ #include "audio.h"
+ #include "playlist.h"
+ #include "powermgmt.h"
++#include "status.h"
+ #include "splash.h"
+ #include "root_menu.h"
+ #include "events.h"
+@@ -95,17 +98,7 @@
+ #define BAR_LABEL       9       /* labels sit this far inside the ticks */
+ #define LABEL_GAP       3       /* ticks: 12 px between two labels */
+ 
+-/* J-card, tape and rack */
+-#define CARD_X          17
+-#define CARD_Y          19
+-#define CARD_W          38
+-#define CARD_H          59
+-#define TAPE_X          60
+-#define TAPE_Y          19
+-#define TAPE_W          74
+-#define TAPE_H          46
+-
+-/* the gallery: the previous album, the current one raised, the next two */
++/* the gallery */
+ #define GALLERY_Y       81
+ #define GALLERY_X       1       /* the previous one; the next two follow */
+ #define CURRENT_X       32
+@@ -119,6 +112,7 @@
+ #define PANE_N          3
+ #define PANE_BACK       (HZ * 5)    /* back to the first after the last press */
+ #define STAR_W          8
++#define STAR_BIG        17      /* a large star and its gap, the player */
+ 
+ /* a track: the album it belongs to is told by a hash of the whole album and
+  * artist, the text is only kept for the albums */
+@@ -161,12 +155,6 @@ static struct pod_mix mixes[POD_MIXES_MAX];
+ /* cos of 0, 15, ... 90 degrees in 64ths: the corner of the bargraph */
+ static const unsigned char corner_cos[BAR_A] = { 64, 62, 55, 45, 32, 17, 0 };
+ 
+-/* cos of 0, 15, ... 345 degrees in 64ths: the teeth of a turning hub */
+-static const signed char hub_cos[24] = {
+-    64, 62, 55, 45, 32, 17, 0, -17, -32, -45, -55, -62,
+-    -64, -62, -55, -45, -32, -17, 0, 17, 32, 45, 55, 62,
+-};
+-
+ /* the deck stays loaded for the player, and so do the fonts */
+ static struct deck deck;
+ static int f_value = -1, f_tiny = -1;
+@@ -806,16 +794,14 @@ static void draw_bargraph(struct screen *d, const struct deck *k, int cur,
+     }
+ }
+ 
+-/* the name of a mixtape in upper case on up to two lines of a label, cut at
+- * the last space that fits */
+-static void card_name(struct screen *d, int font, int x, int y, int w,
+-                      const char *s)
++/* a name on up to two lines step apart, cut at the last space that fits */
++static void wrap_name(struct screen *d, int font, int x, int y, int w,
++                      const char *s, bool upper, int step)
+ {
+     char buf[sizeof(((struct deck_album *)0)->album)], line[sizeof(buf)];
+     const char *p = buf;
+-    int th = font_get(font)->height;
+ 
+-    for (int n = 0; (buf[n] = toupper((unsigned char)s[n])); n++)
++    for (int n = 0; (buf[n] = upper ? toupper((unsigned char)s[n]) : s[n]); n++)
+         ;
+     d->setfont(font);
+     for (int row = 0; row < 2 && *p; row++)
+@@ -833,7 +819,7 @@ static void card_name(struct screen *d, int font, int x, int y, int w,
+                     line[n] = '\0';
+                     break;
+                 }
+-        d->putsxy(x, y + row * (th + 4), line);
++        d->putsxy(x, y + row * step, line);
+         for (p += n; *p == ' '; p++)
+             ;
+     }
+@@ -855,7 +841,11 @@ static void draw_mix_card(struct screen *d, int x, int y, int w, int h,
+     d->set_foreground(POD_INK);
+     d->drawrect(x, y, w, h);
+     if (!thumb)
+-        card_name(d, font, x + 3, y + 17 - font_get(font)->height - 1, w - 6, name);
++    {
++        int th = font_get(font)->height;
++
++        wrap_name(d, font, x + 3, y + 17 - th - 1, w - 6, name, true, th + 4);
++    }
+ }
+ 
+ /* The queue card: a tracklist, with the playing mark on the first line. A
+@@ -881,7 +871,7 @@ static void draw_queue_card(struct screen *d, int x, int y, int w, int h)
+ }
+ 
+ /* A generated card: a hatch picked by the album, and its initial. Both the
+- * J-card and the thumbnails come through here. */
++ * large cover and the thumbnails come through here. */
+ static void draw_card(struct screen *d, int x, int y, int w, int h,
+                       const struct deck_album *t, int font, int tiny)
+ {
+@@ -914,7 +904,7 @@ static void draw_card(struct screen *d, int x, int y, int w, int h,
+     int tw = text_width(font, str), th = font_get(font)->height;
+     if (w > POD_COVER_SMALL)
+     {
+-        /* the J-card: the initial on a label */
++        /* the large card: the initial on a label */
+         int lw = tw + 8, lh = th + 4;
+         d->set_foreground(POD_PAPER);
+         d->fillrect(x + (w - lw) / 2, y + 10, lw, lh);
+@@ -943,83 +933,6 @@ static void tape_text(struct screen *d, int font, int x, int y, int w,
+     d->putsxy(x, y, buf);
+ }
+ 
+-/* 4 px from the centre at a in 15 degree steps, rounded */
+-static int tooth(int c)
+-{
+-    return (4 * c + (c < 0 ? -32 : 32)) / 64;
+-}
+-
+-/* a hub with six teeth, turned by frame steps of 15 degrees (a 60 degree
+- * turn brings it back) */
+-static void draw_hub(struct screen *d, int cx, int cy, int frame)
+-{
+-    d->set_foreground(POD_INK);
+-    disc(d, cx, cy, 8);
+-    d->set_foreground(POD_PAPER);
+-    disc(d, cx, cy, 5);
+-    d->set_foreground(POD_INK);
+-    for (int i = 0; i < 6; i++)
+-    {
+-        int a = (i * 4 + frame) % 24;
+-        d->drawpixel(cx + tooth(hub_cos[a]), cy - tooth(hub_cos[(a + 18) % 24]));
+-    }
+-    d->fillrect(cx - 1, cy - 1, 3, 3);
+-}
+-
+-/* a 5x5 heart */
+-static void draw_loved(struct screen *d, int x, int y)
+-{
+-    static const char rows[5][6] = { ".#.#.", "#####", "#####", ".###.", "..#.." };
+-
+-    for (int j = 0; j < 5; j++)
+-        for (int i = 0; i < 5; i++)
+-            if (rows[j][i] == '#')
+-                d->drawpixel(x + i, y + j);
+-}
+-
+-/* The tape: hubs turned by frame, and a heart on the label when the track
+- * playing on it is loved */
+-static void draw_tape(struct screen *d, const struct deck_album *t,
+-                      const char *sub, int font, int frame, bool loved)
+-{
+-    int x = TAPE_X, y = TAPE_Y, r = x + TAPE_W - 1, b = y + TAPE_H - 1;
+-
+-    /* shell with the corners cut */
+-    d->set_foreground(POD_PAPER);
+-    d->fillrect(x, y, TAPE_W, TAPE_H);
+-    d->set_foreground(POD_INK);
+-    d->hline(x + 2, r - 2, y);
+-    d->hline(x + 2, r - 2, b);
+-    d->vline(x, y + 2, b - 2);
+-    d->vline(r, y + 2, b - 2);
+-    d->drawpixel(x + 1, y + 1);
+-    d->drawpixel(r - 1, y + 1);
+-    d->drawpixel(x + 1, b - 1);
+-    d->drawpixel(r - 1, b - 1);
+-
+-    /* label: album and artist, or mixtape and rule */
+-    d->drawrect(x + 3, y + 3, TAPE_W - 6, 16);
+-    d->setfont(font);
+-    tape_text(d, font, x + 6, y + 5, TAPE_W - (loved ? 20 : 14), t->album, true);
+-    if (loved)
+-        draw_loved(d, r - 11, y + 6);
+-    d->set_foreground(POD_MID);
+-    tape_text(d, font, x + 6, y + 12, TAPE_W - 14, sub, true);
+-
+-    /* the hubs, joined by the tape along their bottoms */
+-    draw_hub(d, x + 20, y + 29, frame);
+-    draw_hub(d, r - 20, y + 29, frame);
+-    d->set_foreground(POD_INK);
+-    d->hline(x + 20, r - 20, y + 38);
+-
+-    /* bottom ridge */
+-    d->hline(x + 12, r - 12, b - 3);
+-    d->drawpixel(x + 11, b - 2);
+-    d->drawpixel(r - 11, b - 2);
+-    d->vline(x + 22, b - 2, b - 1);
+-    d->vline(r - 22, b - 2, b - 1);
+-}
+-
+ /* One album of the gallery: its cover, or a generated card of that size */
+ static void draw_cover(struct screen *d, const struct deck_album *a, int x,
+                        int y, int size, int font)
+@@ -1105,9 +1018,9 @@ static void draw_dots(struct screen *d, int pane, int n)
+     }
+ }
+ 
+-/* The battery and the sleep timer. In browse mode a cassette says whether
+- * something plays and dots which pane (of n) is shown, in play mode the sleep
+- * timer has its time left. */
++/* The battery, the sleep timer and the dots of the pane shown (of n). In
++ * browse mode a cassette says whether something plays and the timer is a Z,
++ * in play mode the timer has its time left, beside the battery. */
+ static void draw_status(struct screen *d, int font, bool play, int pane, int n)
+ {
+     int level = battery_level();
+@@ -1127,16 +1040,13 @@ static void draw_status(struct screen *d, int font, bool play, int pane, int n)
+     {
+         const char *z = play ? sleep_text(buf, sizeof(buf)) : "Z";
+ 
+-        d->putsxy(play ? 136 - text_width(font, z) : 117, 10, z);
++        d->putsxy(play ? 115 - text_width(font, z) : 117, play ? 1 : 10, z);
+     }
+ 
+-    if (!play)
+-    {
+-        if (status & AUDIO_STATUS_PLAY)
+-            draw_mini_cassette(d, 96, 0, status & AUDIO_STATUS_PAUSE);
+-        if (n > 1)
+-            draw_dots(d, pane, n);
+-    }
++    if (!play && (status & AUDIO_STATUS_PLAY))
++        draw_mini_cassette(d, 96, 0, status & AUDIO_STATUS_PAUSE);
++    if (n > 1)
++        draw_dots(d, pane, n);
+ }
+ 
+ /* a message in the middle: no tapes, or the first load */
+@@ -1165,8 +1075,8 @@ static void pane_text(struct screen *d, int row, unsigned fg, const char *s)
+     tape_text(d, FONT_UI, PANE_X, PANE_Y + row * PANE_ROW, PANE_W, s, false);
+ }
+ 
+-/* a 7x7 star: 0 empty, 1 half, 2 full */
+-static void draw_star(struct screen *d, int x, int y, int state)
++/* a 7x7 star, scale times larger: 0 empty, 1 half, 2 full */
++static void draw_star(struct screen *d, int x, int y, int state, int scale)
+ {
+     static const char star[7][8] = {
+         "...#...", "..###..", "#######", ".#####.", "..###..", ".##.##.",
+@@ -1179,7 +1089,7 @@ static void draw_star(struct screen *d, int x, int y, int state)
+             {
+                 d->set_foreground(state == 2 || (state == 1 && i < 4)
+                                   ? POD_INK : POD_FAINT);
+-                d->drawpixel(x + i, y + j);
++                d->fillrect(x + i * scale, y + j * scale, scale, scale);
+             }
+ }
+ 
+@@ -1265,7 +1175,7 @@ static void draw_pane_stats(struct screen *d, const struct deck *k,
+     halves = rated ? (sum + rated / 2) / rated : 0;
+     for (int i = 0; i < 5; i++)
+         draw_star(d, PANE_X + i * STAR_W, PANE_Y + 2 * PANE_ROW + 2,
+-                  halves >= 2 * i + 2 ? 2 : halves == 2 * i + 1 ? 1 : 0);
++                  halves >= 2 * i + 2 ? 2 : halves == 2 * i + 1 ? 1 : 0, 1);
+ }
+ 
+ static void draw(struct screen *d, const struct deck *k, int cur, int pane,
+@@ -1530,12 +1440,15 @@ done:
+ #define SEG_MINUS       0x40
+ #define VOLUME_SHOWN    (HZ * 3 / 2)    /* the volume, after a turn */
+ #define REMAIN_X        52              /* the time left, SEEK */
++#define PLAY_COVER_Y    12
++#define CASSETTE_X      105             /* the 30x17 cassette, in the counter */
++#define CASSETTE_Y      16
+ 
+ static const unsigned char seg_digits[10] = {
+     0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f,
+ };
+ 
+-/* the loved heart flashed over the tape, 11x10 in a 15x14 box */
++/* the loved heart flashed over the cover, 11x10 in a 15x14 box */
+ static const char heart_rows[10][12] = {
+     "..##...##..", ".####.####.", "###########", "###########",
+     "###########", ".#########.", "..#######..", "...#####...",
+@@ -1572,20 +1485,11 @@ static bool volume_shown(void)
+                           global_status.last_volume_change + VOLUME_SHOWN);
+ }
+ 
+-/* The bargraph in play mode: a label per track of the queue, the playing
+- * one inverted, lit up to where it plays. After a turn of the wheel it is
+- * lit from the lowest volume to the volume. */
++/* The bargraph in play mode: lit up to the cue position in the track. After
++ * a turn of the wheel it is lit from the lowest volume to the volume. */
+ static void draw_play_bargraph(struct screen *d, const struct mp3entry *id3,
+-                               unsigned long elapsed, int font)
++                               unsigned long elapsed)
+ {
+-    int n = playlist_amount(), pos = playlist_get_display_index() - 1;
+-    int frac = id3->length >= 1000 ? MIN(elapsed / (id3->length / 1000), 999) : 0;
+-    int gap, cur_s, last_s;
+-    char str[12];
+-
+-    if (n <= 0)
+-        n = 1;
+-    pos = MAX(0, MIN(pos, n - 1));
+     if (volume_shown())
+     {
+         int min = sound_min(SOUND_VOLUME), max = sound_max(SOUND_VOLUME);
+@@ -1593,24 +1497,8 @@ static void draw_play_bargraph(struct screen *d, const struct mp3entry *id3,
+         draw_ticks(d, (global_status.volume - min) * BAR_N / MAX(1, max - min));
+     }
+     else
+-        draw_ticks(d, (pos * 1000 + frac) * BAR_N / (n * 1000));
+-
+-    /* the widest number keeps the labels apart */
+-    snprintf(str, sizeof(str), "%d", n);
+-    gap = (text_width(font, str) + 3 + BAR_STEP - 1) / BAR_STEP;
+-    cur_s = pos * BAR_N / n;
+-    last_s = -gap;
+-    d->setfont(font);
+-    for (int i = 0; i < n; i++)
+-    {
+-        int s = i * BAR_N / n;
+-
+-        if (i != pos && (s - last_s < gap || abs(s - cur_s) < gap))
+-            continue;
+-        last_s = s;
+-        snprintf(str, sizeof(str), "%d", i + 1);
+-        draw_label(d, font, s, str, i == pos);
+-    }
++        draw_ticks(d, id3->length ? MIN(elapsed, id3->length) * BAR_N
++                                    / id3->length : 0);
+ }
+ 
+ /* the big heart: filled after a love, an outline after an unlove */
+@@ -1634,33 +1522,146 @@ static void draw_heart(struct screen *d, int x, int y, bool hollow)
+         }
+ }
+ 
++/* Cover: the 44x44 cover, the artist and the album beside it, and the heart
++ * of a love over it */
++static void draw_play_cover(struct screen *d, const struct wps_state *state,
++                            const struct deck_album *t)
++{
++    int x = PANE_X + POD_COVER_LARGE + 4;
++
++    draw_cover(d, t, PANE_X, PLAY_COVER_Y, POD_COVER_LARGE, f_value);
++    d->setfont(FONT_UI);
++    d->set_foreground(POD_MID);
++    tape_text(d, FONT_UI, x, PANE_Y - 4, LCD_WIDTH - x - 2, album_sub(&deck, t),
++              false);
++    d->set_foreground(POD_INK);
++    wrap_name(d, FONT_UI, x, PANE_Y + 8, LCD_WIDTH - x - 2, t->album, false,
++              PANE_ROW);
++    if (state->love_flash)
++        draw_heart(d, PANE_X + (POD_COVER_LARGE - 15) / 2,
++                   PLAY_COVER_Y + (POD_COVER_LARGE - 14) / 2,
++                   state->love_flash == 2);
++}
++
++/* Rating: five large stars in half steps, and how often it was played */
++static void draw_play_rating(struct screen *d, const struct mp3entry *id3)
++{
++    char buf[24];
++
++    for (int i = 0; i < 5; i++)
++        draw_star(d, PANE_X + i * STAR_BIG, PANE_Y + 2,
++                  id3->rating >= 2 * i + 2 ? 2 : id3->rating == 2 * i + 1 ? 1 : 0,
++                  2);
++    snprintf(buf, sizeof(buf), "played %ld", id3->playcount);
++    pane_text(d, 2, POD_MID, buf);
++}
++
++/* Up next, read again only when the playlist or the list moved: it is drawn
++ * every 200 ms and a read looks the tagcache up, and wakes the disk. */
++static struct {
++    int here, top, amount;      /* what the rows were read for */
++    char rows[PANE_N][40];
++} next = { -1, -1, -1, { "" } };
++
++/* forget the rows: a new playlist can keep the same index and length */
++void pod_deck_next_reset(void)
++{
++    next.here = -1;
++}
++
++/* the path of the track `steps` after the playing one, as the list runs
++ * with Repeat off: Repeat one must not hold it on the playing track. The
++ * list starts at its first index, and wraps only with Repeat on, never
++ * past one round of the playlist. */
++bool pod_deck_next_path(int steps, char *path, size_t size)
++{
++    struct playlist_track_info info;
++    int cur, amount = playlist_amount();
++    int pos;
++
++    if (steps >= amount)
++        return false;
++    playlist_get_resume_info(&cur);
++    pos = (cur - playlist_get_first_index(NULL) + amount) % amount;
++    if (global_settings.repeat_mode == REPEAT_OFF && pos + steps >= amount)
++        return false;
++    if (playlist_get_track_info(NULL, (cur + steps) % amount, &info) < 0)
++        return false;
++    if (path)
++        strmemccpy(path, info.filename, size);
++    return true;
++}
++
++/* the tracks after the playing one, each "NN Title" */
++static void load_next(int top)
++{
++    struct tagcache_search tcs;
++    char path[MAX_PATH], title[MAX_PATH];
++
++    next.here = playlist_get_display_index() - 1;
++    next.top = top;
++    next.amount = playlist_amount();
++    for (int r = 0; r < PANE_N; r++)
++    {
++        next.rows[r][0] = '\0';
++        if (!pod_deck_next_path(top + 1 + r, path, sizeof(path)))
++            continue;
++        title[0] = '\0';
++        if (tagcache_find_index(&tcs, path))
++        {
++            tagcache_retrieve(&tcs, tcs.idx_id, tag_title, title,
++                              sizeof(title));
++            tagcache_search_finish(&tcs);
++        }
++        if (!title[0])
++            strmemccpy(title, strrchr(path, '/') ? strrchr(path, '/') + 1
++                                                 : path, sizeof(title));
++        snprintf(next.rows[r], sizeof(next.rows[r]), "%02d %.32s",
++                 (next.here + top + 1 + r) % MAX(1, next.amount) + 1, title);
++#ifdef SIMULATOR
++        if (r == 0)
++            fprintf(stderr, "pod: up next %s\n", title);
++#endif
++    }
++}
++
++/* Up next: "end of queue" past the last track */
++static void draw_play_next(struct screen *d, int top)
++{
++    if (next.here != playlist_get_display_index() - 1 || next.top != top
++        || next.amount != playlist_amount())
++        load_next(top);
++    if (!next.rows[0][0])
++        pane_text(d, 0, POD_MID, "end of queue");
++    for (int r = 0; r < PANE_N && next.rows[r][0]; r++)
++        pane_text(d, r, POD_INK, next.rows[r]);
++}
++
+ void pod_deck_draw_play(struct screen *d, struct viewport *vp)
+ {
+     struct wps_state *state = get_wps_state();
+     struct mp3entry *id3 = state->id3;
+     struct viewport saved = *vp;
+     struct deck_album tags;
+-    const struct deck_album *t;
+     unsigned long elapsed;
+ 
+     if (!id3)
+         return;
+     load_fonts();
+     elapsed = id3->elapsed + state->ff_rewind_count;
+-    t = play_tape(id3, &tags);
+ 
+     d->set_background(POD_PAPER);
+     d->clear_viewport();
+     d->set_drawmode(DRMODE_FG);
+-    draw_play_bargraph(d, id3, elapsed, f_tiny);
+-    draw_status(d, f_tiny, true, 0, 1);
+-    draw_card(d, CARD_X, CARD_Y, CARD_W, CARD_H, t, f_value, f_tiny);
+-    /* the hubs turn every 200 ms of playback, so they stop on pause */
+-    draw_tape(d, t, album_sub(&deck, t), f_tiny, (elapsed / 200) % 4,
+-              id3->rating > 0);
+-    if (state->love_flash)
+-        draw_heart(d, TAPE_X + (TAPE_W - 15) / 2, TAPE_Y + 22,
+-                   state->love_flash == 2);
++    draw_play_bargraph(d, id3, elapsed);
++    draw_status(d, f_tiny, true, state->pane, PANE_N);
++    d->setfont(FONT_UI);
++    if (state->pane == 1)
++        draw_play_rating(d, id3);
++    else if (state->pane == 2)
++        draw_play_next(d, state->next_top);
++    else
++        draw_play_cover(d, state, play_tape(id3, &tags));
+     *vp = saved;
+ }
+ 
+@@ -1717,6 +1718,33 @@ static int draw_digits(struct screen *d, int x, int y, const char *s,
+     return x;
+ }
+ 
++/* a 30x17 cassette: the hubs' notches step every 200 ms of playback, and it
++ * is grey and still on pause */
++static void draw_play_cassette(struct screen *d, int x, int y,
++                               unsigned long elapsed, bool paused)
++{
++    static const signed char notch[8][2] = {
++        { 0, -3 }, { 2, -2 }, { 3, 0 }, { 2, 2 },
++        { 0, 3 }, { -2, 2 }, { -3, 0 }, { -2, -2 },
++    };
++    int step = paused ? 0 : (elapsed / 200) % 8;
++    unsigned fg = paused ? POD_MID : POD_INK;
++
++    d->set_foreground(fg);
++    d->drawrect(x, y, 30, 17);
++    d->drawrect(x + 3, y + 2, 24, 5);
++    d->hline(x + 9, x + 20, y + 15);
++    for (int h = 0; h < 2; h++)
++    {
++        int cx = x + 9 + h * 11, cy = y + 11;
++
++        d->set_foreground(fg);
++        disc(d, cx, cy, 4);
++        d->set_foreground(POD_PAPER);
++        d->drawpixel(cx + notch[step][0], cy + notch[step][1]);
++    }
++}
++
+ void pod_deck_draw_counter(struct screen *d, struct viewport *vp)
+ {
+     struct wps_state *state = get_wps_state();
+@@ -1761,7 +1789,7 @@ void pod_deck_draw_counter(struct screen *d, struct viewport *vp)
+         d->set_foreground(POD_MID);
+         d->putsxy(REMAIN_X, 1, buf);
+     }
+-    if (state->scrubbing)
++    if (status_get_ffmode())
+     {
+         int th = font_get(f_tiny)->height;
+ 
+@@ -1770,5 +1798,7 @@ void pod_deck_draw_counter(struct screen *d, struct viewport *vp)
+         d->set_foreground(POD_PAPER);
+         d->putsxy(REMAIN_X, 9, "SEEK");
+     }
++    draw_play_cassette(d, CASSETTE_X, CASSETTE_Y, elapsed,
++                       audio_status() & AUDIO_STATUS_PAUSE);
+     *vp = saved;
+ }
+diff --git a/apps/gui/pod_deck.h b/apps/gui/pod_deck.h
+index ea7646291d1f489b2bb91d7d5778fc4cee0bd52d..e4173b86baec28240b66f204689296f094a07a31 100644
+--- a/apps/gui/pod_deck.h
++++ b/apps/gui/pod_deck.h
+@@ -37,5 +37,7 @@ struct viewport;
+  * after a turn). */
+ void pod_deck_draw_play(struct screen *d, struct viewport *vp);
+ void pod_deck_draw_counter(struct screen *d, struct viewport *vp);
++void pod_deck_next_reset(void);
++bool pod_deck_next_path(int steps, char *path, size_t size);
+ 
+ #endif /* _POD_DECK_H_ */
+diff --git a/apps/gui/skin_engine/skin_tokens.c b/apps/gui/skin_engine/skin_tokens.c
+index 8a9752c58aef5d54bf406be7e13d073c19f17c4e..d3d8cd2709bb7afd5e31ea08f8bac1f2c744260e 100644
+--- a/apps/gui/skin_engine/skin_tokens.c
++++ b/apps/gui/skin_engine/skin_tokens.c
+@@ -482,8 +482,8 @@ const char *get_id3_token(struct wps_token *token, struct mp3entry *id3,
+                 return buf;
+ 
+             case SKIN_TOKEN_TRACK_SCRUBBING:
+-                /* set while SELECT has the wheel scrubbing the track */
+-                return state->scrubbing ? "s" : NULL;
++                /* set while << or >> is held to cue */
++                return status_get_ffmode() ? "s" : NULL;
+ 
+             case SKIN_TOKEN_SLEEP_LEFT:
+             {
+diff --git a/apps/gui/wps.c b/apps/gui/wps.c
+index e9d3d3d2b01eba106bef26fb13158082e797d548..fd3276ff0988a5376e2ed51603ac60bc18ab690f 100644
+--- a/apps/gui/wps.c
++++ b/apps/gui/wps.c
+@@ -61,6 +61,7 @@
+ #include "option_select.h"
+ #include "playlist_viewer.h"
+ #include "wps.h"
++#include "pod_deck.h"
+ #include "statusbar-skinned.h"
+ #include "skin_engine/wps_internals.h"
+ #include "open_plugin.h"
+@@ -76,6 +77,7 @@
+ /* The mini's LCD stays readable with the backlight off, but then it is most
+  * likely in a pocket: refresh the WPS rarely and let the reels stand still. */
+ #define WPS_IDLE_REFRESH (5*HZ)
++#define PANE_BACK        (5*HZ) /* pod: a player pane goes back to Cover */
+ 
+ static struct wps_state wps_state;
+ 
+@@ -327,6 +329,9 @@ static bool ffwd_rew(int button, bool seek_from_end)
+             case ACTION_WPS_STOPSEEK:
+                 id3->elapsed = id3->elapsed + ff_rewind_count;
+                 audio_ff_rewind(id3->elapsed);
++#ifdef SIMULATOR
++                fprintf(stderr, "pod: cue %lu\n", (unsigned long)id3->elapsed);
++#endif
+                 gstate->ff_rewind_count = 0;
+                 ff_rewind = false;
+                 status_set_ffmode(0);
+@@ -357,62 +362,41 @@ static bool ffwd_rew(int button, bool seek_from_end)
+     return usb;
+ }
+ 
+-/* pod: SELECT makes the wheel scrub the track. The wheel moves
+- * ff_rewind_count and the seek is done once it has stopped. */
+-static void scrub_move(struct wps_state *state, int direction, bool *moved)
++/* the Rating pane has said it can't save: once per visit, not per wheel step */
++static bool rate_warned;
++
++/* pod: save the rating of the playing track, 0-10 */
++static bool wps_set_rating(struct wps_state *state, int rating)
+ {
+     struct mp3entry *id3 = state->id3;
+-    int step = MAX(1000, (int)(id3->length / 100));
+-
+-    if (!*moved)
+-    {
+-        audio_pre_ff_rewind();
+-        *moved = true;
+-    }
+-    state->ff_rewind_count += step * direction;
+-
+-    if (direction > 0)
+-    {
+-        if ((id3->elapsed + state->ff_rewind_count) > id3->length)
+-            state->ff_rewind_count = id3->length - id3->elapsed;
+-    }
+-    else
+-    {
+-        if ((int)(id3->elapsed + state->ff_rewind_count) < 0)
+-            state->ff_rewind_count = -id3->elapsed;
+-    }
+-}
+ 
+-/* seek to the scrubbed position, or back to where it was when !keep */
+-static void scrub_seek(struct wps_state *state, bool *moved, bool keep)
+-{
+-    if (*moved)
++    if (!id3 || !id3->tagcache_idx || !global_settings.runtimedb)
+     {
+-        struct mp3entry *id3 = state->id3;
+-        if (keep)
+-            id3->elapsed += state->ff_rewind_count;
+-        audio_ff_rewind(id3->elapsed);
+-        *moved = false;
++        if (!rate_warned)
++            splash(HZ, ID2P(LANG_ID3_NO_INFO));
++        rate_warned = state->pane == 1;
++        return false;
+     }
+-    state->ff_rewind_count = 0;
++    id3->rating = rating;
++    tagcache_update_numeric(id3->tagcache_idx - 1, tag_rating, rating);
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: rate %d\n", rating);
++#endif
++    return true;
+ }
+ 
+ /* pod: double SELECT loves the playing track: rating 10, or 0 to unlove */
+ static void wps_love(struct wps_state *state)
+ {
+-    struct mp3entry *id3 = state->id3;
++    int rating = state->id3 && state->id3->rating == 10 ? 0 : 10;
+ 
+-    if (!id3 || !id3->tagcache_idx || !global_settings.runtimedb)
+-    {
+-        splash(HZ, ID2P(LANG_ID3_NO_INFO));
++    if (!wps_set_rating(state, rating))
+         return;
+-    }
+-    id3->rating = id3->rating ? 0 : 10;
+-    tagcache_update_numeric(id3->tagcache_idx - 1, tag_rating, id3->rating);
+-    state->love_flash = id3->rating ? 1 : 2;
++    state->love_flash = rating ? 1 : 2;
+     state->love_until = current_tick + HZ;
++    state->pane = 0;
+ #ifdef SIMULATOR
+-    fprintf(stderr, "pod: love %d\n", id3->rating);
++    fprintf(stderr, "pod: love %d\n", rating);
+ #endif
+ }
+ 
+@@ -794,14 +778,12 @@ long gui_wps_show(void)
+     bool theme_enabled = true;
+     long last_left = 0, last_right = 0;
+     long next_idle_refresh = 0;
+-    bool scrub_moved = false;
+-    long scrub_until = 0, scrub_seek_at = 0;
+-    struct mp3entry *scrub_id3 = NULL;
+     struct wps_state *state = get_wps_state();
+ 
+     ab_reset_markers();
+ 
+     wps_state_init();
++    pod_deck_next_reset();
+     while ( 1 )
+     {
+         bool hotkey = false;
+@@ -890,21 +872,12 @@ long gui_wps_show(void)
+ 
+         button = action_wpsab_single(button); /* iPods/X5/M5 */
+ 
+-        if (scrub_moved && state->id3 != scrub_id3)
+-        {   /* the track changed under the wheel: the count is stale */
+-            scrub_moved = false;
+-            state->ff_rewind_count = 0;
+-        }
+-        /* any other key ends the scrub first: skipping drops the count */
+-        if (state->scrubbing && button != ACTION_NONE
+-            && button != ACTION_UNKNOWN && !IS_SYSEVENT(button)
+-            && button != ACTION_WPS_SCRUB
+-            && button != ACTION_WPS_VOLUP && button != ACTION_WPS_VOLDOWN)
+-        {
+-            scrub_seek(state, &scrub_moved, button != ACTION_WPS_SKIPPREV
+-                                            && button != ACTION_WPS_SKIPNEXT
+-                                            && button != ACTION_WPS_LOVE);
+-            state->scrubbing = false;
++        if (button != ACTION_NONE)
++            state->pane_at = current_tick;
++        else if (state->pane
++                 && TIME_AFTER(current_tick, state->pane_at + PANE_BACK))
++        {   /* back to Cover after 5 s without a press */
++            state->pane = 0;
+             update = true;
+         }
+ 
+@@ -970,19 +943,16 @@ long gui_wps_show(void)
+                 wps_do_action(WPS_PLAYPAUSE, true);
+                 break;
+ 
+-            case ACTION_WPS_SCRUB:
+-                if (state->scrubbing)
+-                {
+-                    scrub_seek(state, &scrub_moved, true);
+-                    state->scrubbing = false;
+-                }
+-                else if ((audio_status() & AUDIO_STATUS_PLAY) && state->id3
+-                         && state->id3->length)
+-                {
+-                    state->scrubbing = true;
+-                    scrub_until = current_tick + 3*HZ;
+-                }
++            case ACTION_WPS_PANE:
++                state->pane = (state->pane + 1) % 3;
++                state->next_top = 0;
++                rate_warned = false;
++                pod_deck_next_reset();
+                 update = true;
++#ifdef SIMULATOR
++                fprintf(stderr, "pod: player pane %d rating %d\n", state->pane,
++                        state->id3 ? state->id3->rating : 0);
++#endif
+                 break;
+ 
+             case ACTION_WPS_LOVE:
+@@ -992,13 +962,25 @@ long gui_wps_show(void)
+ 
+             case ACTION_WPS_VOLUP: /* fall through */
+             case ACTION_WPS_VOLDOWN:
+-                if (state->scrubbing)
+-                {
+-                    scrub_move(state, button == ACTION_WPS_VOLUP ? 1 : -1,
+-                               &scrub_moved);
+-                    scrub_id3 = state->id3;
+-                    scrub_seek_at = current_tick + HZ/2;
+-                    scrub_until = current_tick + 3*HZ;
++                if (state->pane == 1)
++                {   /* Rating: the wheel sets the stars, in half steps */
++                    int step = button == ACTION_WPS_VOLUP ? 1 : -1;
++
++                    if (state->id3)
++                        wps_set_rating(state, MAX(0, MIN(10,
++                                       state->id3->rating + step)));
++                    update = true;
++                    break;
++                }
++                if (state->pane == 2)
++                {   /* Up next: the wheel scrolls the list */
++                    if (button == ACTION_WPS_VOLUP)
++                    {
++                        if (pod_deck_next_path(state->next_top + 4, NULL, 0))
++                            state->next_top++;
++                    }
++                    else if (state->next_top > 0)
++                        state->next_top--;
+                     update = true;
+                     break;
+                 }
+@@ -1239,18 +1221,6 @@ long gui_wps_show(void)
+             state->love_flash = 0;
+             update = true;
+         }
+-
+-        if (state->scrubbing)
+-        {
+-            if (scrub_moved && TIME_AFTER(current_tick, scrub_seek_at))
+-                scrub_seek(state, &scrub_moved, true);
+-            if (TIME_AFTER(current_tick, scrub_until))
+-            {
+-                scrub_seek(state, &scrub_moved, true);
+-                state->scrubbing = false;
+-                update = true;
+-            }
+-        }
+     }
+     return GO_TO_ROOT; /* unreachable - just to reduce compiler warnings */
+ }
+@@ -1288,7 +1258,8 @@ static void wps_state_init(void)
+ {
+     struct wps_state *state = get_wps_state();
+     state->paused = false;
+-    state->scrubbing = false;
++    state->pane = 0;
++    state->next_top = 0;
+     state->love_flash = 0;
+     state->ff_rewind_count = 0;
+     if(audio_status() & AUDIO_STATUS_PLAY)
+diff --git a/apps/gui/wps.h b/apps/gui/wps.h
+index 21dccdd002d0ebda672d441f81e4298093033aff..e93da56b08142f20ce9215b016d53b895126bfd1 100644
+--- a/apps/gui/wps.h
++++ b/apps/gui/wps.h
+@@ -30,7 +30,9 @@ struct wps_state
+     struct mp3entry *id3;
+     struct mp3entry *nid3;
+     int ff_rewind_count;
+-    bool scrubbing;
++    int pane;           /* of the player: 0 Cover, 1 Rating, 2 Up next */
++    int next_top;       /* tracks of Up next scrolled past */
++    long pane_at;       /* the last press */
+     long love_until;
+     int love_flash;     /* 1 loved, 2 unloved, 0 none */
+     bool paused;
+diff --git a/apps/keymaps/keymap-ipod.c b/apps/keymaps/keymap-ipod.c
+index a724c3a3329d173d7dce42e0966cabc56aa43509..6e054f90ae50344a98143da6718855552aee61a9 100644
+--- a/apps/keymaps/keymap-ipod.c
++++ b/apps/keymaps/keymap-ipod.c
+@@ -100,7 +100,7 @@ static const struct button_mapping button_context_wps[]  = {
+     { ACTION_WPS_VOLDOWN,   BUTTON_SCROLL_BACK|BUTTON_REPEAT,   BUTTON_NONE },
+     { ACTION_WPS_VOLUP,     BUTTON_SCROLL_FWD,                  BUTTON_NONE },
+     { ACTION_WPS_VOLUP,     BUTTON_SCROLL_FWD|BUTTON_REPEAT,    BUTTON_NONE },
+-    { ACTION_WPS_SCRUB,     BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
++    { ACTION_WPS_PANE,      BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
+     { ACTION_WPS_LOVE,      BUTTON_SELECT|BUTTON_DOUBLE,        BUTTON_NONE },
+     { ACTION_WPS_CONTEXT,   BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
+     { ACTION_WPS_HOTKEY,        BUTTON_SELECT|BUTTON_PLAY,      BUTTON_NONE },
