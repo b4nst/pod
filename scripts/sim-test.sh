@@ -8,6 +8,11 @@ out=${1:-$root/build/shots/test}
 script="W300 D P W100 D MM W100 D M W100 D"
 want=$(tr ' ' '\n' <<<"$script" | grep -c '^D$')
 rm -rf "$out"
+# a run that stopped half way leaves its database and Repeat behind: start
+# from the library on disk
+rm -f "$root"/build/sim/simdisk/.pod/database_* "$root"/build/sim/simdisk/.pod/database_changelog.txt
+sed -i.bak '/^repeat:/d' "$root/build/sim/simdisk/.pod/config.cfg"
+rm -f "$root"/build/sim/simdisk/.pod/config.cfg.bak
 # the first boot scans the library and reboots to commit it, which ends the
 # simulator: get that out of the way
 "$root/scripts/sim-shot.sh" "$out/first-boot" "W1500" >/dev/null
