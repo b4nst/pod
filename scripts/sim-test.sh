@@ -358,3 +358,25 @@ on=$(grep -c '^pod: start' "$out/infinite/sim.log" || true)
 off=$(grep -c '^pod: start' "$out/infinite-off/sim.log" || true)
 [ "$on" -gt "$off" ] || { echo "playback did not go on with Infinite on ($on starts, $off off)" >&2; exit 1; }
 echo "infinite ok"
+
+# The deck reads the library once. Back from the player, the settings and the
+# search it does not read it again; Stats reads its album's plays again, so a
+# play shows without a reload; a new track makes the next open read again.
+loads() { grep -c '^pod: deck load' "$out/$1/sim.log" || true; }
+rm -f "$root"/build/sim/simdisk/.pod/.playlist_control* "$root"/build/sim/simdisk/.pod/.resume.cfg*
+sim loads-stats "W300 F3 S S W20 D P W3500 M W100 S S W20 D"
+sim loads-settings "W300 MM W100 M W100 D"
+[ "$(loads loads-stats)" = 1 ] || { echo "the deck read the library again after the player" >&2; exit 1; }
+[ "$(loads loads-settings)" = 1 ] || { echo "the deck read the library again after the settings" >&2; exit 1; }
+plays=$(grep '^pod: deck stats Signal / Noise played' "$out/loads-stats/sim.log" | sed 's/.* //')
+[ "$(wc -l <<<"$plays")" = 2 ] && [ "$(tail -1 <<<"$plays")" -gt "$(head -1 <<<"$plays")" ] \
+  || { echo "Stats did not show the play" >&2; exit 1; }
+cp "$root/build/sim/simdisk/Music/Unit Δelta/Tape Loop/01 Zero Hour.flac" \
+   "$root/build/sim/simdisk/Music/Unit Δelta/Tape Loop/02 Zero Hour Again.flac"
+sim loads-new-boot "W1500"
+sim loads-new "W1500 MM W100 M W100 D"
+rm -f "$root/build/sim/simdisk/Music/Unit Δelta/Tape Loop/02 Zero Hour Again.flac"
+sim loads-gone-boot "W1500"
+grep '^pod: deck load' "$out/loads-new/sim.log" | tail -1 | grep -q ' 15 tracks' \
+  || { echo "the deck did not read the new track" >&2; exit 1; }
+echo "deck loads once ok"

@@ -323,6 +323,8 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       gallery of covers, a small cassette and pane dots in the corner, and
       the Details, Tracks and Stats panes under SELECT. PLAY plays, and MENU
       goes to the player or the search.
+  32. the deck loads the library once: again after a tagcache change or USB;
+      Stats re-reads its album
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod

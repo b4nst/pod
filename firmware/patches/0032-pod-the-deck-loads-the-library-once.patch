@@ -1,0 +1,406 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Thu, 12 Nov 2026 11:32:38 +0100
+Subject: [PATCH] pod: the deck loads the library once
+
+---
+ apps/gui/pod_deck.c | 171 +++++++++++++++++++++++++++++++++++++++-----
+ apps/tagcache.c     |  12 ++++
+ apps/tagcache.h     |   1 +
+ 3 files changed, 167 insertions(+), 17 deletions(-)
+
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index 0c8fa536400d1c00f2c45096ecd0944ab6fd94fb..16c654844ab487899929276f723fd57f3396890b 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -34,7 +34,8 @@
+  * artist, disc, track) sorted by album, so an album is a run of rows that is
+  * already in play order. The rows are static, and so are the fonts once
+  * loaded: allocating from buflib while a track plays makes the player stop
+- * and resume it.
++ * and resume it. They are read once: again when the tagcache has changed or
++ * after USB, and the Stats pane reads its album again.
+  */
+ 
+ #include "config.h"
+@@ -58,6 +59,7 @@
+ #include "powermgmt.h"
+ #include "splash.h"
+ #include "root_menu.h"
++#include "events.h"
+ #include "tagcache.h"
+ #include "menu.h"
+ #include "lang.h"
+@@ -173,6 +175,13 @@ static int f_value = -1, f_tiny = -1;
+ static char play_path[MAX_PATH];
+ static int play_album = -1;
+ 
++/* the rows are good until USB or a change of the tagcache */
++static bool deck_stale = true;
++static long deck_changes;       /* tagcache_pod_changes() when they were read */
++static int deck_started = -1;   /* the album deck_play started, or -1 */
++
++static void draw_loading(void);
++
+ static int cmp_track(const void *a, const void *b)
+ {
+     const struct deck_track *x = a, *y = b;
+@@ -230,14 +239,25 @@ static bool is_mix(const struct deck_album *a)
+ 
+ /* Put the queue ahead of the tapes when there is a current playlist, whether
+  * it plays or waits to resume, or keep its track count up to date. Returns
+- * whether there is one. */
++ * whether there is one, and take it off when there is none any more. */
+ static bool queue_load(struct deck *k)
+ {
+     struct deck_album *q = &shelf[0];
+ 
+     if (playlist_amount() <= 0
+         && (global_status.resume_index == -1 || playlist_resume() == -1))
+-        return k->queue;
++    {
++        if (k->queue)
++        {
++            memmove(&shelf[0], &shelf[1], (k->count - 1) * sizeof(shelf[0]));
++            k->count--;
++            k->queue = false;
++            play_path[0] = '\0';
++            if (deck_started >= 0)
++                deck_started--;
++        }
++        return false;
++    }
+     if (!k->queue)
+     {
+         int n = MIN(k->count, DECK_MAX_ALBUMS - 1);
+@@ -248,11 +268,22 @@ static bool queue_load(struct deck *k)
+         q->start = q->end = -1;
+         q->cover = -1;
+         strmemccpy(q->album, "Queue", sizeof(q->album));
++        play_path[0] = '\0';
++        if (deck_started >= 0)
++            deck_started++;
+     }
+     snprintf(q->artist, sizeof(q->artist), "%d tracks", playlist_amount());
+     return true;
+ }
+ 
++/* the numeric tags of the track tcs is on that change as it plays */
++static void read_stats(const struct tagcache_search *tcs, struct deck_track *t)
++{
++    t->plays = MIN(65535, MAX(0, tagcache_get_numeric(tcs, tag_playcount)));
++    t->rating = MIN(10, MAX(0, tagcache_get_numeric(tcs, tag_rating)));
++    t->last = MAX(0, tagcache_get_numeric(tcs, tag_lastplayed));
++}
++
+ /* Read the mixtapes and the albums. Returns false when there are none. */
+ static bool load_albums(struct deck *k)
+ {
+@@ -260,6 +291,9 @@ static bool load_albums(struct deck *k)
+     char path[MAX_PATH], album[MAX_PATH], artist[MAX_PATH];
+     int total = tagcache_get_stat()->total_entries;
+     bool full = total > DECK_MAX_TRACKS;
++    long changes = tagcache_pod_changes();
++    long started = current_tick;
++    bool loading = false;
+     int m = pod_mixes_load(mixes, POD_MIXES_MAX);
+ 
+     k->track_count = 0;
+@@ -281,6 +315,8 @@ static bool load_albums(struct deck *k)
+     if (total <= 0 || !tagcache_search(&tcs, tag_filename))
+         return m > 0;
+     total = MIN(total, DECK_MAX_TRACKS);
++    deck_stale = false;
++    deck_changes = changes;
+ 
+     pod_covers_load();
+     cpu_boost(true);
+@@ -295,9 +331,15 @@ static bool load_albums(struct deck *k)
+         t->disc = MAX(0, tagcache_get_numeric(&tcs, tag_discnumber));
+         t->track = MAX(0, tagcache_get_numeric(&tcs, tag_tracknumber));
+         t->secs = MIN(65535, MAX(0, tagcache_get_numeric(&tcs, tag_length)) / 1000);
+-        t->plays = MIN(65535, MAX(0, tagcache_get_numeric(&tcs, tag_playcount)));
+-        t->rating = MIN(10, MAX(0, tagcache_get_numeric(&tcs, tag_rating)));
+-        t->last = MAX(0, tagcache_get_numeric(&tcs, tag_lastplayed));
++        read_stats(&tcs, t);
++
++        /* a long first load says so */
++        if (!loading && !(k->track_count & 255)
++            && TIME_AFTER(current_tick, started + HZ / 2))
++        {
++            loading = true;
++            draw_loading();
++        }
+     }
+ 
+     /* an album is a run of one hash, already in play order */
+@@ -338,13 +380,45 @@ static bool load_albums(struct deck *k)
+ 
+ static bool deck_load(struct deck *k)
+ {
++#ifdef SIMULATOR
++    long t0 = current_tick;
++#endif
+     bool any = load_albums(k);
+ 
+     play_path[0] = '\0';     /* the albums moved */
+-
++    deck_started = -1;
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: deck load %d tracks %ld ms\n", k->track_count,
++            (current_tick - t0) * 1000 / HZ);
++#endif
+     return queue_load(k) || any;
+ }
+ 
++/* Read the stats of the tracks of an album again: they change as it plays,
++ * and the rows are not read again for that. */
++static void refresh_stats(struct deck *k, const struct deck_album *a)
++{
++    struct tagcache_search tcs;
++
++    if (a->start < 0 || !tagcache_search(&tcs, tag_filename))
++        return;
++    for (int i = a->start; i < a->end; i++)
++    {
++        tcs.idx_id = k->tracks[i].idx;
++        read_stats(&tcs, &k->tracks[i]);
++    }
++    tagcache_search_finish(&tcs);
++#ifdef SIMULATOR
++    {
++        int plays = 0;
++
++        for (int i = a->start; i < a->end; i++)
++            plays += k->tracks[i].plays;
++        fprintf(stderr, "pod: deck stats %s played %d\n", a->album, plays);
++    }
++#endif
++}
++
+ static const struct deck_album *album_row(const struct deck *k, int album)
+ {
+     return &k->albums[album];
+@@ -379,8 +453,25 @@ static int find_album(const struct deck *k, int32_t idx)
+     return -1;
+ }
+ 
++/* whether a track of the album is at path */
++static bool album_has(const struct deck *k, int album, const char *path)
++{
++    struct tagcache_search tcs;
++    char buf[MAX_PATH];
++    bool found = false;
++
++    if (!tagcache_search(&tcs, tag_filename))
++        return false;
++    for (int i = k->albums[album].start; i < k->albums[album].end && !found; i++)
++        found = tagcache_retrieve(&tcs, k->tracks[i].idx, tag_filename, buf,
++                                  sizeof(buf)) && !strcmp(buf, path);
++    tagcache_search_finish(&tcs);
++    return found;
++}
++
+ /* the album or mixtape of the track the playlist is on: the player may still
+- * be loading it, so ask the playlist and not the audio thread */
++ * be loading it, so ask the playlist and not the audio thread. The album
++ * PLAY started is tried first, and the whole library after it. */
+ static int playing_album(const struct deck *k)
+ {
+     struct tagcache_search tcs;
+@@ -392,6 +483,8 @@ static int playing_album(const struct deck *k)
+         return album + k->queue;
+     path = playlist_peek(0, buf, sizeof(buf));
+ 
++    if (path && deck_started >= 0 && album_has(k, deck_started, path))
++        return deck_started;
+     if (path && tagcache_find_index(&tcs, path))
+     {
+         album = find_album(k, tcs.idx_id);
+@@ -428,6 +521,8 @@ static bool deck_play(const struct deck *k, int album, int32_t from)
+     char path[MAX_PATH];
+     int pos = 0;
+ 
++    play_path[0] = '\0';
++    deck_started = -1;
+     if (is_mix(&k->albums[album]))
+         return pod_mixes_play(&k->mixes[k->albums[album].end]);
+     if (!tagcache_search(&tcs, tag_filename))
+@@ -450,6 +545,7 @@ static bool deck_play(const struct deck *k, int album, int32_t from)
+         }
+     tagcache_search_finish(&tcs);
+     playlist_sync(NULL);
++    deck_started = album;
+ #ifdef SIMULATOR
+     if (from >= 0)
+         fprintf(stderr, "pod: deck play %s from %d\n", k->albums[album].album,
+@@ -468,6 +564,8 @@ static bool deck_insert(const struct deck *k, int album, int position)
+ 
+     if (playlist_amount() <= 0)
+         return deck_play(k, album, -1);
++    play_path[0] = '\0';
++    deck_started = -1;
+     if (is_mix(&k->albums[album]))
+     {
+         snprintf(path, sizeof(path), POD_MIXES_DIR "/%s",
+@@ -1041,11 +1139,10 @@ static void draw_status(struct screen *d, int font, bool play, int pane, int n)
+     }
+ }
+ 
+-/* no tapes: tell where they come from */
+-static void draw_empty(struct screen *d, int f_value, int f_tiny)
++/* a message in the middle: no tapes, or the first load */
++static void draw_empty(struct screen *d, int f_value, int f_tiny,
++                       const char *title, const char *sub)
+ {
+-    const char *title = "NO TAPES", *sub = "SYNC WITH POD LINK";
+-
+     draw_status(d, f_tiny, false, 0, 1);
+     d->set_foreground(POD_INK);
+     d->setfont(f_value);
+@@ -1182,7 +1279,7 @@ static void draw(struct screen *d, const struct deck *k, int cur, int pane,
+     d->set_drawmode(DRMODE_FG);
+ 
+     if (!k->count)
+-        draw_empty(d, f_value, f_tiny);
++        draw_empty(d, f_value, f_tiny, "NO TAPES", "SYNC WITH POD LINK");
+     else
+     {
+         draw_bargraph(d, k, cur, FONT_UI);
+@@ -1204,6 +1301,29 @@ static void draw(struct screen *d, const struct deck *k, int cur, int pane,
+     d->update();
+ }
+ 
++/* the first load takes a while on a big library */
++static void draw_loading(void)
++{
++    struct screen *d = &screens[SCREEN_MAIN];
++
++    d->set_background(POD_PAPER);
++    d->clear_display();
++    d->set_drawmode(DRMODE_FG);
++    draw_empty(d, f_value, f_tiny, "LOADING", "READING THE TAPES");
++    d->setfont(FONT_UI);
++    d->set_drawmode(DRMODE_SOLID);
++    d->set_foreground(LCD_DEFAULT_FG);
++    d->set_background(LCD_DEFAULT_BG);
++    d->update();
++}
++
++static void deck_usb_event(unsigned short id, void *data)
++{
++    (void)id;
++    (void)data;
++    deck_stale = true;
++}
++
+ int pod_deck(bool on_playing)
+ {
+     struct screen *d = &screens[SCREEN_MAIN];
+@@ -1215,15 +1335,30 @@ int pod_deck(bool on_playing)
+     long pressed = current_tick;
+     bool idle = false;          /* the last action was a timeout */
+ 
+-    deck_load(k);
+-    if (on_playing)
+-        cur = playing_album(k);
+-    cur = MAX(0, MIN(cur, k->count - 1));
++    static bool hooked = false;
++
++    if (!hooked)
++        hooked = add_event(SYS_EVENT_USB_INSERTED, deck_usb_event);
+     load_fonts();
+     FOR_NB_SCREENS(i)
+         viewportmanager_theme_enable(i, false, NULL);
+     d->set_viewport(NULL);
+ 
++    if (deck_stale || tagcache_pod_changes() != deck_changes)
++        deck_load(k);
++    else
++    {
++        bool had = k->queue;
++
++        queue_load(k);
++        if (k->queue != had)    /* the tapes moved by one */
++            cur = MAX(0, cur + (k->queue ? 1 : -1));
++        play_path[0] = '\0';
++    }
++    if (on_playing)
++        cur = playing_album(k);
++    cur = MAX(0, MIN(cur, k->count - 1));
++
+     while (true)
+     {
+         if (cur != shown)
+@@ -1326,6 +1461,8 @@ int pod_deck(bool on_playing)
+         case ACTION_STD_OK:
+             pane = (pane + 1) % pane_count(album_row(k, cur));
+             sel = 0;
++            if (pane == 2)
++                refresh_stats(k, album_row(k, cur));
+ #ifdef SIMULATOR
+             fprintf(stderr, "pod: deck pane %d\n", pane);
+ #endif
+diff --git a/apps/tagcache.c b/apps/tagcache.c
+index dce8f1484c7381c9e2d9ce37933282181c9ab223..d148c36890056415124bbdf236ed6c5f91bebc34 100644
+--- a/apps/tagcache.c
++++ b/apps/tagcache.c
+@@ -410,6 +410,7 @@ static int processed_dir_count;
+ /* Thread safe locking */
+ static volatile int write_lock;
+ static volatile int read_lock;
++static long pod_changes;  /* bumped when the entries change, see tagcache_pod_changes */
+ 
+ static bool delete_entry(long idx_id);
+ 
+@@ -3548,6 +3549,8 @@ static bool commit(void)
+         close(masterfd);
+ 
+         logf("tagcache committed");
++        if (tch.entry_count > 0)
++            pod_changes++;
+         tagcache_commit_finalize();
+ 
+ #if defined(HAVE_TC_RAMCACHE)
+@@ -3775,6 +3778,13 @@ long tagcache_get_serial(void)
+     return current_tcmh.serial;
+ }
+ 
++/* a count that moves when entries are added, removed or imported: the deck
++ * keeps tagcache indices, which stop being valid then */
++long tagcache_pod_changes(void)
++{
++    return pod_changes;
++}
++
+ void tagcache_update_numeric(int idx_id, int tag, long data)
+ {
+     queue_command(CMD_UPDATE_NUMERIC, idx_id, tag, data);
+@@ -4019,6 +4029,7 @@ bool tagcache_import_changelog(void)
+     write_lock--;
+ 
+     update_master_header();
++    pod_changes++;
+ 
+ #ifdef SIMULATOR
+     fprintf(stderr, "pod: stats imported for %d tracks\n", imported_count);
+@@ -4308,6 +4319,7 @@ static bool delete_entry(long idx_id)
+     }
+ 
+     close(masterfd);
++    pod_changes++;
+ 
+     return true;
+ 
+diff --git a/apps/tagcache.h b/apps/tagcache.h
+index 14a486523fc4be9d110e8bfb9e9bd5bc2869d16b..e331c65f6d133adb3c4351c3bd9a24ed1d4420f9 100644
+--- a/apps/tagcache.h
++++ b/apps/tagcache.h
+@@ -182,6 +182,7 @@ void tagcache_search_finish(struct tagcache_search *tcs);
+ long tagcache_get_numeric(const struct tagcache_search *tcs, int tag);
+ long tagcache_increase_serial(void);
+ long tagcache_get_serial(void);
++long tagcache_pod_changes(void);
+ bool tagcache_import_changelog(void);
+ bool tagcache_create_changelog(struct tagcache_search *tcs);
+ void tagcache_update_numeric(int idx_id, int tag, long data);
