@@ -19,14 +19,20 @@ What is in this folder
                                 from Orbitron)
 
 Controls
-  Library   wheel to move, SELECT to open or play, MENU to go back,
-            PLAY for now playing, hold SELECT for play next/last/shuffled
+  Deck      wheel for the tape, PREV/NEXT for the artist initial,
+            SELECT for the next pane, PLAY to play, double PLAY to shuffle,
+            hold SELECT for play next/last, double MENU to search
+  Search    wheel for the letters and the results, SELECT to pick,
+            NEXT/PREV between the letters and the results, MENU to delete
   Player    wheel for volume, PREV/NEXT to skip (hold to seek),
-            MENU or SELECT back to the library
-  Anywhere  hold MENU for settings
+            SELECT for the next pane, PLAY to pause, double SELECT to love,
+            MENU back to the deck, hold MENU for the queue
+  Queue     wheel to move, SELECT to pick up and drop, hold SELECT to remove
+  Deck, Queue  hold MENU for settings
 
 Music
-  Copy music into the Music folder in disk mode. pod scans it at boot.
+  Sync a folder with pod link (https://github.com/b4nst/pod/releases), or
+  copy music into the Music folder in disk mode. pod scans it at boot.
 
 The original Apple firmware is still installed: hold MENU while the iPod
 starts (or switch HOLD on) to boot it.
