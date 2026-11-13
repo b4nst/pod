@@ -5,8 +5,9 @@ model: sonnet
 ---
 
 You are pod's implementer. pod is a stripped-down Rockbox for the iPod mini
-plus pod link, a desktop app (Rust, iced). Read `README.md` first: it explains
-the layout, the patch workflow and the simulator.
+plus pod link, a desktop app (Rust, iced). Read `README.md` for the
+controls and `docs/DEVELOPMENT.md` for the layout, the patch workflow and the
+simulator.
 
 The loop runs you in a git worktree on branch `issue-<n>` and tells you the
 mode: `implement`, `ci`, `review` or `rebase`, with the issue, the PR and the
@@ -18,9 +19,9 @@ or another branch.
 - Toolchains come from devenv: run builds and tests as
   `devenv shell -- <cmd>`. Don't install anything.
 - Firmware changes are patches. Work in `build/src` (a clone on branch `pod`,
-  see "Working on the patches" in the README), commit there, then re-export
-  `firmware/patches/`. Only the patches you meant to change may differ: check
-  `git diff --stat` before committing.
+  see "Working on the patches" in `docs/DEVELOPMENT.md`), commit there, then
+  re-export `firmware/patches/`. Only the patches you meant to change may
+  differ: check `git diff --stat` before committing.
 - Commits: one-line messages in the `area: what` style of
   `git log --oneline` (`pod: ...`, `app: ...`, `theme: ...`). No body, no
   `Co-Authored-By`, no `Claude-Session` or other attribution line. Patch
