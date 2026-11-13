@@ -1,0 +1,213 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Fri, 13 Nov 2026 09:33:24 +0100
+Subject: [PATCH] pod: darker ink, text is black
+
+---
+ apps/gui/pod_deck.c   | 28 +++++++++++++++-------------
+ apps/gui/pod_eq.c     | 10 ++++++----
+ apps/gui/pod_search.c |  6 +++---
+ 3 files changed, 24 insertions(+), 20 deletions(-)
+
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index b4f30c96bf89e33a1f71278f5cfd7aa14bb1b6fe..a877fd6340b7b28c83fe2ad6f611dffcd5bc4789 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -80,6 +80,8 @@
+ 
+ /* light theme: dark ink on the bare (backlit) panel */
+ #define POD_PAPER       LCD_WHITE
++/* text is always ink: the mini's light and dark greys are pale on the LCD.
++ * Off indicators are POD_MID, POD_FAINT is for textures behind ink. */
+ #define POD_FAINT       LCD_LIGHTGRAY
+ #define POD_MID         LCD_DARKGRAY
+ #define POD_INK         LCD_BLACK
+@@ -736,7 +738,7 @@ static void draw_ticks(struct screen *d, int lit)
+ {
+     for (int s = 0; s < BAR_N; s++)
+     {
+-        d->set_foreground(s < lit ? POD_INK : POD_FAINT);
++        d->set_foreground(s < lit ? POD_INK : POD_MID);
+         bar_tick(d, s);
+     }
+ }
+@@ -759,7 +761,7 @@ static void draw_label(struct screen *d, int font, int s, const char *str,
+         d->set_foreground(POD_PAPER);
+     }
+     else
+-        d->set_foreground(POD_MID);
++        d->set_foreground(POD_INK);
+     d->putsxy(x, y, str);
+ }
+ 
+@@ -1013,7 +1015,7 @@ static void draw_dots(struct screen *d, int pane, int n)
+ {
+     for (int i = 0; i < n; i++)
+     {
+-        d->set_foreground(i == pane ? POD_INK : POD_FAINT);
++        d->set_foreground(i == pane ? POD_INK : POD_MID);
+         d->fillrect(136 - (n - i) * 4 + 2, 11, 2, 2);
+     }
+ }
+@@ -1057,7 +1059,7 @@ static void draw_empty(struct screen *d, int f_value, int f_tiny,
+     d->set_foreground(POD_INK);
+     d->setfont(f_value);
+     d->putsxy((LCD_WIDTH - text_width(f_value, title)) / 2, 40, title);
+-    d->set_foreground(POD_MID);
++    d->set_foreground(POD_INK);
+     d->setfont(f_tiny);
+     d->putsxy((LCD_WIDTH - text_width(f_tiny, sub)) / 2, 60, sub);
+ }
+@@ -1088,7 +1090,7 @@ static void draw_star(struct screen *d, int x, int y, int state, int scale)
+             if (star[j][i] == '#')
+             {
+                 d->set_foreground(state == 2 || (state == 1 && i < 4)
+-                                  ? POD_INK : POD_FAINT);
++                                  ? POD_INK : POD_MID);
+                 d->fillrect(x + i * scale, y + j * scale, scale, scale);
+             }
+ }
+@@ -1103,16 +1105,16 @@ static void draw_pane_details(struct screen *d, const struct deck *k,
+     if (t->start < 0)
+     {
+         pane_text(d, 0, POD_INK, t->album);
+-        pane_text(d, 1, POD_MID, album_sub(k, t));
++        pane_text(d, 1, POD_INK, album_sub(k, t));
+         return;
+     }
+     for (int i = t->start; i < t->end; i++)
+         secs += k->tracks[i].secs;
+-    pane_text(d, 0, POD_MID, t->artist);
++    pane_text(d, 0, POD_INK, t->artist);
+     pane_text(d, 1, POD_INK, t->album);
+     snprintf(buf, sizeof(buf), "%d track%s  %d:%02d", n, n == 1 ? "" : "s",
+              secs / 60, secs % 60);
+-    pane_text(d, 2, POD_MID, buf);
++    pane_text(d, 2, POD_INK, buf);
+ }
+ 
+ /* three titles around the selected one, which is inverted */
+@@ -1171,7 +1173,7 @@ static void draw_pane_stats(struct screen *d, const struct deck *k,
+     /* the tagcache only keeps a counter of the plays of the library */
+     snprintf(buf, sizeof(buf), "last %ld plays ago",
+              tagcache_get_serial() - last);
+-    pane_text(d, 1, POD_MID, last ? buf : "never");
++    pane_text(d, 1, POD_INK, last ? buf : "never");
+     halves = rated ? (sum + rated / 2) / rated : 0;
+     for (int i = 0; i < 5; i++)
+         draw_star(d, PANE_X + i * STAR_W, PANE_Y + 2 * PANE_ROW + 2,
+@@ -1531,7 +1533,7 @@ static void draw_play_cover(struct screen *d, const struct wps_state *state,
+ 
+     draw_cover(d, t, PANE_X, PLAY_COVER_Y, POD_COVER_LARGE, f_value);
+     d->setfont(FONT_UI);
+-    d->set_foreground(POD_MID);
++    d->set_foreground(POD_INK);
+     tape_text(d, FONT_UI, x, PANE_Y - 4, LCD_WIDTH - x - 2, album_sub(&deck, t),
+               false);
+     d->set_foreground(POD_INK);
+@@ -1553,7 +1555,7 @@ static void draw_play_rating(struct screen *d, const struct mp3entry *id3)
+                   id3->rating >= 2 * i + 2 ? 2 : id3->rating == 2 * i + 1 ? 1 : 0,
+                   2);
+     snprintf(buf, sizeof(buf), "played %ld", id3->playcount);
+-    pane_text(d, 2, POD_MID, buf);
++    pane_text(d, 2, POD_INK, buf);
+ }
+ 
+ /* Up next, read again only when the playlist or the list moved: it is drawn
+@@ -1632,7 +1634,7 @@ static void draw_play_next(struct screen *d, int top)
+         || next.amount != playlist_amount())
+         load_next(top);
+     if (!next.rows[0][0])
+-        pane_text(d, 0, POD_MID, "end of queue");
++        pane_text(d, 0, POD_INK, "end of queue");
+     for (int r = 0; r < PANE_N && next.rows[r][0]; r++)
+         pane_text(d, r, POD_INK, next.rows[r]);
+ }
+@@ -1786,7 +1788,7 @@ void pod_deck_draw_counter(struct screen *d, struct viewport *vp)
+                                   ? POD_MID : POD_INK);
+         snprintf(buf, sizeof(buf), "-%lu:%02lu", left / 60000,
+                  left / 1000 % 60);
+-        d->set_foreground(POD_MID);
++        d->set_foreground(POD_INK);
+         d->putsxy(REMAIN_X, 1, buf);
+     }
+     if (status_get_ffmode())
+diff --git a/apps/gui/pod_eq.c b/apps/gui/pod_eq.c
+index e031b8dc8994d15dcfb6c9f19093d82b35751c06..9a08d5a43b70c98b0b86a6740ea78e63d81bf7eb 100644
+--- a/apps/gui/pod_eq.c
++++ b/apps/gui/pod_eq.c
+@@ -333,7 +333,7 @@ static void draw(struct screen *d, int sel, int f_label, int f_value,
+     d->hline(2, 10, 9);
+     d->setfont(f_label);
+     d->putsxy(13, 2, "EQUALIZER");
+-    d->set_foreground(POD_FAINT);
++    d->set_foreground(POD_INK);
+     d->setfont(f_tiny);
+     d->putsxy(13 + text_width(f_label, "EQUALIZER") + 4, 4, "5-BAND");
+ 
+@@ -361,7 +361,7 @@ static void draw(struct screen *d, int sel, int f_label, int f_value,
+     dotted_hline(d, GX, GX + GW - 1, G0, 2);
+     corner_brackets(d, GX - 2, GY - 2, GW + 4, GH + 4);
+ 
+-    d->set_foreground(POD_FAINT);
++    d->set_foreground(POD_INK);
+     d->putsxy(1, db_y(12) - 1, "+12");
+     d->putsxy(5, G0 - th/2, "0");
+     d->putsxy(1, db_y(-12) - th + 2, "-12");
+@@ -411,13 +411,15 @@ static void draw(struct screen *d, int sel, int f_label, int f_value,
+         {
+             d->set_foreground(POD_MID);
+             d->fillrect(bx - 1, by - 1, 3, 3);
++            d->set_foreground(POD_INK);
+         }
+         d->putsxy(lx, GY + GH + 4, bands[b].label);
+     }
+ 
+     /* readout: selected band gain, preset */
+-    d->set_foreground(POD_FAINT);
++    d->set_foreground(POD_MID);
+     d->hline(0, LCD_WIDTH - 1, 82);
++    d->set_foreground(POD_INK);
+     d->setfont(f_tiny);
+     d->putsxy(2, 86, "GAIN");
+     d->putsxy(78, 86, "PRESET");
+@@ -433,7 +435,7 @@ static void draw(struct screen *d, int sel, int f_label, int f_value,
+     d->setfont(f_label);
+     d->putsxy(78, 86 + th + 2, preset >= 0 ? presets[preset].name : "CUSTOM");
+ 
+-    d->set_foreground(POD_FAINT);
++    d->set_foreground(POD_MID);
+     d->vline(72, 85, LCD_HEIGHT - 1);
+ 
+     d->setfont(FONT_UI);
+diff --git a/apps/gui/pod_search.c b/apps/gui/pod_search.c
+index e5e47dd430542c0e0cce917ed40bb7127d22a8db..cc629823fb56335738c071c3f1f56910a40068a1 100644
+--- a/apps/gui/pod_search.c
++++ b/apps/gui/pod_search.c
+@@ -318,7 +318,7 @@ static void draw(struct screen *d, int f_value, int f_tiny)
+         else if (c == s.cell)
+             d->drawrect(x, sy, CELL_W - 1, th + 3);
+         else
+-            d->set_foreground(POD_MID);
++            d->set_foreground(POD_INK);
+         d->putsxy(x + (CELL_W - 1 - text_width(f_tiny, str)) / 2, sy + 1, str);
+     }
+     d->set_foreground(POD_INK);
+@@ -326,7 +326,7 @@ static void draw(struct screen *d, int f_value, int f_tiny)
+ 
+     if (s.len > 0 && !s.count)
+     {
+-        d->set_foreground(POD_MID);
++        d->set_foreground(POD_INK);
+         d->putsxy((LCD_WIDTH - text_width(f_tiny, "NO MATCH")) / 2, y0 + 8,
+                   "NO MATCH");
+     }
+@@ -337,7 +337,7 @@ static void draw(struct screen *d, int f_value, int f_tiny)
+ 
+         if (l->hit < 0)
+         {
+-            d->set_foreground(POD_MID);
++            d->set_foreground(POD_INK);
+             d->putsxy(2, y + 1, group_name[(int)l->group]);
+             continue;
+         }

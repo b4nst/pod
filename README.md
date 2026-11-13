@@ -336,6 +336,8 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       next panes under SELECT (`ACTION_WPS_PANE`, in place of the scrub of 13)
       in `%pD`, the track rating saved to the tagcache, and `%pC` with the
       cassette. The v1 tape, J-card, meters and corner icon are gone.
+  34. text in full ink, off indicators in dark grey, light grey only for
+      textures: the greys look paler on the LCD than in the screendumps
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod

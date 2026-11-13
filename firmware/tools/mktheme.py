@@ -203,7 +203,7 @@ sbs = f"""# pod - library chrome for the iPod mini (bΔnst ⧉ design)
 %V({LCD_W - 2},{LIST_Y},2,{LIST_H},1)
 %?LB<%LB(0,0,2,{LIST_H},noborder,slider,Sl)|>
 
-%V(10,{FOOT_Y + 2},{LCD_W - 10},6,4)%Vf({lcd(MID)})
+%V(10,{FOOT_Y + 2},{LCD_W - 10},6,4)%Vf({lcd(INK)})
 %?mp<|%s%?ia<%ia - |>%it|%s%?ia<%ia - |>%it|%s%?ia<%ia - |>%it|%s%?ia<%ia - |>%it>
 %V(0,{LCD_H - 1},{LCD_W},1,1)
 %?mp<|%pb(0,0,{LCD_W},1,image,foot_prog.bmp)|%pb(0,0,{LCD_W},1,image,foot_prog.bmp)|%pb(0,0,{LCD_W},1,image,foot_prog.bmp)|%pb(0,0,{LCD_W},1,image,foot_prog.bmp)>
