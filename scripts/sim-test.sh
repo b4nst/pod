@@ -348,7 +348,8 @@ echo "sleep ok"
 # and >> then SELECT picks: an album puts the deck on its tape, an artist on
 # its first album, a track plays its album from it. MENU deletes the last
 # letter and hold MENU leaves for the deck, not for the settings. Hold SELECT
-# on a track while something plays adds it to the playlist. The wheel is
+# on a track while something plays adds it to the playlist. The tagcache is
+# scanned into the index once, not at each letter. The wheel is
 # turned in steps of up to 8 clicks, which is what the input queue holds.
 sim() { "$root/scripts/sim-shot.sh" "$out/$1" "$2" >/dev/null; }
 rm -f "$root"/build/sim/simdisk/.pod/.playlist_control* "$root"/build/sim/simdisk/.pod/.resume.cfg*
@@ -379,6 +380,7 @@ grep -q '^pod: deck play Magnetic Dawn from 2' "$out/search-track/sim.log" || { 
 grep -q '^pod: deck 4/6 Magnetic Dawn' "$out/search-track/sim.log" || { echo "MENU did not go back to the album" >&2; exit 1; }
 [ "$(areadiff search-track/01 search-track/02)" != 0 ] || { echo "the player looks like the deck" >&2; exit 1; }
 [ "$(grep -c '^pod: search "' "$out/search-leave/sim.log")" = 3 ] || { echo "MENU did not delete the letter" >&2; exit 1; }
+[ "$(grep -c '^pod: search index' "$out/search-leave/sim.log")" = 1 ] || { echo "the search scanned the tagcache more than once" >&2; exit 1; }
 [ "$(areadiff deck-home/01 search-leave/01)" = 0 ] || { echo "hold MENU did not leave for the deck" >&2; exit 1; }
 grep -q '^pod: queue Chrome Tape' "$out/search-queue/sim.log" || { echo "hold SELECT did not queue the track" >&2; exit 1; }
 echo "search ok"

@@ -1,0 +1,227 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pod <pod@localhost>
+Date: Tue, 17 Nov 2026 00:28:03 +0100
+Subject: [PATCH] pod: search index in RAM
+
+---
+ apps/gui/pod_search.c | 165 ++++++++++++++++++++++++++++++++++--------
+ 1 file changed, 134 insertions(+), 31 deletions(-)
+
+diff --git a/apps/gui/pod_search.c b/apps/gui/pod_search.c
+index a227d20a789dc9fecf2fa77a70368f5012796fe3..443062fa1f977f0a0dd34b883c864fe38863e302 100644
+--- a/apps/gui/pod_search.c
++++ b/apps/gui/pod_search.c
+@@ -24,8 +24,10 @@
+  * it: tracks, artists and albums with a word that starts with the query,
+  * case and accents ignored. >> moves into the results, << or MENU back.
+  *
+- * Each change scans the tagcache again. The hits are kept in static arrays
+- * for the same reason the deck's rows are: no buflib while a track plays.
++ * The tagcache is scanned once per change of the library (or USB) into an
++ * index of folded strings in RAM, and each letter matches against that. The
++ * index and the hits are kept in static arrays for the same reason the deck's
++ * rows are: no buflib while a track plays.
+  */
+ 
+ #include "config.h"
+@@ -61,6 +63,12 @@
+ #define CELL_W          9
+ #define CELL_N          15      /* the cells in view */
+ #define TEXT_MAX        32
++#define SX_TRACKS       32768   /* as the deck's */
++#define SX_ARTISTS      8192
++#define SX_ALBUMS       8192
++#define SX_POOL         (1024 * 1024)
++#define SX_FOLD         (TEXT_MAX * 2)  /* the longest folded string, with its NUL */
++#define SX_SLOTS        16384   /* a power of 2 */
+ 
+ enum { G_TRACKS, G_ARTISTS, G_ALBUMS, GROUPS };
+ 
+@@ -93,6 +101,23 @@ struct search {
+ 
+ static struct search s;
+ 
++/* the library folded, for the search to match against */
++struct sx {
++    uint32_t hash;              /* of the artist, or the album and artist */
++    int32_t idx;                /* a track of it */
++    uint32_t off;               /* its folded text in sx_pool */
++};
++
++static struct sx sx_tracks[SX_TRACKS];
++static struct sx sx_artists[SX_ARTISTS];
++static struct sx sx_albums[SX_ALBUMS];
++static char sx_pool[SX_POOL];
++static int16_t sx_seen[2][SX_SLOTS];    /* artists and albums built, by hash, +1 */
++static int sx_count[GROUPS];
++static uint32_t sx_used;
++static long sx_changes;                 /* tagcache_pod_changes() when built */
++static bool sx_stale = true;
++
+ /* Latin-1 from U+00C0 and U+00E0 to their base letter, and U+0100-U+017F by
+  * ranges. * is for what is not a letter. */
+ static const char latin1[] = "aaaaaaaceeeeiiiidnooooo*ouuuuyts"
+@@ -136,12 +161,9 @@ static void fold(const char *name, char *out, int size)
+     out[n] = '\0';
+ }
+ 
+-/* whether a word of name starts with the query */
+-static bool match_word_start(const char *name, const char *query)
++/* whether a word of the folded name starts with the query */
++static bool match_folded(const char *f, const char *query)
+ {
+-    char f[TEXT_MAX * 2];
+-
+-    fold(name, f, sizeof(f));
+     for (int i = 0; f[i]; i++)
+     {
+         int j = 0;
+@@ -199,36 +221,116 @@ static void build_lines(void)
+     s.sel = s.top = 0;
+ }
+ 
+-static void search_run(void)
++/* fold str into the pool: its offset, or -1 when the pool is full */
++static int32_t sx_fold(const char *str)
++{
++    int32_t off = sx_used;
++
++    if (sx_used + SX_FOLD > SX_POOL)
++        return -1;
++    fold(str, sx_pool + off, SX_FOLD);
++    sx_used += strlen(sx_pool + off) + 1;
++    return off;
++}
++
++/* add to a list of artists or albums, once per hash */
++static void sx_add_once(int group, struct sx *list, int max, uint32_t hash,
++                        int32_t idx, const char *name)
++{
++    int16_t *seen = sx_seen[group - 1];
++    uint32_t slot = hash & (SX_SLOTS - 1);
++    int32_t off;
++
++    for (; seen[slot]; slot = (slot + 1) & (SX_SLOTS - 1))
++        if (list[seen[slot] - 1].hash == hash)
++            return;
++    if (sx_count[group] >= max || (off = sx_fold(name)) < 0)
++        return;
++    list[sx_count[group]] = (struct sx){ hash, idx, off };
++    seen[slot] = ++sx_count[group];
++}
++
++static void sx_build(void)
+ {
+     struct tagcache_search tcs;
+     char path[MAX_PATH], title[MAX_PATH], album[MAX_PATH], artist[MAX_PATH];
++#ifdef SIMULATOR
++    long start = current_tick;
++#endif
++
++    memset(sx_count, 0, sizeof(sx_count));
++    memset(sx_seen, 0, sizeof(sx_seen));
++    sx_used = 0;
++    sx_changes = tagcache_pod_changes();
++    if (!tagcache_search(&tcs, tag_filename))
++        return;
++    cpu_boost(true);
++    while (tagcache_get_next(&tcs, path, sizeof(path)))
++    {
++        int32_t idx = tcs.idx_id, off;
++
++        if (!tagcache_retrieve(&tcs, idx, tag_title, title, sizeof(title)))
++            title[0] = '\0';
++        if (!tagcache_retrieve(&tcs, idx, tag_album, album, sizeof(album)))
++            album[0] = '\0';
++        if (!tagcache_retrieve(&tcs, idx, tag_virt_canonicalartist, artist,
++                               sizeof(artist)))
++            artist[0] = '\0';
++        if (*title && sx_count[G_TRACKS] < SX_TRACKS && (off = sx_fold(title)) >= 0)
++            sx_tracks[sx_count[G_TRACKS]++] = (struct sx){ 0, idx, off };
++        if (*artist)
++            sx_add_once(G_ARTISTS, sx_artists, SX_ARTISTS,
++                        hash_str(2166136261u, artist), idx, artist);
++        if (*album)
++            sx_add_once(G_ALBUMS, sx_albums, SX_ALBUMS,
++                        hash_str(hash_str(2166136261u, album) * 16777619u, artist),
++                        idx, album);
++    }
++    tagcache_search_finish(&tcs);
++    cpu_boost(false);
++    sx_stale = false;
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: search index %d %d %d %ld ms\n", sx_count[G_TRACKS],
++            sx_count[G_ARTISTS], sx_count[G_ALBUMS], (current_tick - start) * 1000 / HZ);
++#endif
++}
++
++/* the text of the hits, as the tagcache has it (accents and case) */
++static bool fill_text(void)
++{
++    struct tagcache_search tcs;
++
++    if (!tagcache_search(&tcs, tag_filename))
++        return false;
++    for (int g = 0; g < GROUPS; g++)
++    {
++        static const int tags[GROUPS] = { tag_title, tag_virt_canonicalartist,
++                                          tag_album };
++
++        for (int i = 0; i < s.found[g]; i++)
++            if (!tagcache_retrieve(&tcs, s.hits[g][i].idx, tags[g],
++                                   s.hits[g][i].text, sizeof(s.hits[g][i].text)))
++                s.hits[g][i].text[0] = '\0';
++    }
++    tagcache_search_finish(&tcs);
++    return true;
++}
++
++static void search_run(void)
++{
++    const struct sx *const lists[GROUPS] = { sx_tracks, sx_artists, sx_albums };
+ 
+     memset(s.found, 0, sizeof(s.found));
+-    if (s.len > 0 && tagcache_search(&tcs, tag_filename))
++    if (s.len > 0)
+     {
+-        cpu_boost(true);
+-        while (tagcache_get_next(&tcs, path, sizeof(path)))
+-        {
+-            int32_t idx = tcs.idx_id;
+-
+-            if (!tagcache_retrieve(&tcs, idx, tag_title, title, sizeof(title)))
+-                title[0] = '\0';
+-            if (!tagcache_retrieve(&tcs, idx, tag_album, album, sizeof(album)))
+-                album[0] = '\0';
+-            if (!tagcache_retrieve(&tcs, idx, tag_virt_canonicalartist, artist,
+-                                   sizeof(artist)))
+-                artist[0] = '\0';
+-            if (*title && match_word_start(title, s.query))
+-                add_hit(G_TRACKS, idx, title, 0);
+-            if (*artist && match_word_start(artist, s.query))
+-                add_hit(G_ARTISTS, idx, artist, hash_str(2166136261u, artist));
+-            if (*album && match_word_start(album, s.query))
+-                add_hit(G_ALBUMS, idx, album,
+-                        hash_str(hash_str(2166136261u, album) * 16777619u, artist));
+-        }
+-        tagcache_search_finish(&tcs);
+-        cpu_boost(false);
++        if (sx_stale || tagcache_pod_changes() != sx_changes)
++            sx_build();
++        for (int g = 0; g < GROUPS; g++)
++            for (int i = 0; i < sx_count[g] && s.found[g] < cap[g]; i++)
++                if (match_folded(sx_pool + lists[g][i].off, s.query))
++                    add_hit(g, lists[g][i].idx, "", lists[g][i].hash);
++        if (!fill_text())
++            memset(s.found, 0, sizeof(s.found));
+         for (int g = 0; g < GROUPS; g++)
+             qsort(s.hits[g], s.found[g], sizeof(struct hit), cmp_hit);
+     }
+@@ -515,6 +617,7 @@ void pod_search(int f_value, int f_tiny, struct pod_search_pick *pick)
+         default:
+             if (default_event_handler(button) == SYS_USB_CONNECTED)
+             {
++                sx_stale = true;
+                 pick->kind = POD_PICK_USB;
+                 return;
+             }

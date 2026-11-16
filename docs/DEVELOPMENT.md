@@ -144,7 +144,7 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       the settings (MENU on it does something since 31). With no tapes it says so.
   26. search (`apps/gui/pod_search.c`): a double MENU on the deck opens a
       letter strip with the tracks, artists and albums that have a word
-      starting with the query, found by scanning the tagcache at each letter.
+      starting with the query, found in an index of the tagcache (37).
       A pick puts the deck on a tape or plays the track's album from it.
   27. Infinite in the settings menu (`apps/pod_infinite.c`): when the audio
       thread has no track left to buffer and Repeat is off, it appends up to 10
@@ -178,6 +178,11 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       buflib move at boot can't put it back behind the deck
   36. the search has a magnifier by the query and says SEARCH until you type
       a letter
+  37. the search matches against an index of folded strings built in RAM once
+      per library change, in place of scanning the tagcache at each letter
+      (about 1.6 MB of static RAM). It is not built by pod link: the tagcache
+      indexes the deck needs only exist after the iPod's own scan, and Rockbox
+      reads tags differently (`canonicalartist`).
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod
