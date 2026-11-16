@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Mon, 16 Nov 2026 21:14:03 +0100
+Subject: [PATCH] pod: no list backdrop behind the deck after boot
+
+---
+ apps/gui/viewport.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/apps/gui/viewport.c b/apps/gui/viewport.c
+index 5f5703bf54a6a520ed756dd6933786e48d437240..ec9fb500cf832285833219844510f98bf1fa8992 100644
+--- a/apps/gui/viewport.c
++++ b/apps/gui/viewport.c
+@@ -160,7 +160,8 @@ static void toggle_theme(enum screen_type screen, bool force)
+     else
+     {
+ #if LCD_DEPTH > 1 || (defined(LCD_REMOTE_DEPTH) && LCD_REMOTE_DEPTH > 1)
+-        screens[screen].backdrop_show(NULL);
++        /* forget it too, or a buflib move shows it again */
++        skin_backdrop_show(-1);
+ #endif
+         screens[screen].scroll_stop();
+         skin_is_dirty(screen); /* remove dirty flag */

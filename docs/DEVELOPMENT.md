@@ -174,6 +174,8 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       cassette. The v1 tape, J-card, meters and corner icon are gone.
   34. text in full ink, off indicators in dark grey, light grey only for
       textures: the greys look paler on the LCD than in the screendumps
+  35. the list backdrop is forgotten when a screen turns the theme off, so a
+      buflib move at boot can't put it back behind the deck
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod
