@@ -365,6 +365,10 @@ done
 grep -q '^pod: search "" 0 0 0' "$out/search/sim.log" || { echo "the search did not open empty" >&2; exit 1; }
 grep -q '^pod: search "T" 3 0 1' "$out/search/sim.log" || { echo "T did not find 3 tracks and an album" >&2; exit 1; }
 [ "$(areadiff search/01 search/02)" != 0 ] || { echo "the results are not shown" >&2; exit 1; }
+# the magnifier stays put when the first letter is typed
+glass() { magick "$out/$1.png[36x42+9+9]" -format %k info:; }
+[ "$(glass search/01)" = 2 ] || { echo "the magnifier is not drawn" >&2; exit 1; }
+[ "$(magick compare -metric AE "$out/search/01.png[36x42+9+9]" "$out/search/02.png[36x42+9+9]" null: 2>&1 | cut -d' ' -f1)" = 0 ] || { echo "the magnifier moved" >&2; exit 1; }
 grep -q '^pod: search pick album Tape Loop' "$out/search-album/sim.log" || { echo "SELECT did not pick the album" >&2; exit 1; }
 grep -q '^pod: deck 5/5 Tape Loop' "$out/search-album/sim.log" || { echo "the deck is not on the album" >&2; exit 1; }
 grep -q '^pod: search "U" 1 1 0' "$out/search-artist/sim.log" || { echo "U did not find a track and an artist" >&2; exit 1; }

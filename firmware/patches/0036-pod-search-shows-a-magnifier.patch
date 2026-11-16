@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Mon, 16 Nov 2026 23:08:42 +0100
+Subject: [PATCH] pod: search shows a magnifier
+
+---
+ apps/gui/pod_search.c | 34 ++++++++++++++++++++++++++++++++--
+ 1 file changed, 32 insertions(+), 2 deletions(-)
+
+diff --git a/apps/gui/pod_search.c b/apps/gui/pod_search.c
+index cc629823fb56335738c071c3f1f56910a40068a1..a227d20a789dc9fecf2fa77a70368f5012796fe3 100644
+--- a/apps/gui/pod_search.c
++++ b/apps/gui/pod_search.c
+@@ -56,6 +56,7 @@
+ #define POD_INK         LCD_BLACK
+ 
+ #define QUERY_MAX       15
++#define QUERY_X         19      /* the magnifier and a gap */
+ #define CELLS           37      /* A-Z, 0-9, space */
+ #define CELL_W          9
+ #define CELL_N          15      /* the cells in view */
+@@ -278,12 +279,30 @@ static void put_text(struct screen *d, int font, int x, int y, const char *str)
+     d->putsxy(x, y, buf);
+ }
+ 
++/* the magnifier by the query, 12x12 */
++static const char glass_rows[12][13] = {
++    "..#####.....", ".#######....", "###...###...", "##.....##...",
++    "##.....##...", "##.....##...", "###...###...", ".#######....",
++    "..#######...", ".......###..", "........###.", ".........###",
++};
++
++static void draw_glass(struct screen *d, int x, int y)
++{
++    d->set_foreground(POD_INK);
++    for (int j = 0; j < 12; j++)
++        for (int i = 0; i < 12; i++)
++            if (glass_rows[j][i] == '#')
++                d->drawpixel(x + i, y + j);
++}
++
+ static void draw(struct screen *d, int f_value, int f_tiny)
+ {
+     int vh = font_get(f_value)->height, th = font_get(f_tiny)->height;
+     int sy = 3 + vh + 3, y0 = sy + th + 7, rh = th + 2;
+     int vis = (LCD_HEIGHT - y0) / rh;
+     int first = MAX(0, MIN(s.cell - CELL_N / 2, CELLS - CELL_N));
++    const char *q = s.query;
++    int qx;
+ 
+     /* keep the selected line in view, with its header when it is the first */
+     if (s.sel < s.top)
+@@ -298,8 +317,19 @@ static void draw(struct screen *d, int f_value, int f_tiny)
+     /* the query, and the block that is the cursor */
+     d->set_foreground(POD_INK);
+     d->setfont(f_value);
+-    d->putsxy(3, 3, s.query);
+-    d->fillrect(5 + text_width(f_value, s.query), 4, 5, vh - 2);
++    draw_glass(d, 3, 3 + (vh - 12) / 2);
++    /* the last letters that fit, so the cursor stays on screen */
++    while (*q && QUERY_X + text_width(f_value, q) + 10 > LCD_WIDTH - 2)
++        q++;
++    d->putsxy(QUERY_X, 3, q);
++    qx = QUERY_X + 2 + text_width(f_value, q);
++    d->fillrect(qx, 4, 5, vh - 2);
++    if (!s.len)
++    {
++        d->set_foreground(POD_MID);
++        d->putsxy(qx + 8, 3, "SEARCH");
++        d->set_foreground(POD_INK);
++    }
+ 
+     /* the strip: the cell under the cursor inverted, an outline in the
+      * results */

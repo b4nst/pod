@@ -176,6 +176,8 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       textures: the greys look paler on the LCD than in the screendumps
   35. the list backdrop is forgotten when a screen turns the theme off, so a
       buflib move at boot can't put it back behind the deck
+  36. the search has a magnifier by the query and says SEARCH until you type
+      a letter
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod

@@ -74,7 +74,8 @@ A double MENU on the deck searches. Turn the wheel to a letter and press
 SELECT to add it. The tracks, artists and albums with a word that starts with
 what you typed are listed under the letters, ignoring case and accents. An
 album puts the deck on its tape, an artist on its first album, and a track
-plays its album from that track and opens the player.
+plays its album from that track and opens the player. The search screen has a
+magnifier by the letters you typed, and says SEARCH until you type one.
 
 ### The player
 
