@@ -216,34 +216,19 @@ sbs = f"""# pod - library chrome for the iPod Classic (bΔnst ⧉ design)
 
 # ---------------------------------------------------------------- WPS
 
-# The player is the deck in play mode: the firmware draws the bargraph and the
-# panes (%pD) and the counter with the cassette (%pC), still in the mini's dark
-# ink on 138x110 pixels: they get a white panel until the player is laid out
-# for this screen. The skin adds the title band between them.
-DECK_H = 58
-BAND_Y, BAND_H = 59, 14
-COUNTER = (0, 76, 138, 110 - 76)
-
-wps_bg = RGBCanvas(LCD_W, LCD_H, P["PANEL"])
-header(wps_bg)
-wps_bg.rect(0, 0, 138, 110, "FFFFFF")
-wps_bg.rect(0, BAND_Y, 138, BAND_H, P["BAND"])
-save(wps_bg, "wps_bg.bmp")
+# The player is the deck in play mode: the firmware draws the whole screen
+# (%pD: header, bargraph, panes and the track band, everywhere but the
+# counter) and the counter with the cassette (%pC, the mini's 144x40) on top
+# of it. The layout is the deck's until the player has its own.
+COUNTER = (176, 200, 144, 40)
 
 wps = f"""# pod - cassette deck WPS for the iPod Classic (bΔnst ⧉ design)
 %wd
-%X(wps_bg.bmp)
 
-# the deck: bargraph, battery, sleep, panes
-%V(0,0,138,{DECK_H},1)%Vf(000000)%Vb(FFFFFF)
+%V(0,0,{LCD_W},{LCD_H},1)%Vf({P["TEXT"]})%Vb({P["PANEL"]})
 %pD
 
-# track band
-%V(3,{BAND_Y + 1},132,{BAND_H - 1},1)%Vf({P["AMBER"]})%Vb({P["BAND"]})
-%s%pp %?it<%it|%fn>
-
-# counter and cassette
-%V({COUNTER[0]},{COUNTER[1]},{COUNTER[2]},{COUNTER[3]},1)%Vf(000000)%Vb(FFFFFF)
+%V({COUNTER[0]},{COUNTER[1]},{COUNTER[2]},{COUNTER[3]},1)%Vf({P["TEXT"]})%Vb({P["PANEL"]})
 %pC
 """
 

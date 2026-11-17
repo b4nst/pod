@@ -1,0 +1,1166 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Tue, 17 Nov 2026 12:08:49 +0100
+Subject: [PATCH] pod: the Classic's deck at 320x240
+
+---
+ apps/SOURCES          |   3 +
+ apps/gui/pod_covers.c |  32 +--
+ apps/gui/pod_covers.h |   8 +
+ apps/gui/pod_deck.c   | 553 +++++++++++++++++++++++++++++++++++++-----
+ apps/gui/pod_frame.c  |  54 +++++
+ apps/gui/pod_frame.h  |  48 ++++
+ 6 files changed, 619 insertions(+), 79 deletions(-)
+ create mode 100644 apps/gui/pod_frame.c
+ create mode 100644 apps/gui/pod_frame.h
+
+diff --git a/apps/SOURCES b/apps/SOURCES
+index a3cac534dffcce187fa296068152ad1fc1d25bee..7ddb59b27bc128cf5e016e925e854e5a5676fc03 100644
+--- a/apps/SOURCES
++++ b/apps/SOURCES
+@@ -82,6 +82,9 @@ gui/pod_deck.c
+ gui/pod_covers.c
+ gui/pod_search.c
+ gui/pod_eq.c
++#ifdef HAVE_LCD_COLOR
++gui/pod_frame.c
++#endif
+ gui/pod_letter.c
+ gui/list.c
+ gui/line.c
+diff --git a/apps/gui/pod_covers.c b/apps/gui/pod_covers.c
+index e6ddb964fcc90301a956b039f53262e5cd538dd9..7d47ad5713fcd76e4a77c33d6904718c418cad0f 100644
+--- a/apps/gui/pod_covers.c
++++ b/apps/gui/pod_covers.c
+@@ -36,15 +36,23 @@
+ 
+ #define COVERS_FILE     ROCKBOX_DIR "/covers.bin"
+ #define HEADER_BYTES    18
+-#define COVERS_MAX      8192    /* as many as the deck has albums */
++#if MEMORYSIZE >= 64
++#define COVERS_MAX      16384   /* as many as the deck has albums */
++#else
++#define COVERS_MAX      8192
++#endif
+ #define SLOTS           16
++#if LCD_DEPTH == 16
++#define LARGE_BYTES     (POD_COVER_LARGE * POD_COVER_LARGE * 2)
++#else
+ #define LARGE_BYTES     (POD_COVER_LARGE / 4 * POD_COVER_LARGE)
++#endif
+ 
+ struct slot {
+     int rec;                    /* -1: free */
+     bool bad;                   /* it could not be read */
+     unsigned age;
+-    unsigned char data[POD_COVER_BYTES];
++    fb_data data[POD_COVER_BYTES / sizeof(fb_data)];  /* aligned for d->bitmap */
+ };
+ 
+ static uint32_t cover_hash[COVERS_MAX];
+@@ -71,15 +79,8 @@ void pod_covers_load(void)
+     cover_count = file_count = 0;
+     for (int i = 0; i < SLOTS; i++)
+         slots[i].rec = -1;
+-#if LCD_DEPTH != 2
+-    /* v2 records are 2-bit: on a 16-bit LCD d->bitmap would read past them */
+-    if (fd >= 0) {
+-        close(fd);
+-        fd = -1;
+-    }
+-#endif
+     if (fd >= 0 && read(fd, h, sizeof(h)) == sizeof(h) && !memcmp(h, "PODC", 4)
+-        && le(h + 4, 2) == 2
++        && le(h + 4, 2) == POD_COVERS_VERSION
+         && le(h + 6, 2) == POD_COVER_LARGE && le(h + 8, 2) == POD_COVER_LARGE
+         && le(h + 10, 2) == POD_COVER_SMALL && le(h + 12, 2) == POD_COVER_SMALL)
+     {
+@@ -121,9 +122,9 @@ int pod_covers_find(uint32_t hash)
+     return -1;
+ }
+ 
+-/* The 2 bpp covers of a record, read when first asked for, or
++/* The covers of a record, read when first asked for, or
+  * NULL when the file can't give them */
+-static const unsigned char *pod_covers_get(int rec)
++static const fb_data *pod_covers_get(int rec)
+ {
+     struct slot *s = &slots[0];
+     bool ok = false;
+@@ -160,7 +161,7 @@ static const unsigned char *pod_covers_get(int rec)
+ 
+ bool pod_covers_draw_large(struct screen *d, int rec, int x, int y)
+ {
+-    const unsigned char *p = rec < 0 ? NULL : pod_covers_get(rec);
++    const fb_data *p = rec < 0 ? NULL : pod_covers_get(rec);
+ 
+     if (p)
+         d->bitmap(p, x, y, POD_COVER_LARGE, POD_COVER_LARGE);
+@@ -169,9 +170,10 @@ bool pod_covers_draw_large(struct screen *d, int rec, int x, int y)
+ 
+ bool pod_covers_draw_small(struct screen *d, int rec, int x, int y)
+ {
+-    const unsigned char *p = rec < 0 ? NULL : pod_covers_get(rec);
++    const fb_data *p = rec < 0 ? NULL : pod_covers_get(rec);
+ 
+     if (p)
+-        d->bitmap(p + LARGE_BYTES, x, y, POD_COVER_SMALL, POD_COVER_SMALL);
++        d->bitmap(p + LARGE_BYTES / sizeof(fb_data), x, y, POD_COVER_SMALL,
++                  POD_COVER_SMALL);
+     return p != NULL;
+ }
+diff --git a/apps/gui/pod_covers.h b/apps/gui/pod_covers.h
+index cfc870132b1d6b49f420409a1c76e04f4518db23..11b7d9075a369707ccf393e6a15d92a18b4ed0b7 100644
+--- a/apps/gui/pod_covers.h
++++ b/apps/gui/pod_covers.h
+@@ -24,9 +24,17 @@
+ #include <stdbool.h>
+ #include "screen_access.h"
+ 
++#if LCD_DEPTH == 16
++#define POD_COVERS_VERSION 3
++#define POD_COVER_LARGE 112
++#define POD_COVER_SMALL 56
++#define POD_COVER_BYTES 31360   /* a 112x112 cover, then a 56x56 one: RGB565 */
++#else
++#define POD_COVERS_VERSION 2
+ #define POD_COVER_LARGE 44
+ #define POD_COVER_SMALL 28
+ #define POD_COVER_BYTES 680     /* a 44x44 cover, then a 28x28 one: 2 bpp, 4 px a byte */
++#endif
+ 
+ /* Read the index of /.pod/covers.bin: none when it is missing or not ours */
+ void pod_covers_load(void);
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index ce8c85b10ac7b745b97ad27cfb38670811e0de77..5211b6cb50c23199650fe45ac0251f2401a0e364 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -75,7 +75,37 @@
+ #include "pod_deck.h"
+ #include "wps.h"
+ #include "sound.h"
++#if LCD_WIDTH >= 320
++#include "timefuncs.h"
++#include "file.h"
++#include "metadata.h"
++#include "pod_frame.h"
++#endif
+ 
++#if LCD_WIDTH >= 320
++/* autoreverse, the palette of pod_frame.h: cream on the dark panel, amber
++ * for what is lit and teal for the status */
++#define FONT_VALUE      FONT_DIR "/14-Tape-Bold.fnt"
++#define FONT_TINY       FONT_DIR "/12-Tape.fnt"
++
++#define POD_PAPER       POD6_PANEL
++#define POD_FAINT       POD6_RULE
++#define POD_MID         POD6_OFF
++#define POD_INK         POD6_TEXT
++#define POD_AMBER       POD6_AMBER
++#define POD_TEAL        POD6_TEAL
++#define POD_TEXT2       POD6_TEXT2
++#define POD_TEXT3       POD6_TEXT3
++#define POD_UNLIT       POD6_RULE
++/* a generated card: its fill, edge, hatch and label, drawn twice as large */
++#define POD_WELL        POD6_WELL
++#define POD_EDGE        POD6_RULE
++#define POD_HATCH(p)    POD6_STRIPE(p)
++#define POD_LABEL       POD6_BAND
++#define CARD_S          2
++#define POD_SELBG       POD6_SEL0
++#define POD_SELFG       POD6_AMBER
++#else
+ #define FONT_VALUE      FONT_DIR "/14-Deck-Bold.fnt"
+ #define FONT_TINY       FONT_DIR "/06-Tiny.fnt"
+ 
+@@ -86,7 +116,35 @@
+ #define POD_FAINT       LCD_LIGHTGRAY
+ #define POD_MID         LCD_DARKGRAY
+ #define POD_INK         LCD_BLACK
++#define POD_AMBER       POD_INK
++#define POD_TEAL        POD_INK
++#define POD_TEXT2       POD_INK
++#define POD_TEXT3       POD_INK
++#define POD_UNLIT       POD_MID
++#define POD_WELL        POD_PAPER
++#define POD_EDGE        POD_INK
++#define POD_HATCH(p)    POD_FAINT
++#define POD_LABEL       POD_PAPER
++#define CARD_S          1
++#define POD_SELBG       POD_INK
++#define POD_SELFG       POD_PAPER
++#endif
+ 
++#if LCD_WIDTH >= 320
++/* bargraph: ticks every 6 px up the left edge, round a 30 px corner and
++ * across the top. A tick is 3 px along the path and 9 across. */
++#define BAR_STEP        6
++#define BAR_X           6       /* the vertical run */
++#define BAR_Y0          230     /* its lowest tick */
++#define BAR_R           30      /* corner radius, its centre at (R+6, R+38) */
++#define BAR_TOP         38      /* the horizontal run */
++#define BAR_V           27      /* ticks of the vertical run */
++#define BAR_A           8       /* ticks of the corner */
++#define BAR_H           46      /* ticks of the horizontal run, up to x 312 */
++#define BAR_TICK_L      9
++#define BAR_TICK_T      3
++#define BAR_LABEL       14      /* labels sit this far inside the ticks */
++#else
+ /* bargraph: ticks every 4 px up the left edge, round a 19 px corner and
+  * across the top. A tick is 2 px along the path and 5 across. */
+ #define BAR_STEP        4
+@@ -97,21 +155,44 @@
+ #define BAR_V           8       /* ticks of the vertical run */
+ #define BAR_A           7       /* ticks of the corner */
+ #define BAR_H           17      /* ticks of the horizontal run, up to x 90 */
+-#define BAR_N           (BAR_V + BAR_A + BAR_H)
++#define BAR_TICK_L      5
++#define BAR_TICK_T      2
+ #define BAR_LABEL       9       /* labels sit this far inside the ticks */
++#endif
++#define BAR_N           (BAR_V + BAR_A + BAR_H)
+ #define LABEL_GAP       3       /* ticks: 12 px between two labels */
+ 
++#if LCD_WIDTH >= 320
++/* the gallery */
++#define GALLERY_Y       180
++#define GALLERY_X       28      /* the previous one; the next two follow */
++#define GALLERY_GAP     4
++#define CURRENT_X       88
++#define CURRENT_Y       124
++#define CURRENT_BAR     3       /* the bar over the current one, 4 px up */
++
++/* the panes, beside the bargraph */
++#define PANE_X          32
++#define PANE_Y          62
++#define PANE_W          284
++#define PANE_ROW        14
++#define PANE_ROWS       4       /* rows of the tracks and of up next */
++#else
+ /* the gallery */
+ #define GALLERY_Y       81
+ #define GALLERY_X       1       /* the previous one; the next two follow */
++#define GALLERY_GAP     3
+ #define CURRENT_X       32
+ #define CURRENT_Y       60
++#define CURRENT_BAR     2
+ 
+ /* the panes, beside the bargraph */
+ #define PANE_X          22
+ #define PANE_Y          19
+ #define PANE_W          114
+ #define PANE_ROW        12
++#define PANE_ROWS       3
++#endif
+ #define PANE_N          3
+ #define PANE_BACK       (HZ * 5)    /* back to the first after the last press */
+ #define STAR_W          8
+@@ -160,13 +241,29 @@ static struct deck_track rows[DECK_MAX_TRACKS];
+ static struct deck_album shelf[DECK_MAX_ALBUMS];
+ static struct pod_mix mixes[POD_MIXES_MAX];
+ 
+-/* cos of 0, 15, ... 90 degrees in 64ths: the corner of the bargraph */
++/* cos of 0 to 90 degrees in BAR_A steps, in 64ths: the corner of the
++ * bargraph */
++#if LCD_WIDTH >= 320
++static const unsigned char corner_cos[BAR_A] = { 64, 62, 58, 50, 40, 28, 14, 0 };
++#else
+ static const unsigned char corner_cos[BAR_A] = { 64, 62, 55, 45, 32, 17, 0 };
++#endif
+ 
+ /* the deck stays loaded for the player, and so do the fonts */
+ static struct deck deck;
+ static int f_value = -1, f_tiny = -1;
+ 
++#if LCD_WIDTH >= 320
++/* what the first track of the album shown says, read on a rest of the deck:
++ * the tags of the library have no codec, and a file read wakes a disk */
++static struct {
++    uint32_t hash;              /* of the album it is for */
++    bool valid;
++    int year;
++    char genre[24], codec[32];
++} info;
++#endif
++
+ /* the tape the player shows: the album of the track at play_path */
+ static char play_path[MAX_PATH];
+ static int play_album = -1;
+@@ -381,6 +478,9 @@ static bool deck_load(struct deck *k)
+ #endif
+     bool any = load_albums(k);
+ 
++#if LCD_WIDTH >= 320
++    info.valid = false;
++#endif
+     play_path[0] = '\0';     /* the albums moved */
+     deck_started = -1;
+ #ifdef SIMULATOR
+@@ -719,17 +819,24 @@ static void bar_tick(struct screen *d, int s)
+ 
+     bar_pos(s, &x, &y, &ix, &iy);
+     if (s < BAR_V)
+-        d->fillrect(x - 2, y - 1, 5, 2);
++        d->fillrect(x - BAR_TICK_L / 2, y - BAR_TICK_T / 2, BAR_TICK_L,
++                    BAR_TICK_T);
+     else if (s >= BAR_V + BAR_A)
+-        d->fillrect(x - 1, y - 2, 2, 5);
++        d->fillrect(x - BAR_TICK_T / 2, y - BAR_TICK_L / 2, BAR_TICK_T,
++                    BAR_TICK_L);
+     else
+     {
+-        int x0 = x - 2 * ix / 64, y0 = y - 2 * iy / 64;
+-        int x1 = x + 2 * ix / 64, y1 = y + 2 * iy / 64;
+-        /* two px wide: shift by one across the steeper axis */
+-        d->drawline(x0, y0, x1, y1);
+-        d->drawline(x0 + (ix < iy), y0 + (ix >= iy), x1 + (ix < iy),
+-                    y1 + (ix >= iy));
++        int x0 = x - BAR_TICK_L / 2 * ix / 64, y0 = y - BAR_TICK_L / 2 * iy / 64;
++        int x1 = x + BAR_TICK_L / 2 * ix / 64, y1 = y + BAR_TICK_L / 2 * iy / 64;
++
++        /* BAR_TICK_T px wide: shift by one across the steeper axis */
++        for (int w = 0; w < BAR_TICK_T; w++)
++        {
++            int o = w - (BAR_TICK_T - 1) / 2;
++
++            d->drawline(x0 + o * (ix < iy), y0 + o * (ix >= iy),
++                        x1 + o * (ix < iy), y1 + o * (ix >= iy));
++        }
+     }
+ }
+ 
+@@ -744,7 +851,7 @@ static void draw_ticks(struct screen *d, int lit)
+ {
+     for (int s = 0; s < BAR_N; s++)
+     {
+-        d->set_foreground(s < lit ? POD_INK : POD_MID);
++        d->set_foreground(s < lit ? POD_AMBER : POD_UNLIT);
+         bar_tick(d, s);
+     }
+ }
+@@ -762,12 +869,12 @@ static void draw_label(struct screen *d, int font, int s, const char *str,
+     y += BAR_LABEL * iy / 64 - th / 2;
+     if (current)
+     {
+-        d->set_foreground(POD_INK);
++        d->set_foreground(POD_AMBER);
+         d->fillrect(x - 1, y - 1, w + 2, th + 2);
+         d->set_foreground(POD_PAPER);
+     }
+     else
+-        d->set_foreground(POD_INK);
++        d->set_foreground(POD_TEXT2);
+     d->putsxy(x, y, str);
+ }
+ 
+@@ -809,8 +916,13 @@ static void wrap_name(struct screen *d, int font, int x, int y, int w,
+     char buf[sizeof(((struct deck_album *)0)->album)], line[sizeof(buf)];
+     const char *p = buf;
+ 
+-    for (int n = 0; (buf[n] = upper ? toupper((unsigned char)s[n]) : s[n]); n++)
+-        ;
++    for (int n = 0; n < (int)sizeof(buf); n++)
++    {
++        buf[n] = upper ? toupper((unsigned char)s[n]) : s[n];
++        if (!buf[n])
++            break;
++    }
++    buf[sizeof(buf) - 1] = '\0';
+     d->setfont(font);
+     for (int row = 0; row < 2 && *p; row++)
+     {
+@@ -839,20 +951,22 @@ static void draw_mix_card(struct screen *d, int x, int y, int w, int h,
+                           const char *name, int font)
+ {
+     bool thumb = w <= POD_COVER_SMALL;
+-    int step = thumb ? 4 : 10;
++    int step = (thumb ? 4 : 10) * CARD_S;
+ 
+-    d->set_foreground(POD_PAPER);
++    d->set_foreground(POD_WELL);
+     d->fillrect(x, y, w, h);
+     d->set_foreground(POD_FAINT);
+-    for (int j = thumb ? 5 : 17; j < h - 3; j += step)
+-        d->hline(x + 2, x + w - 3, y + j);
+-    d->set_foreground(POD_INK);
++    for (int j = (thumb ? 5 : 17) * CARD_S; j < h - 3 * CARD_S; j += step)
++        d->hline(x + 2 * CARD_S, x + w - 3 * CARD_S, y + j);
++    d->set_foreground(POD_EDGE);
+     d->drawrect(x, y, w, h);
+     if (!thumb)
+     {
+         int th = font_get(font)->height;
+ 
+-        wrap_name(d, font, x + 3, y + 17 - th - 1, w - 6, name, true, th + 4);
++        d->set_foreground(POD_INK);
++        wrap_name(d, font, x + 3 * CARD_S, y + 17 * CARD_S - th - 1,
++                  w - 6 * CARD_S, name, true, th + 4);
+     }
+ }
+ 
+@@ -862,19 +976,22 @@ static void draw_queue_card(struct screen *d, int x, int y, int w, int h)
+ {
+     bool thumb = w <= POD_COVER_SMALL;
+     int step = thumb ? 5 : 7;
++    int lines = CARD_S > 1 ? (h - 12) / step : thumb ? 3 : 8;
+ 
+-    d->set_foreground(POD_PAPER);
++    d->set_foreground(POD_WELL);
+     d->fillrect(x, y, w, h);
+     d->set_foreground(POD_FAINT);
+-    for (int n = 0; n < (thumb ? 3 : 8); n++)
+-        d->hline(x + (thumb ? 2 : 9), x + w - 3, y + (thumb ? 4 : 6) + n * step);
++    for (int n = 0; n < lines; n++)
++        d->hline(x + (thumb ? 2 : 9) * CARD_S, x + w - 3 * CARD_S,
++                 y + (thumb ? 4 : 6) * CARD_S + n * step);
+     if (!thumb)
+     {
+-        d->set_foreground(POD_INK);
+-        for (int i = 0; i < 4; i++)
+-            d->vline(x + 3 + i, y + 3 + i, y + 9 - i);
++        d->set_foreground(POD_AMBER);
++        for (int i = 0; i < 4 * CARD_S; i++)
++            d->vline(x + 3 * CARD_S + i, y + 3 * CARD_S + i,
++                     y + 9 * CARD_S - i);
+     }
+-    d->set_foreground(POD_INK);
++    d->set_foreground(POD_EDGE);
+     d->drawrect(x, y, w, h);
+ }
+ 
+@@ -896,9 +1013,9 @@ static void draw_card(struct screen *d, int x, int y, int w, int h,
+         draw_mix_card(d, x, y, w, h, t->album, tiny);
+         return;
+     }
+-    d->set_foreground(POD_PAPER);
++    d->set_foreground(POD_WELL);
+     d->fillrect(x, y, w, h);
+-    d->set_foreground(POD_FAINT);
++    d->set_foreground(POD_HATCH(pattern));
+     for (int j = 1; j < h - 1; j++)
+         for (int i = 1; i < w - 1; i++)
+             if ((pattern == 0 && (i + j) % 4 == 0)
+@@ -906,21 +1023,23 @@ static void draw_card(struct screen *d, int x, int y, int w, int h,
+                 || (pattern == 2 && j % 3 == 0)
+                 || (pattern == 3 && i % 3 == 0 && j % 2 == 0))
+                 d->drawpixel(x + i, y + j);
+-    d->set_foreground(POD_INK);
++    d->set_foreground(POD_EDGE);
+     d->drawrect(x, y, w, h);
+ 
+     int tw = text_width(font, str), th = font_get(font)->height;
+     if (w > POD_COVER_SMALL)
+     {
+         /* the large card: the initial on a label */
+-        int lw = tw + 8, lh = th + 4;
+-        d->set_foreground(POD_PAPER);
+-        d->fillrect(x + (w - lw) / 2, y + 10, lw, lh);
+-        d->set_foreground(POD_INK);
+-        d->drawrect(x + (w - lw) / 2, y + 10, lw, lh);
++        int lw = tw + 8 * CARD_S, lh = th + 4 * CARD_S;
++        d->set_foreground(POD_LABEL);
++        d->fillrect(x + (w - lw) / 2, y + 10 * CARD_S, lw, lh);
++        d->set_foreground(POD_EDGE);
++        d->drawrect(x + (w - lw) / 2, y + 10 * CARD_S, lw, lh);
+     }
++    d->set_foreground(POD_AMBER);
+     d->setfont(font);
+-    d->putsxy(x + (w - tw) / 2, w > POD_COVER_SMALL ? y + 12 : y + (h - th) / 2, str);
++    d->putsxy(x + (w - tw) / 2,
++              w > POD_COVER_SMALL ? y + 12 * CARD_S : y + (h - th) / 2, str);
+ }
+ 
+ /* a name cut to w, in upper case or not */
+@@ -968,13 +1087,14 @@ static void draw_gallery(struct screen *d, const struct deck *k, int cur,
+         {
+             draw_cover(d, album_row(k, a), CURRENT_X, CURRENT_Y,
+                        POD_COVER_LARGE, font);
+-            d->set_foreground(POD_INK);
+-            d->fillrect(CURRENT_X, CURRENT_Y - 4, POD_COVER_LARGE, 2);
++            d->set_foreground(POD_AMBER);
++            d->fillrect(CURRENT_X, CURRENT_Y - 4, POD_COVER_LARGE, CURRENT_BAR);
+         }
+         else
+             draw_cover(d, album_row(k, a),
+-                       i < 0 ? GALLERY_X : CURRENT_X + POD_COVER_LARGE + 3
+-                               + (i - 1) * (POD_COVER_SMALL + 3),
++                       i < 0 ? GALLERY_X
++                             : CURRENT_X + POD_COVER_LARGE + GALLERY_GAP
++                               + (i - 1) * (POD_COVER_SMALL + GALLERY_GAP),
+                        GALLERY_Y, POD_COVER_SMALL, font);
+     }
+ }
+@@ -993,6 +1113,7 @@ static const char *sleep_text(char *buf, size_t size)
+     return buf;
+ }
+ 
++#if LCD_WIDTH < 320
+ /* a 19x11 cassette: the hubs' notches step every 200 ms while it plays */
+ static void draw_mini_cassette(struct screen *d, int x, int y, bool paused)
+ {
+@@ -1016,13 +1137,44 @@ static void draw_mini_cassette(struct screen *d, int x, int y, bool paused)
+     }
+ }
+ 
+-/* the panes: 2x2 dots, the current one inked */
++#else
++/* a 25x15 cassette, the mini's at twice the size, teal while it plays and
++ * grey and still on pause */
++static void draw_header_cassette(struct screen *d, int x, int y, bool paused)
++{
++    static const signed char notch[8][2] = {
++        { -2, -2 }, { 0, -2 }, { 2, -2 }, { 2, 0 },
++        { 2, 2 }, { 0, 2 }, { -2, 2 }, { -2, 0 },
++    };
++    int step = paused ? 0 : (current_tick / (HZ / 5)) % 8;
++
++    d->set_foreground(paused ? POD_MID : POD_TEAL);
++    d->drawrect(x, y, 25, 15);
++    d->hline(x + 6, x + 18, y + 11);
++    for (int h = 0; h < 2; h++)
++    {
++        int cx = x + 7 + h * 11, cy = y + 6;
++
++        d->fillrect(cx - 2, cy - 2, 5, 5);
++        d->set_foreground(POD_PAPER);
++        d->drawpixel(cx + notch[step][0], cy + notch[step][1]);
++        d->set_foreground(paused ? POD_MID : POD_TEAL);
++    }
++}
++#endif
++
++/* the panes: dots, the current one lit */
+ static void draw_dots(struct screen *d, int pane, int n)
+ {
+     for (int i = 0; i < n; i++)
+     {
++#if LCD_WIDTH >= 320
++        d->set_foreground(i == pane ? POD_AMBER : POD_MID);
++        d->fillrect(132 + i * 8, 10, 4, 4);
++#else
+         d->set_foreground(i == pane ? POD_INK : POD_MID);
+         d->fillrect(136 - (n - i) * 4 + 2, 11, 2, 2);
++#endif
+     }
+ }
+ 
+@@ -1033,7 +1185,7 @@ static void draw_lock(struct screen *d, int x, int y)
+         ".###.", ".#.#.", ".#.#.", "#####", "##.##", "##.##", "#####",
+     };
+ 
+-    d->set_foreground(POD_INK);
++    d->set_foreground(POD_AMBER);
+     for (int j = 0; j < 7; j++)
+         for (int i = 0; i < 5; i++)
+             if (lock[j][i] == '#')
+@@ -1049,6 +1201,36 @@ static void draw_status(struct screen *d, int font, bool play, int pane, int n)
+     int status = audio_status();
+     char buf[16];
+ 
++#if LCD_WIDTH >= 320
++    struct tm *tm = get_time();
++
++    /* the header, then its readouts from the right, ending before the kick
++     * of the stripes: clock, battery, hold, sleep timer, dots, cassette */
++    pod_frame_header(d, play ? "PLAYER" : "DECK", f_value);
++    d->setfont(font);
++    d->set_foreground(POD_TEAL);
++    snprintf(buf, sizeof(buf), "%02d:%02d", tm->tm_hour, tm->tm_min);
++    d->putsxy(232, 6, buf);
++    d->set_foreground(POD_MID);
++    d->drawrect(204, 6, 23, 12);
++    d->fillrect(227, 10, 2, 4);
++    d->set_foreground(POD_FAINT);
++    d->fillrect(206, 8, 19, 8);
++    d->set_foreground(POD_TEAL);
++    for (int i = 0; i < (MIN(level, 100) * 5 + 99) / 100; i++)
++        d->fillrect(206 + i * 4, 8, 3, 8);
++    if (button_hold())
++        draw_lock(d, 192, 8);
++    if (pod_sleep_left() != POD_SLEEP_OFF)
++    {
++        d->set_foreground(POD_TEAL);
++        d->putsxy(158, 6, sleep_text(buf, sizeof(buf)));
++    }
++    if (n > 1)
++        draw_dots(d, pane, n);
++    if (!play && (status & AUDIO_STATUS_PLAY))
++        draw_header_cassette(d, 100, 5, status & AUDIO_STATUS_PAUSE);
++#else
+     /* battery */
+     d->set_foreground(POD_INK);
+     d->drawrect(117, 1, 17, 7);
+@@ -1071,6 +1253,7 @@ static void draw_status(struct screen *d, int font, bool play, int pane, int n)
+         draw_lock(d, 110, play ? 9 : 11);
+     if (n > 1)
+         draw_dots(d, pane, n);
++#endif
+ }
+ 
+ /* a message in the middle: no tapes, or the first load */
+@@ -1078,12 +1261,14 @@ static void draw_empty(struct screen *d, int f_value, int f_tiny,
+                        const char *title, const char *sub)
+ {
+     draw_status(d, f_tiny, false, 0, 1);
+-    d->set_foreground(POD_INK);
++    d->set_foreground(LCD_WIDTH >= 320 ? POD_MID : POD_INK);
+     d->setfont(f_value);
+-    d->putsxy((LCD_WIDTH - text_width(f_value, title)) / 2, 40, title);
+-    d->set_foreground(POD_INK);
++    d->putsxy((LCD_WIDTH - text_width(f_value, title)) / 2,
++              LCD_WIDTH >= 320 ? 100 : 40, title);
++    d->set_foreground(LCD_WIDTH >= 320 ? POD_TEXT3 : POD_INK);
+     d->setfont(f_tiny);
+-    d->putsxy((LCD_WIDTH - text_width(f_tiny, sub)) / 2, 60, sub);
++    d->putsxy((LCD_WIDTH - text_width(f_tiny, sub)) / 2,
++              LCD_WIDTH >= 320 ? 130 : 60, sub);
+ }
+ 
+ /* the mixes and the queue have the first pane only */
+@@ -1092,11 +1277,20 @@ static int pane_count(const struct deck_album *a)
+     return is_queue(a) || is_mix(a) ? 1 : PANE_N;
+ }
+ 
++/* a row of a pane at x, cut to w */
++static void pane_text_at(struct screen *d, int font, int x, int w, int row,
++                         unsigned fg, const char *s)
++{
++    d->set_foreground(fg);
++    d->setfont(font);
++    tape_text(d, font, x, PANE_Y + row * PANE_ROW, w, s, false);
++}
++
+ /* a row of a pane, cut to its width */
+ static void pane_text(struct screen *d, int row, unsigned fg, const char *s)
+ {
+-    d->set_foreground(fg);
+-    tape_text(d, FONT_UI, PANE_X, PANE_Y + row * PANE_ROW, PANE_W, s, false);
++    pane_text_at(d, LCD_WIDTH >= 320 ? f_tiny : FONT_UI, PANE_X, PANE_W, row,
++                 fg, s);
+ }
+ 
+ /* a 7x7 star, scale times larger: 0 empty, 1 half, 2 full */
+@@ -1112,18 +1306,117 @@ static void draw_star(struct screen *d, int x, int y, int state, int scale)
+             if (star[j][i] == '#')
+             {
+                 d->set_foreground(state == 2 || (state == 1 && i < 4)
+-                                  ? POD_INK : POD_MID);
++                                  ? POD_AMBER : POD_MID);
+                 d->fillrect(x + i * scale, y + j * scale, scale, scale);
+             }
+ }
+ 
+-/* the artist and album with the length of the tape, or a mix's rule */
++#if LCD_WIDTH >= 320
++#define DETAIL_X        178     /* the right column of Details and Stats */
++#define DETAIL_W        (DETAIL_X - PANE_X - 6)
++
++/* an album shown whose info is not read yet */
++static bool info_pending(const struct deck *k, int cur)
++{
++    const struct deck_album *a = album_row(k, cur);
++
++    return a->start >= 0 && (!info.valid || info.hash != k->tracks[a->start].hash);
++}
++
++static void info_load(const struct deck *k, int cur)
++{
++    static struct mp3entry id3;
++    struct tagcache_search tcs;
++    char path[MAX_PATH];
++    const struct deck_track *t = &k->tracks[album_row(k, cur)->start];
++    int fd;
++
++    info.hash = t->hash;
++    info.valid = true;
++    info.year = 0;
++    info.genre[0] = info.codec[0] = '\0';
++    if (!tagcache_search(&tcs, tag_filename))
++        return;
++    tcs.idx_id = t->idx;
++    info.year = MAX(0, tagcache_get_numeric(&tcs, tag_year));
++    if (!tagcache_retrieve(&tcs, t->idx, tag_genre, info.genre,
++                           sizeof(info.genre)))
++        info.genre[0] = '\0';
++    if (tagcache_retrieve(&tcs, t->idx, tag_filename, path, sizeof(path))
++        && (fd = open(path, O_RDONLY)) >= 0)
++    {
++        if (get_metadata(&id3, fd, path) && id3.codectype < AFMT_NUM_CODECS)
++            snprintf(info.codec, sizeof(info.codec),
++                     "%s \xc2\xb7 %ld.%ld kHz", audio_formats[id3.codectype].label,
++                     id3.frequency / 1000, id3.frequency / 100 % 10);
++        close(fd);
++    }
++    tagcache_search_finish(&tcs);
++#ifdef SIMULATOR
++    fprintf(stderr, "pod: deck info %s %d %s\n", album_row(k, cur)->album,
++            info.year, info.codec);
++#endif
++}
++
++/* a 7x6 heart */
++static void draw_small_heart(struct screen *d, int x, int y)
++{
++    static const char heart[6][8] = {
++        ".##.##.", "#######", "#######", ".#####.", "..###..", "...#...",
++    };
++
++    d->set_foreground(POD_AMBER);
++    for (int j = 0; j < 6; j++)
++        for (int i = 0; i < 7; i++)
++            if (heart[j][i] == '#')
++                d->drawpixel(x + i, y + j);
++}
++#endif
++
++/* the artist and album with the length of the tape, or a mix's rule. The
++ * Classic adds the year, the genre and the codec. */
+ static void draw_pane_details(struct screen *d, const struct deck *k,
+                               const struct deck_album *t)
+ {
+-    char buf[24];
++    char buf[40];
+     int n = t->end - t->start, secs = 0;
+ 
++#if LCD_WIDTH >= 320
++    /* two columns: the artist and the album, then year and genre, the count
++     * and the length, and the codec */
++    d->set_foreground(POD_INK);
++    if (t->start < 0)
++    {
++        wrap_name(d, FONT_UI, PANE_X, PANE_Y, DETAIL_W, t->album, false, 17);
++        d->set_foreground(POD_TEXT2);
++        wrap_name(d, f_tiny, DETAIL_X, PANE_Y, PANE_X + PANE_W - DETAIL_X,
++                  album_sub(k, t), false, PANE_ROW);
++        return;
++    }
++    for (int i = t->start; i < t->end; i++)
++        secs += k->tracks[i].secs;
++    pane_text_at(d, f_tiny, PANE_X, DETAIL_W, 0, POD_TEXT2, t->artist);
++    d->set_foreground(POD_INK);
++    wrap_name(d, FONT_UI, PANE_X, PANE_Y + PANE_ROW, DETAIL_W, t->album, false,
++              17);
++    snprintf(buf, sizeof(buf), "%d track%s \xc2\xb7 %d:%02d", n,
++             n == 1 ? "" : "s", secs / 60, secs % 60);
++    pane_text_at(d, f_tiny, DETAIL_X, PANE_X + PANE_W - DETAIL_X, 1, POD_TEXT2,
++                 buf);
++    if (info.hash == k->tracks[t->start].hash)
++    {
++        if (info.year && info.genre[0])
++            snprintf(buf, sizeof(buf), "%d \xc2\xb7 %s", info.year, info.genre);
++        else if (info.year)
++            snprintf(buf, sizeof(buf), "%d", info.year);
++        else
++            strmemccpy(buf, info.genre, sizeof(buf));
++        pane_text_at(d, f_tiny, DETAIL_X, PANE_X + PANE_W - DETAIL_X, 0,
++                     POD_TEXT2, buf);
++        pane_text_at(d, f_tiny, DETAIL_X, PANE_X + PANE_W - DETAIL_X, 2,
++                     POD_TEAL, info.codec);
++    }
++#else
+     if (t->start < 0)
+     {
+         pane_text(d, 0, POD_INK, t->album);
+@@ -1137,6 +1430,7 @@ static void draw_pane_details(struct screen *d, const struct deck *k,
+     snprintf(buf, sizeof(buf), "%d track%s  %d:%02d", n, n == 1 ? "" : "s",
+              secs / 60, secs % 60);
+     pane_text(d, 2, POD_INK, buf);
++#endif
+ }
+ 
+ /* three titles around the selected one, which is inverted */
+@@ -1146,12 +1440,13 @@ static void draw_pane_tracks(struct screen *d, const struct deck *k,
+     struct tagcache_search tcs;
+     char title[MAX_PATH], buf[40];
+     int n = t->end - t->start;
+-    int first = MAX(0, MIN(sel - 1, n - PANE_N));
++    int first = MAX(0, MIN(sel - 1, n - PANE_ROWS));
+     bool found = tagcache_search(&tcs, tag_filename);
+ 
+-    for (int r = 0; r < PANE_N && first + r < n; r++)
++    for (int r = 0; r < PANE_ROWS && first + r < n; r++)
+     {
+         int i = first + r;
++        unsigned fg = i == sel ? POD_SELFG : POD_INK;
+ 
+         title[0] = '\0';
+         if (found)
+@@ -1160,16 +1455,65 @@ static void draw_pane_tracks(struct screen *d, const struct deck *k,
+         snprintf(buf, sizeof(buf), "%02d %.32s", i + 1, title);
+         if (i == sel)
+         {
+-            d->set_foreground(POD_INK);
++            d->set_foreground(POD_SELBG);
+             d->fillrect(PANE_X - 1, PANE_Y + r * PANE_ROW, PANE_W + 1,
+                         PANE_ROW);
+         }
+-        pane_text(d, r, i == sel ? POD_PAPER : POD_INK, buf);
++#if LCD_WIDTH >= 320
++        {
++            const struct deck_track *tr = &k->tracks[t->start + i];
++            int right = PANE_X + PANE_W - 12, lw;
++
++            if (tr->rating == 10)
++                draw_small_heart(d, PANE_X + PANE_W - 7,
++                                 PANE_Y + r * PANE_ROW + 4);
++            snprintf(title, sizeof(title), "%d:%02d", tr->secs / 60,
++                     tr->secs % 60);
++            lw = text_width(f_tiny, title);
++            pane_text_at(d, f_tiny, right - lw, lw, r,
++                         i == sel ? fg : POD_TEXT3, title);
++            pane_text_at(d, f_tiny, PANE_X, right - lw - 8 - PANE_X, r, fg,
++                         buf);
++        }
++#else
++        pane_text(d, r, fg, buf);
++#endif
+     }
+     if (found)
+         tagcache_search_finish(&tcs);
+ }
+ 
++#if LCD_WIDTH >= 320
++/* the track played most and how many are loved, in the right column */
++static void draw_stats_best(struct screen *d, const struct deck *k,
++                            const struct deck_album *t)
++{
++    struct tagcache_search tcs;
++    char title[MAX_PATH], buf[48];
++    int best = t->start, loved = 0;
++
++    for (int i = t->start; i < t->end; i++)
++    {
++        if (k->tracks[i].plays > k->tracks[best].plays)
++            best = i;
++        loved += k->tracks[i].rating == 10;
++    }
++    title[0] = '\0';
++    if (k->tracks[best].plays && tagcache_search(&tcs, tag_filename))
++    {
++        get_tag(&tcs, k->tracks[best].idx, tag_title, title, sizeof(title));
++        tagcache_search_finish(&tcs);
++    }
++    snprintf(buf, sizeof(buf), "TOP %.40s", title[0] ? title : "-");
++    pane_text_at(d, f_tiny, DETAIL_X, PANE_X + PANE_W - DETAIL_X, 0, POD_INK,
++                 buf);
++    snprintf(buf, sizeof(buf), "%d loved", loved);
++    draw_small_heart(d, DETAIL_X, PANE_Y + PANE_ROW + 4);
++    pane_text_at(d, f_tiny, DETAIL_X + 10, PANE_X + PANE_W - DETAIL_X - 10, 1,
++                 POD_INK, buf);
++}
++#endif
++
+ /* how often it was played, how long ago, and the average rating */
+ static void draw_pane_stats(struct screen *d, const struct deck *k,
+                             const struct deck_album *t)
+@@ -1190,12 +1534,24 @@ static void draw_pane_stats(struct screen *d, const struct deck *k,
+             sum += r->rating;
+         }
+     }
++#if LCD_WIDTH >= 320
++    snprintf(buf, sizeof(buf), "PLAYED %d", plays);
++#else
+     snprintf(buf, sizeof(buf), "played %d", plays);
++#endif
+     pane_text(d, 0, POD_INK, buf);
+     /* the tagcache only keeps a counter of the plays of the library */
++#if LCD_WIDTH >= 320
++    snprintf(buf, sizeof(buf), "LAST %ld plays ago",
++             tagcache_get_serial() - last);
++#else
+     snprintf(buf, sizeof(buf), "last %ld plays ago",
+              tagcache_get_serial() - last);
++#endif
+     pane_text(d, 1, POD_INK, last ? buf : "never");
++#if LCD_WIDTH >= 320
++    draw_stats_best(d, k, t);
++#endif
+     halves = rated ? (sum + rated / 2) / rated : 0;
+     for (int i = 0; i < 5; i++)
+         draw_star(d, PANE_X + i * STAR_W, PANE_Y + 2 * PANE_ROW + 2,
+@@ -1216,8 +1572,9 @@ static void draw(struct screen *d, const struct deck *k, int cur, int pane,
+         draw_empty(d, f_value, f_tiny, "NO TAPES", "SYNC WITH POD LINK");
+     else
+     {
+-        draw_bargraph(d, k, cur, FONT_UI);
+-        draw_status(d, FONT_UI, false, pane, pane_count(t));
++        draw_bargraph(d, k, cur, LCD_WIDTH >= 320 ? f_tiny : FONT_UI);
++        draw_status(d, LCD_WIDTH >= 320 ? f_tiny : FONT_UI, false, pane,
++                    pane_count(t));
+         d->setfont(FONT_UI);
+         if (pane == 1)
+             draw_pane_tracks(d, k, t, sel);
+@@ -1225,7 +1582,7 @@ static void draw(struct screen *d, const struct deck *k, int cur, int pane,
+             draw_pane_stats(d, k, t);
+         else
+             draw_pane_details(d, k, t);
+-        draw_gallery(d, k, cur, f_tiny);
++        draw_gallery(d, k, cur, LCD_WIDTH >= 320 ? f_value : f_tiny);
+     }
+ 
+     d->setfont(FONT_UI);
+@@ -1268,6 +1625,11 @@ int pod_deck(bool on_playing)
+     int shown = -1;             /* the tape they belong to */
+     long pressed = current_tick;
+     bool idle = false;          /* the last action was a timeout */
++    bool dirty = true;          /* something to draw */
++#if LCD_WIDTH >= 320
++    int minute = -1;            /* the clock as drawn */
++    bool played = false;        /* the cassette as drawn */
++#endif
+ 
+     static bool hooked = false;
+ 
+@@ -1305,19 +1667,41 @@ int pod_deck(bool on_playing)
+             fprintf(stderr, "pod: deck %d/%d %s\n", cur + 1, k->count,
+                     k->count ? album_row(k, cur)->album : "");
+ #endif
+-        draw(d, k, cur, pane, sel, f_value, f_tiny);
++        if (dirty)
++            draw(d, k, cur, pane, sel, f_value, f_tiny);
++#if LCD_WIDTH >= 320
++        minute = get_time()->tm_min;
++        played = audio_status() & AUDIO_STATUS_PLAY;
++#endif
+ 
+         /* the cassette turns while something plays, and a pane goes back to
+-         * the first after a while */
++         * the first after a while. On the Classic the clock moves by the
++         * minute, and the info of a tape is read on a rest and not at each
++         * step of the wheel. */
+         int button = get_action(CONTEXT_POD_DECK,
+                                 (audio_status() & AUDIO_STATUS_PLAY) || pane
++#if LCD_WIDTH >= 320
++                                || (k->count && info_pending(k, cur))
++                                ? HZ / 5 : HZ);
++#else
+                                 ? HZ / 5 : TIMEOUT_BLOCK);
++#endif
+ 
+         idle = button == ACTION_NONE;
++        dirty = true;
+         if (!idle)
+             pressed = current_tick;
+         else if (pane && TIME_AFTER(current_tick, pressed + PANE_BACK))
+             pane = sel = 0;
++#if LCD_WIDTH >= 320
++        else if (k->count && info_pending(k, cur))
++            info_load(k, cur);
++        /* a rest draws for the cassette and the clock, when something
++         * changed */
++        else
++            dirty = (audio_status() & AUDIO_STATUS_PLAY) || played
++                    || minute != get_time()->tm_min;
++#endif
+         if (!k->count)
+             pane = 0;
+ 
+@@ -1464,7 +1848,17 @@ done:
+ #define SEG_MINUS       0x40
+ #define VOLUME_SHOWN    (HZ * 3 / 2)    /* the volume, after a turn */
+ #define REMAIN_X        52              /* the time left, SEEK */
++#if LCD_WIDTH >= 320
++#define PLAY_COVER_Y    62
++#define BAND_X          32      /* the track band */
++#define BAND_Y          178
++#define BAND_W          284
++#define BAND_H          20
++#define COUNTER_X       176     /* the counter's viewport */
++#define COUNTER_Y       200
++#else
+ #define PLAY_COVER_Y    12
++#endif
+ #define CASSETTE_X      105             /* the 30x17 cassette, in the counter */
+ #define CASSETTE_Y      16
+ 
+@@ -1584,7 +1978,7 @@ static void draw_play_rating(struct screen *d, const struct mp3entry *id3)
+  * every 200 ms and a read looks the tagcache up, and wakes the disk. */
+ static struct {
+     int here, top, amount;      /* what the rows were read for */
+-    char rows[PANE_N][40];
++    char rows[PANE_ROWS][40];
+ } next = { -1, -1, -1, { "" } };
+ 
+ /* forget the rows: a new playlist can keep the same index and length */
+@@ -1625,7 +2019,7 @@ static void load_next(int top)
+     next.here = playlist_get_display_index() - 1;
+     next.top = top;
+     next.amount = playlist_amount();
+-    for (int r = 0; r < PANE_N; r++)
++    for (int r = 0; r < PANE_ROWS; r++)
+     {
+         next.rows[r][0] = '\0';
+         if (!pod_deck_next_path(top + 1 + r, path, sizeof(path)))
+@@ -1657,10 +2051,30 @@ static void draw_play_next(struct screen *d, int top)
+         load_next(top);
+     if (!next.rows[0][0])
+         pane_text(d, 0, POD_INK, "end of queue");
+-    for (int r = 0; r < PANE_N && next.rows[r][0]; r++)
++    for (int r = 0; r < PANE_ROWS && next.rows[r][0]; r++)
+         pane_text(d, r, POD_INK, next.rows[r]);
+ }
+ 
++#if LCD_WIDTH >= 320
++/* the track: its number and title on a band under the panes */
++static void draw_play_band(struct screen *d, const struct mp3entry *id3)
++{
++    char buf[MAX_PATH + 4];
++    const char *title = id3->title ? id3->title
++                        : strrchr(id3->path, '/') ? strrchr(id3->path, '/') + 1
++                                                  : id3->path;
++
++    d->set_foreground(POD6_BAND);
++    d->fillrect(BAND_X, BAND_Y, BAND_W, BAND_H);
++    d->set_foreground(POD_INK);
++    d->setfont(f_value);
++    snprintf(buf, sizeof(buf), "%02d %s", playlist_get_display_index(), title);
++    tape_text(d, f_value, BAND_X + 4,
++              BAND_Y + (BAND_H - font_get(f_value)->height) / 2, BAND_W - 8,
++              buf, false);
++}
++#endif
++
+ void pod_deck_draw_play(struct screen *d, struct viewport *vp)
+ {
+     struct wps_state *state = get_wps_state();
+@@ -1674,8 +2088,16 @@ void pod_deck_draw_play(struct screen *d, struct viewport *vp)
+     load_fonts();
+     elapsed = id3->elapsed + state->ff_rewind_count;
+ 
++#if LCD_WIDTH >= 320
++    /* all but the counter's corner, which is a viewport of its own on top */
++    d->set_drawmode(DRMODE_SOLID);
++    d->set_foreground(POD_PAPER);
++    d->fillrect(0, 0, LCD_WIDTH, COUNTER_Y);
++    d->fillrect(0, COUNTER_Y, COUNTER_X, LCD_HEIGHT - COUNTER_Y);
++#else
+     d->set_background(POD_PAPER);
+     d->clear_viewport();
++#endif
+     d->set_drawmode(DRMODE_FG);
+     draw_play_bargraph(d, id3, elapsed);
+     draw_status(d, f_tiny, true, state->pane, PANE_N);
+@@ -1686,6 +2108,9 @@ void pod_deck_draw_play(struct screen *d, struct viewport *vp)
+         draw_play_next(d, state->next_top);
+     else
+         draw_play_cover(d, state, play_tape(id3, &tags));
++#if LCD_WIDTH >= 320
++    draw_play_band(d, id3);
++#endif
+     *vp = saved;
+ }
+ 
+diff --git a/apps/gui/pod_frame.c b/apps/gui/pod_frame.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..37b00738f0d876a34ce8c43ddef38ee8239861c2
+--- /dev/null
++++ b/apps/gui/pod_frame.c
+@@ -0,0 +1,54 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++
++/* The header the Classic's screens share: a band, the title and four stripes
++ * that kick up to the right, as the theme draws them. */
++
++#include "config.h"
++#include "lcd.h"
++#include "screen_access.h"
++#include "pod_frame.h"
++
++const unsigned pod6_stripes[4] = {
++    LCD_RGBPACK(0xf7, 0xb5, 0x2c), LCD_RGBPACK(0xf2, 0x70, 0x1c),
++    LCD_RGBPACK(0xd9, 0x30, 0x2a), LCD_RGBPACK(0x7b, 0x1e, 0x3c),
++};
++
++void pod_frame_stripes(struct screen *d)
++{
++    for (int i = 0; i < 4; i++)
++    {
++        int top = 24 + 2*i;
++        d->set_foreground(POD6_STRIPE(i));
++        d->fillrect(0, top, 266, 2);
++        for (int k = 0; k <= top + 1; k++)
++            d->fillrect(266 + k, top - k, 1, 2);
++    }
++}
++
++void pod_frame_header(struct screen *d, const char *title, int font)
++{
++    d->set_foreground(POD6_BAND);
++    d->fillrect(0, 0, LCD_WIDTH, 24);
++    pod_frame_stripes(d);
++    d->set_foreground(POD6_AMBER);
++    d->setfont(font);
++    d->putsxy(8, 5, title);
++}
+diff --git a/apps/gui/pod_frame.h b/apps/gui/pod_frame.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..0279cb387539c80e4a608c22392c996fe3409915
+--- /dev/null
++++ b/apps/gui/pod_frame.h
+@@ -0,0 +1,48 @@
++/***************************************************************************
++ *             __________               __   ___.
++ *   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
++ *   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
++ *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
++ *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
++ *                     \/            \/     \/    \/            \/
++ *
++ * Copyright (C) 2026 banst
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ ****************************************************************************/
++#ifndef _POD_FRAME_H_
++#define _POD_FRAME_H_
++
++#include "lcd.h"
++#include "screen_access.h"
++
++/* The Classic's autoreverse palette (see tools/mktheme6g.py) */
++#define POD6_PANEL      LCD_RGBPACK(0x0b, 0x0d, 0x14)
++#define POD6_BAND       LCD_RGBPACK(0x10, 0x13, 0x1c)
++#define POD6_RULE       LCD_RGBPACK(0x22, 0x28, 0x38)
++#define POD6_WELL       LCD_RGBPACK(0x12, 0x16, 0x22)
++#define POD6_TEXT       LCD_RGBPACK(0xed, 0xe3, 0xcf)
++#define POD6_TEXT2      LCD_RGBPACK(0xcf, 0xc6, 0xb3)
++#define POD6_TEXT3      LCD_RGBPACK(0x8c, 0x86, 0x78)
++#define POD6_OFF        LCD_RGBPACK(0x5b, 0x61, 0x72)
++#define POD6_AMBER      LCD_RGBPACK(0xff, 0xa5, 0x26)
++#define POD6_TEAL       LCD_RGBPACK(0x46, 0xdc, 0xc8)
++#define POD6_SEL0       LCD_RGBPACK(0x26, 0x2e, 0x42)
++#define POD6_STRIPE(i)  (pod6_stripes[i])
++
++extern const unsigned pod6_stripes[4];
++
++/* Four stripes under the header, kicking up to the right */
++void pod_frame_stripes(struct screen *d);
++
++/* The 24 px band with the title in amber, and the stripes under it */
++void pod_frame_header(struct screen *d, const char *title, int font);
++
++#endif /* _POD_FRAME_H_ */

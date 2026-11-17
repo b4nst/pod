@@ -491,3 +491,17 @@ splash=$src/apps/bitmaps/native/rockboxlogo.320x240x16.bmp
 [ "$(magick "$splash" -format '%k' info:)" -gt 1 ] || { echo "the splash is blank" >&2; exit 1; }
 [ "$(magick identify -format '%wx%h' "$splash")" = 320x240 ] || { echo "the splash is not 320x240" >&2; exit 1; }
 echo "classic theme ok"
+
+# The Classic's deck: v3 covers (112x112), the header, the amber bar over the
+# current tape, and Signal / Noise's cover in place of its card.
+"$root/scripts/sim-shot.sh" "$out/classic-deck" "W300 D F3 W20 D" ipod6g >/dev/null
+f=$out/classic-deck/01.png
+grep -q '^pod: covers 1' "$out/classic-deck/sim.log" || { echo "the Classic did not read the v3 covers" >&2; exit 1; }
+grep -q '^pod: cover read' "$out/classic-deck/sim.log" || { echo "the Classic drew no cover" >&2; exit 1; }
+expect "$f" 100 10 101019    # header band
+expect "$f" 140 121 FFA621   # the bar over the current tape
+expect "$f" 300 150 080C10   # panel
+# the current tape, 112x112 at (88,124): a hatched card, then the cover
+[ "$(magick compare -metric AE "$out/classic-deck/01.png[336x336+264+372]" "$out/classic-deck/02.png[336x336+264+372]" null: 2>&1 | cut -d' ' -f1)" != 0 ] \
+  || { echo "the Classic's cover did not replace the card" >&2; exit 1; }
+echo "classic deck ok"
