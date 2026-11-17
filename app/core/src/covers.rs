@@ -1,12 +1,14 @@
 //! The covers pod link writes to `/.pod/covers.bin` on every sync: a large and
 //! a small square cover of the art of each album on the iPod, ready for the
-//! 2 bpp LCD, keyed by the hash the deck groups its tracks by. An album without art gets
-//! no record and the deck draws its generated card.
+//! LCD (2 bpp on a mini, RGB565 on the Classic), keyed by the hash the deck
+//! groups its tracks by. An album without art gets no record and the deck draws
+//! its generated card.
 //!
-//! File (little endian): `PODC`, `u16` version, `u16` large w/h and small w/h,
-//! `u32` count, `count` sorted `u32` hashes, then large and small of each
-//! record, in index order. `/.pod/covers.json` remembers where each album's
-//! art came from, so only the albums whose source changed are decoded again.
+//! File (little endian): `PODC`, `u16` version (2: the mini's, 3: the
+//! Classic's), `u16` large w/h and small w/h, `u32` count, `count` sorted `u32`
+//! hashes, then large and small of each record, in index order.
+//! `/.pod/covers.json` remembers where each album's art came from, so only the
+//! albums whose source changed are decoded again.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -25,19 +27,47 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::sync::{is_audio, is_hidden};
-use crate::{Error, Progress, Result};
+use crate::{Error, Model, Progress, Result};
 
-const LARGE: (usize, usize) = (44, 44);
-const SMALL: (usize, usize) = (28, 28);
-const VERSION: u16 = 2;
-/// Bytes of a large and a small cover: rows of 4 pixels per byte.
-const LARGE_BYTES: usize = LARGE.0.div_ceil(4) * LARGE.1;
-const RECORD: usize = LARGE_BYTES + SMALL.0.div_ceil(4) * SMALL.1;
 const HEADER: usize = 18;
 /// The STN panel crushes darks: lift the mid-tones before dithering.
 const GAMMA: f32 = 1.8;
 const UNTAGGED: &str = "<Untagged>";
 const FOLDER_ART: [&str; 3] = ["cover.jpg", "folder.jpg", "front.jpg"];
+
+/// The covers a model's LCD takes.
+#[derive(Clone, Copy)]
+struct Spec {
+    version: u16,
+    large: usize,
+    small: usize,
+    /// 2 (inks, 4 pixels to a byte) or 16 (RGB565)
+    bpp: usize,
+}
+
+impl Spec {
+    /// The mini's 2 bpp covers, unless the iPod is a Classic.
+    fn for_model(model: Option<Model>) -> Spec {
+        match model {
+            Some(Model::Classic) => Spec { version: 3, large: 112, small: 56, bpp: 16 },
+            _ => Spec { version: 2, large: 44, small: 28, bpp: 2 },
+        }
+    }
+
+    /// Bytes of a cover `side` pixels wide: rows padded to a byte.
+    fn bytes(self, side: usize) -> usize {
+        (side * self.bpp).div_ceil(8) * side
+    }
+
+    fn record(self) -> usize {
+        self.bytes(self.large) + self.bytes(self.small)
+    }
+
+    fn render(self, img: &DynamicImage) -> Vec<u8> {
+        let draw = if self.bpp == 16 { render_rgb565 } else { render };
+        [draw(img, self.large), draw(img, self.small)].concat()
+    }
+}
 
 /// The album key of the deck, a port of `hash_tags` in the deck: FNV-1a over
 /// the album, a zero separator and the artist, each byte through ASCII `tolower`.
@@ -97,10 +127,7 @@ fn pack(ink: &[u8], w: usize, h: usize) -> Vec<u8> {
 /// to the 4 inks, packed.
 fn render(img: &DynamicImage, side: usize) -> Vec<u8> {
     let (w, h) = (side, side);
-    let (iw, ih) = (img.width() as usize, img.height() as usize);
-    let c = iw.min(ih).max(1);
-    let crop = img.crop_imm(((iw - c) / 2) as u32, ((ih - c) / 2) as u32, c as u32, c as u32);
-    let small = imageops::resize(&crop.to_luma32f(), w as u32, h as u32, FilterType::Lanczos3);
+    let small = imageops::resize(&centre(img).to_luma32f(), w as u32, h as u32, FilterType::Lanczos3);
     let mut v: Vec<f32> = small.pixels().map(|p| p.0[0].clamp(0.0, 1.0).powf(1.0 / GAMMA) * 3.0).collect();
 
     // Atkinson: an eighth of the error to each of 6 neighbours
@@ -119,6 +146,24 @@ fn render(img: &DynamicImage, side: usize) -> Vec<u8> {
         }
     }
     pack(&ink, w, h)
+}
+
+/// `img` cropped to a square around its centre.
+fn centre(img: &DynamicImage) -> DynamicImage {
+    let (iw, ih) = (img.width() as usize, img.height() as usize);
+    let c = iw.min(ih).max(1);
+    img.crop_imm(((iw - c) / 2) as u32, ((ih - c) / 2) as u32, c as u32, c as u32)
+}
+
+/// `img` cropped to a square around its centre, resized to `side` as RGB565,
+/// little endian.
+fn render_rgb565(img: &DynamicImage, side: usize) -> Vec<u8> {
+    let q = |v: f32, max: f32| (v.clamp(0.0, 1.0) * max).round() as u16;
+    let small = imageops::resize(&centre(img).to_rgb32f(), side as u32, side as u32, FilterType::Lanczos3);
+    small
+        .pixels()
+        .flat_map(|p| (q(p.0[0], 31.0) << 11 | q(p.0[1], 63.0) << 5 | q(p.0[2], 31.0)).to_le_bytes())
+        .collect()
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -147,31 +192,32 @@ struct Cache {
 }
 
 impl Cache {
-    fn load(path: &Path) -> Cache {
+    fn load(path: &Path, spec: Spec) -> Cache {
         let cache: Cache = fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        if cache.version == VERSION { cache } else { Cache::default() }
+        if cache.version == spec.version { cache } else { Cache::default() }
     }
 }
 
 /// The records of a `covers.bin` by hash; none when it isn't a file of this
 /// version and size.
-fn read_records(path: &Path) -> BTreeMap<u32, Vec<u8>> {
+fn read_records(path: &Path, spec: Spec) -> BTreeMap<u32, Vec<u8>> {
     let Ok(b) = fs::read(path) else { return BTreeMap::new() };
     let u16_at = |i: usize| u16::from_le_bytes([b[i], b[i + 1]]);
-    let sizes = [VERSION, LARGE.0 as u16, LARGE.1 as u16, SMALL.0 as u16, SMALL.1 as u16];
+    let sizes = [spec.version, spec.large as u16, spec.large as u16, spec.small as u16, spec.small as u16];
+    let record = spec.record();
     if b.len() < HEADER || &b[..4] != b"PODC" || (0..5).any(|i| u16_at(4 + 2 * i) != sizes[i]) {
         return BTreeMap::new();
     }
     let n = u32::from_le_bytes([b[14], b[15], b[16], b[17]]) as usize;
-    if b.len() != HEADER + n * (4 + RECORD) {
+    if b.len() != HEADER + n * (4 + record) {
         return BTreeMap::new();
     }
     (0..n)
         .map(|i| {
             let at = HEADER + 4 * i;
             let hash = u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]);
-            let rec = HEADER + 4 * n + i * RECORD;
-            (hash, b[rec..rec + RECORD].to_vec())
+            let rec = HEADER + 4 * n + i * record;
+            (hash, b[rec..rec + record].to_vec())
         })
         .collect()
 }
@@ -217,12 +263,19 @@ struct Album {
 }
 
 /// Writes `/.pod/covers.bin` for the albums under `/Music` of the iPod at
-/// `mount`. A cancel or an error leaves the old files in place.
-pub fn write(mount: &Path, progress: &mut dyn FnMut(Progress), cancel: &AtomicBool) -> Result<Report> {
+/// `mount`, in the format of `model`. A cancel or an error leaves the old files
+/// in place.
+pub fn write(
+    mount: &Path,
+    model: Option<Model>,
+    progress: &mut dyn FnMut(Progress),
+    cancel: &AtomicBool,
+) -> Result<Report> {
+    let spec = Spec::for_model(model);
     let pod = mount.join(".pod");
     let (bin_path, cache_path) = (pod.join("covers.bin"), pod.join("covers.json"));
-    let old = Cache::load(&cache_path);
-    let old_records = read_records(&bin_path);
+    let old = Cache::load(&cache_path, spec);
+    let old_records = read_records(&bin_path, spec);
 
     // the tags of every track, read again only when the file changed
     let mut tracks = BTreeMap::new();
@@ -296,7 +349,7 @@ pub fn write(mount: &Path, progress: &mut dyn FnMut(Progress), cancel: &AtomicBo
                 };
                 let Some(img) = bytes.and_then(|b| image::load_from_memory(&b).ok()) else { continue };
                 report.decoded += 1;
-                [render(&img, LARGE.0), render(&img, SMALL.0)].concat()
+                spec.render(&img)
             }
         };
         records.insert(*hash, record);
@@ -306,7 +359,7 @@ pub fn write(mount: &Path, progress: &mut dyn FnMut(Progress), cancel: &AtomicBo
     progress(Progress { done: total, total, item: String::new(), step: "COVERS" });
 
     let mut bin = b"PODC".to_vec();
-    for v in [VERSION, LARGE.0 as u16, LARGE.1 as u16, SMALL.0 as u16, SMALL.1 as u16] {
+    for v in [spec.version, spec.large as u16, spec.large as u16, spec.small as u16, spec.small as u16] {
         bin.extend(v.to_le_bytes());
     }
     bin.extend((records.len() as u32).to_le_bytes());
@@ -314,7 +367,7 @@ pub fn write(mount: &Path, progress: &mut dyn FnMut(Progress), cancel: &AtomicBo
     bin.extend(records.values().flatten());
     replace(&bin_path, &bin)?;
     // after the bin: a stale cache only makes the next sync redo some albums
-    let cache = Cache { version: VERSION, tracks, albums: sources };
+    let cache = Cache { version: spec.version, tracks, albums: sources };
     replace(&cache_path, &serde_json::to_vec(&cache).map_err(|e| Error::Other(format!("covers.json: {e}")))?)?;
     Ok(report)
 }
@@ -347,7 +400,11 @@ mod tests {
     }
 
     fn run(mount: &Path) -> Report {
-        write(mount, &mut |_| {}, &no()).unwrap()
+        write(mount, None, &mut |_| {}, &no()).unwrap()
+    }
+
+    fn mini() -> Spec {
+        Spec::for_model(None)
     }
 
     /// A 20×20 image, a gradient of `shade`.
@@ -410,10 +467,10 @@ mod tests {
     fn crops_to_the_centre() {
         // black left half, white right half
         let img = DynamicImage::ImageRgb8(RgbImage::from_fn(100, 100, |x, _| Rgb([if x < 50 { 0 } else { 255 }; 3])));
-        let bytes = render(&img, LARGE.0);
-        assert_eq!(bytes.len(), LARGE_BYTES);
-        let ink = |x: usize, y: usize| bytes[y * LARGE.0.div_ceil(4) + x / 4] >> (6 - 2 * (x & 3)) & 3;
-        assert!((0..LARGE.1).all(|y| ink(2, y) == 3 && ink(41, y) == 0));
+        let bytes = render(&img, 44);
+        assert_eq!(bytes.len(), mini().bytes(44));
+        let ink = |x: usize, y: usize| bytes[y * 11 + x / 4] >> (6 - 2 * (x & 3)) & 3;
+        assert!((0..44).all(|y| ink(2, y) == 3 && ink(41, y) == 0));
     }
 
     #[test]
@@ -422,8 +479,8 @@ mod tests {
         let img = DynamicImage::ImageRgb8(RgbImage::from_fn(200, 100, |x, _| {
             Rgb([if (50..150).contains(&x) { 255 } else { 0 }; 3])
         }));
-        assert!(render(&img, LARGE.0).iter().all(|&b| b == 0));
-        assert!(render(&img, SMALL.0).iter().all(|&b| b == 0));
+        assert!(render(&img, 44).iter().all(|&b| b == 0));
+        assert!(render(&img, 28).iter().all(|&b| b == 0));
     }
 
     #[test]
@@ -431,8 +488,8 @@ mod tests {
         let img = DynamicImage::ImageRgb8(RgbImage::from_fn(100, 200, |_, y| {
             Rgb([if (50..150).contains(&y) { 255 } else { 0 }; 3])
         }));
-        assert!(render(&img, LARGE.0).iter().all(|&b| b == 0));
-        assert!(render(&img, SMALL.0).iter().all(|&b| b == 0));
+        assert!(render(&img, 44).iter().all(|&b| b == 0));
+        assert!(render(&img, 28).iter().all(|&b| b == 0));
     }
 
     #[test]
@@ -445,16 +502,53 @@ mod tests {
         let r = run(m);
         assert_eq!(r, Report { albums: 2, covers: 2, decoded: 2 });
         let bin = fs::read(m.join(".pod/covers.bin")).unwrap();
-        assert_eq!(RECORD, 680);
-        assert_eq!(bin.len(), 18 + 4 * 2 + RECORD * 2);
+        assert_eq!(mini().record(), 680);
+        assert_eq!(bin.len(), 18 + 4 * 2 + 680 * 2);
         assert_eq!(&bin[..18], b"PODC\x02\x00\x2c\x00\x2c\x00\x1c\x00\x1c\x00\x02\x00\x00\x00");
         let idx = index(&bin);
         assert!(idx[0] < idx[1]);
         // the records follow the index
         let one = idx.iter().position(|&h| h == album_hash("One", "Band")).unwrap();
         let img = image::load_from_memory(&art(ImageFormat::Png, 0)).unwrap();
-        let want = [render(&img, LARGE.0), render(&img, SMALL.0)].concat();
-        assert_eq!(bin[18 + 8 + one * RECORD..][..RECORD], want[..]);
+        let want = mini().render(&img);
+        assert_eq!(bin[18 + 8 + one * 680..][..680], want[..]);
+    }
+
+    #[test]
+    fn writes_the_v3_format() {
+        let dir = tempdir().unwrap();
+        let m = dir.path();
+        pod(m);
+        let red = RgbImage::from_fn(20, 20, |_, _| Rgb([255, 0, 0]));
+        let mut png = Cursor::new(Vec::new());
+        red.write_to(&mut png, ImageFormat::Png).unwrap();
+        track(&m.join("Music/A"), "1.wav", "One", "Band", Some(png.into_inner()));
+        let classic = |m: &Path| write(m, Some(Model::Classic), &mut |_| {}, &no()).unwrap();
+        assert_eq!(classic(m), Report { albums: 1, covers: 1, decoded: 1 });
+        let bin = fs::read(m.join(".pod/covers.bin")).unwrap();
+        assert_eq!(&bin[..18], b"PODC\x03\x00\x70\x00\x70\x00\x38\x00\x38\x00\x01\x00\x00\x00");
+        assert_eq!(Spec::for_model(Some(Model::Classic)).record(), 31_360);
+        assert_eq!(bin.len(), 18 + 4 + 31_360);
+        assert_eq!(bin[22..24], 0xF800u16.to_le_bytes());
+        assert_eq!(bin[22 + 31_360 - 2..], 0xF800u16.to_le_bytes());
+        assert_eq!(classic(m), Report { albums: 1, covers: 1, decoded: 0 });
+        assert_eq!(fs::read(m.join(".pod/covers.bin")).unwrap(), bin);
+    }
+
+    #[test]
+    fn a_file_of_the_other_format_is_ignored() {
+        let dir = tempdir().unwrap();
+        let m = dir.path();
+        pod(m);
+        track(&m.join("Music/A"), "1.wav", "One", "Band", Some(art(ImageFormat::Png, 0)));
+        run(m);
+        let v2 = fs::read(m.join(".pod/covers.bin")).unwrap();
+        let r = write(m, Some(Model::Classic), &mut |_| {}, &no()).unwrap();
+        assert_eq!(r.decoded, 1);
+        let v3 = fs::read(m.join(".pod/covers.bin")).unwrap();
+        assert_eq!(&v3[4..6], b"\x03\x00");
+        assert_eq!(run(m).decoded, 1);
+        assert_eq!(fs::read(m.join(".pod/covers.bin")).unwrap(), v2);
     }
 
     #[test]
@@ -526,7 +620,7 @@ mod tests {
         assert_eq!(run(m).decoded, 1);
         let bin = fs::read(m.join(".pod/covers.bin")).unwrap();
         assert_eq!(&bin[4..6], b"\x02\x00");
-        assert_eq!(bin.len(), 18 + 4 + RECORD);
+        assert_eq!(bin.len(), 18 + 4 + 680);
     }
 
     #[test]
@@ -539,7 +633,7 @@ mod tests {
         let bin = fs::read(m.join(".pod/covers.bin")).unwrap();
         track(&m.join("Music/B"), "1.wav", "Two", "Band", Some(art(ImageFormat::Png, 40)));
         let cancel = AtomicBool::new(false);
-        let r = write(m, &mut |_| cancel.store(true, Ordering::Relaxed), &cancel);
+        let r = write(m, None, &mut |_| cancel.store(true, Ordering::Relaxed), &cancel);
         assert!(matches!(r, Err(Error::Cancelled)));
         assert_eq!(fs::read(m.join(".pod/covers.bin")).unwrap(), bin);
         assert!(!m.join(".pod/covers.tmp").exists());

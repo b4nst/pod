@@ -4,6 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use nusb::MaybeFuture;
+
 use crate::{Error, Model, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,7 +120,8 @@ pub fn inspect(mount: &Path) -> Option<Device> {
         .or(rb_info.as_deref())
         .and_then(|t| field(t, "Target:"))
         .and_then(|t| Model::from_target(&t))
-        .or_else(|| sysinfo.as_deref().and_then(model_from_sysinfo));
+        .or_else(|| sysinfo.as_deref().and_then(model_from_sysinfo))
+        .or_else(usb_model);
     Some(Device {
         mount: mount.to_path_buf(),
         label: mount.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
@@ -136,12 +139,27 @@ pub fn inspect(mount: &Path) -> Option<Device> {
 /// Model numbers as in libgpod's table.
 fn model_from_sysinfo(text: &str) -> Option<Model> {
     let line = text.lines().find_map(|l| l.strip_prefix("ModelNumStr:"))?;
-    let num: String = line.chars().filter(char::is_ascii_digit).collect();
+    let num = line.trim().trim_start_matches('x');
+    let num = num.strip_prefix(|c: char| c.is_ascii_alphabetic()).unwrap_or(num);
     match num.get(..4)? {
         "9160" | "9434" | "9435" | "9436" | "9437" => Some(Model::Mini1g),
         "9800" | "9801" | "9802" | "9803" | "9804" | "9805" | "9806" | "9807" => Some(Model::Mini2g),
+        "B029" | "B145" | "B147" | "B150" | "B562" | "B565" | "C293" | "C297" => Some(Model::Classic),
         _ => None,
     }
+}
+
+const APPLE: u16 = 0x05ac;
+const CLASSIC_USB: u16 = 0x1261;
+
+/// The Classic's USB id. It only says that one is plugged in, not that it
+/// owns the volume.
+fn model_from_usb(vid: u16, pid: u16) -> Option<Model> {
+    (vid == APPLE && pid == CLASSIC_USB).then_some(Model::Classic)
+}
+
+fn usb_model() -> Option<Model> {
+    nusb::list_devices().wait().ok()?.find_map(|d| model_from_usb(d.vendor_id(), d.product_id()))
 }
 
 struct Volume {
@@ -324,7 +342,29 @@ mod tests {
     fn guesses_the_model_from_sysinfo() {
         assert_eq!(model_from_sysinfo("BoardHwName: iPod Q21\nModelNumStr: xM9436\n"), Some(Model::Mini1g));
         assert_eq!(model_from_sysinfo("ModelNumStr: M9805\n"), Some(Model::Mini2g));
+        assert_eq!(model_from_sysinfo("ModelNumStr: P9800\n"), Some(Model::Mini2g));
         assert_eq!(model_from_sysinfo("ModelNumStr: MA350\n"), None);
+        assert_eq!(model_from_sysinfo("ModelNumStr: xMB029\n"), Some(Model::Classic));
+        assert_eq!(model_from_sysinfo("ModelNumStr: MC297\n"), Some(Model::Classic));
+        assert_eq!(model_from_sysinfo("ModelNumStr: MB565LL/A\n"), Some(Model::Classic));
+    }
+
+    #[test]
+    fn guesses_the_classic_from_its_usb_id() {
+        assert_eq!(model_from_usb(0x05ac, 0x1261), Some(Model::Classic));
+        assert_eq!(model_from_usb(0x05ac, 0x1209), None);
+        assert_eq!(model_from_usb(0x1234, 0x1261), None);
+    }
+
+    #[test]
+    fn reads_the_classic_target() {
+        for dir in [".rockbox", ".pod"] {
+            let mount = tempfile::tempdir().unwrap();
+            fs::create_dir_all(mount.path().join("iPod_Control")).unwrap();
+            fs::create_dir_all(mount.path().join(dir)).unwrap();
+            fs::write(mount.path().join(dir).join("rockbox-info.txt"), "Target: ipod6g\n").unwrap();
+            assert_eq!(inspect(mount.path()).unwrap().model, Some(Model::Classic));
+        }
     }
 
     #[test]

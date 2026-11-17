@@ -12,7 +12,9 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 
 use crate::Error;
 
-/// The firmware partition is addressed in 512 byte sectors on every mini.
+/// The firmware partition is addressed in 512 byte sectors on every mini. The
+/// Classic has 4K sectors and its firmware is in NOR: `Firmware::open` never
+/// touches it.
 pub const SECTOR: u64 = 512;
 /// ipodpatcher's I/O buffer, the largest OSOS image plus bootloader it allows.
 const BUFFER_SIZE: u64 = 8 * 1024 * 1024;
@@ -39,16 +41,18 @@ Copyright(C) 200\
 pub enum Model {
     Mini1g,
     Mini2g,
+    Classic,
 }
 
 impl Model {
-    pub const ALL: [Model; 2] = [Model::Mini1g, Model::Mini2g];
+    pub const ALL: [Model; 3] = [Model::Mini1g, Model::Mini2g, Model::Classic];
 
     /// The Rockbox target name, also used in release asset names.
     pub fn target(self) -> &'static str {
         match self {
             Model::Mini1g => "ipodmini1g",
             Model::Mini2g => "ipodmini2g",
+            Model::Classic => "ipod6g",
         }
     }
 
@@ -61,6 +65,7 @@ impl Model {
         match self {
             Model::Mini1g => 9,
             Model::Mini2g => 11,
+            Model::Classic => 71,
         }
     }
 
@@ -69,6 +74,7 @@ impl Model {
         match self {
             Model::Mini1g => b"mini",
             Model::Mini2g => b"mn2g",
+            Model::Classic => b"ip6g",
         }
     }
 
@@ -87,6 +93,7 @@ impl fmt::Display for Model {
         f.write_str(match self {
             Model::Mini1g => "iPod mini 1G",
             Model::Mini2g => "iPod mini 2G",
+            Model::Classic => "iPod classic",
         })
     }
 }
@@ -419,6 +426,7 @@ pub mod fixtures {
         let vers = match model {
             Model::Mini1g => 0x4001,
             Model::Mini2g => 0x7001,
+            Model::Classic => unreachable!("the Classic has no firmware partition"),
         };
         let fwoffset = start + SECTOR as usize;
         let mut off = 0x4200u32;

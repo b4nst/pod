@@ -21,5 +21,5 @@ cp -R "$root/build/theme/.pod/." "$sim/simdisk/.pod/"
 # the covers SYNC would write: one album gets a cover.jpg
 art="$sim/simdisk/Music/Unit Δelta/Signal - Noise/cover.jpg"
 [ -f "$art" ] || magick -size 200x200 xc:white -fill black -draw "rectangle 50,50 150,150" "$art"
-cargo run -q --manifest-path "$root/app/Cargo.toml" -p pod-core --example covers -- "$sim/simdisk"
+cargo run -q --manifest-path "$root/app/Cargo.toml" -p pod-core --example covers -- "$sim/simdisk" "$target"
 echo "simulator ready"

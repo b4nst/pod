@@ -33,6 +33,9 @@ Download pod link (macOS, Linux, Windows) from the
    prompt, Linux: pkexec, Windows: UAC).
 3. SYNC copies your music folder to `/Music` (see pod link below).
 
+On the iPod Classic (6G), UPGRADE and SYNC work the same, but FLASH is still
+done by hand (see By hand below).
+
 Eject, and the iPod boots pod. On the first boot pod scans the library, then
 restarts by itself once. After that it boots straight into the deck, and new
 music is picked up at boot.

@@ -19,6 +19,11 @@ use pod_core::{Error, Model, Progress, covers, human_bytes, mixes, upgrade};
 use crate::deck::{Cassette, Delta, Dots, Hatch, Ipod, Meter};
 use crate::theme::{self, DECK, DECK_BOLD, MONO, MONO_BOLD};
 
+/// The Classic's bootloader goes to its NOR flash over DFU, which pod link
+/// doesn't do yet.
+const CLASSIC_FLASH: &str =
+    "The Classic's bootloader is flashed over DFU: for now run scripts/install-bootloader.sh ipod6g.";
+
 pub fn run() -> iced::Result {
     let mut app = iced::application(App::boot, App::update, App::view)
         .title("pod link")
@@ -333,6 +338,7 @@ impl App {
                     return Task::none();
                 }
                 let mount = d.mount.clone();
+                let model = self.current_model();
                 self.start("SYNCING", move |progress, cancel| {
                     let (renames, res) = sync::apply(&plan, &mount, progress, cancel);
                     // a mixtapes problem is reported, but doesn't fail the sync. The
@@ -357,7 +363,7 @@ impl App {
                     });
                     // the files are written by now: a cancel is a covers problem too
                     let covers = if mount.join(".pod").is_dir() {
-                        match covers::write(&mount, progress, cancel) {
+                        match covers::write(&mount, model, progress, cancel) {
                             Err(Error::Cancelled) => Err("CANCELLED".to_string()),
                             r => r.map(|r| r.covers).map_err(|e| e.to_string()),
                         }
@@ -455,6 +461,10 @@ impl App {
 
     fn flash(&mut self, install: bool) -> Task<Message> {
         let Some(d) = self.device() else { return Task::none() };
+        if self.current_model() == Some(Model::Classic) {
+            self.say(true, Error::Unsupported(CLASSIC_FLASH.into()).to_string());
+            return Task::none();
+        }
         let Some(disk) = d.disk.clone() else {
             self.say(true, "the iPod's disk device is unknown");
             return Task::none();
@@ -734,12 +744,15 @@ impl App {
         ]
         .spacing(12);
         let d = self.device();
+        let classic = self.current_model() == Some(Model::Classic);
         if let Some(b) = self.blocker() {
             col = col.push(b);
+        } else if classic {
+            col = col.push(notice(CLASSIC_FLASH));
         } else if d.is_some_and(|d| !d.has_pod()) {
             col = col.push(notice("Install the firmware (UPGRADE) first: the bootloader starts /.pod/pod.ipod."));
         }
-        let ok = d.is_some_and(|d| d.is_fat() && d.disk.is_some()) && self.job.is_none();
+        let ok = d.is_some_and(|d| d.is_fat() && d.disk.is_some()) && self.job.is_none() && !classic;
         // without /.pod/pod.ipod the bootloader has nothing to start
         let go = ok
             && d.is_some_and(Device::has_pod)
