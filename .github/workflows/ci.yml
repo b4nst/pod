@@ -28,10 +28,11 @@ jobs:
           name: devenv
       - run: nix profile install nixpkgs#devenv
       - name: Build firmware and bootloaders
-        run: devenv shell -- scripts/build.sh ipodmini2g ipodmini1g
+        run: devenv shell -- scripts/build.sh ipodmini2g ipodmini1g ipod6g
       - name: Simulator smoke test
         run: |
           devenv shell -- scripts/sim-setup.sh build/rockbox
+          devenv shell -- scripts/sim-setup.sh build/rockbox ipod6g
           devenv shell -- scripts/sim-test.sh build/shots/test
       - uses: actions/upload-artifact@v4
         with:
@@ -39,6 +40,7 @@ jobs:
           path: |
             dist/*.zip
             dist/*.ipod
+            dist/*.dfu
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()

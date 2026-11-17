@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Run the headless simulator with a POD_SCRIPT and collect screendumps as PNG.
-#   scripts/sim-shot.sh <outdir> "<script>"
+#   scripts/sim-shot.sh <outdir> "<script>" [target]
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 out=$(mkdir -p "$1" && cd "$1" && pwd); script=$2
+target=${3:-ipodmini2g}
 sim=$root/build/sim
+[ "$target" = ipodmini2g ] || sim=$root/build/sim-$target
 mkdir -p "$out"
 rm -f "$sim"/simdisk/dump*.bmp
 cd "$sim"

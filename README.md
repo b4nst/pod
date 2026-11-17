@@ -1,7 +1,7 @@
 # pod
 
-A stripped-down Rockbox for the iPod mini (1G and 2G) in a cassette futurism
-theme. bΔnst ⧉ design.
+A stripped-down Rockbox for the iPod mini (1G and 2G) and the iPod Classic
+(6G) in a cassette futurism theme. bΔnst ⧉ design.
 
 ![screens](docs/screens.png)
 
@@ -49,6 +49,12 @@ music is picked up at boot.
 3. Install the bootloader once per device with `ipodpatcher`, see
    [Install the bootloader by hand](docs/DEVELOPMENT.md#install-the-bootloader-by-hand).
 4. Eject and reboot.
+
+The iPod Classic (6G) is by hand only: unzip `pod-ipod6g.zip` at its root as
+above, then install the bootloader over DFU with
+`scripts/install-bootloader.sh ipod6g`, see
+[Install the bootloader by hand](docs/DEVELOPMENT.md#install-the-bootloader-by-hand).
+Its controls are the same.
 
 Copy music into `/Music` in disk mode and pod scans it at boot.
 

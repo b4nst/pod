@@ -10,9 +10,12 @@ want=$(tr ' ' '\n' <<<"$script" | grep -c '^D$')
 rm -rf "$out"
 # a run that stopped half way leaves its database and Repeat behind: start
 # from the library on disk
-rm -f "$root"/build/sim/simdisk/.pod/database_* "$root"/build/sim/simdisk/.pod/database_changelog.txt
-sed -i.bak '/^repeat:/d' "$root/build/sim/simdisk/.pod/config.cfg"
-rm -f "$root"/build/sim/simdisk/.pod/config.cfg.bak
+fresh() {
+  rm -f "$1"/simdisk/.pod/database_* "$1"/simdisk/.pod/database_changelog.txt
+  sed -i.bak '/^repeat:/d' "$1/simdisk/.pod/config.cfg"
+  rm -f "$1"/simdisk/.pod/config.cfg.bak
+}
+fresh "$root/build/sim"
 # the first boot scans the library and reboots to commit it, which ends the
 # simulator: get that out of the way
 "$root/scripts/sim-shot.sh" "$out/first-boot" "W1500" >/dev/null
@@ -448,3 +451,20 @@ sim loads-gone-boot "W1500"
 grep '^pod: deck load' "$out/loads-new/sim.log" | tail -1 | grep -q ' 15 tracks' \
   || { echo "the deck did not read the new track" >&2; exit 1; }
 echo "deck loads once ok"
+
+# The Classic (ipod6g, 320x240): the same deck, player and settings, at 300%.
+# Its simulator is the second one sim-setup.sh builds.
+classic=$root/build/sim-ipod6g
+fresh "$classic"
+"$root/scripts/sim-shot.sh" "$out/classic-boot" "W1500" ipod6g >/dev/null
+rm -f "$classic"/simdisk/.pod/.playlist_control* "$classic"/simdisk/.pod/.resume.cfg*
+"$root/scripts/sim-shot.sh" "$out/classic" "$script" ipod6g >/dev/null
+for i in 01 02 03 04; do
+  f=$out/classic/$i.png
+  [ -f "$f" ] || { echo "classic/$i.png is missing" >&2; exit 1; }
+  [ "$(magick "$f" -format '%k' info:)" -gt 1 ] || { echo "classic/$i.png is blank" >&2; exit 1; }
+  [ "$(magick identify -format '%wx%h' "$f")" = 960x720 ] || { echo "classic/$i.png is not 320x240" >&2; exit 1; }
+done
+grep -q '^pod: deck 1/5 Warehouse Sessions' "$out/classic/sim.log" \
+  || { echo "the Classic's deck did not load the library" >&2; exit 1; }
+echo "classic ok"

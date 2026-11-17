@@ -14,8 +14,17 @@ diskutil list                                          # find the iPod, e.g. dis
 scripts/install-bootloader.sh ipodmini1g /dev/disk5
 ```
 
+The Classic's bootloader goes to its NOR flash over DFU, with the iPod in DFU
+mode (hold MENU+SELECT to reset, then SELECT+PLAY, see
+`firmware/rockbox/utils/mks5lboot/README`). It needs sudo on Linux. The Classic takes no disk argument:
+
+```sh
+scripts/install-bootloader.sh ipod6g
+```
+
 `dist/` holds what the build below makes: `pod-<target>.zip`,
-`pod-bootloader-<target>.ipod` and `ipodpatcher-<os>`.
+`pod-bootloader-<target>.ipod`, `pod-installer-ipod6g.dfu`, `mks5lboot` and
+`ipodpatcher`.
 
 ## Build
 
@@ -58,8 +67,11 @@ devenv shell -- scripts/sim-shot.sh build/shots/x "W200 D S W60 D MM W80 D"
 ```
 
 `sim-setup.sh` takes another patched tree as an argument, e.g. `build/rockbox`
-after `build.sh`. `sim-test.sh` is the smoke test CI runs: it walks a few
-screens and fails if a screendump is missing or blank.
+after `build.sh`, and then the target: `ipod6g` builds the Classic's
+simulator in `build/sim-ipod6g` (the default is `ipodmini2g`, in `build/sim`).
+`sim-shot.sh` takes the target as its third argument. `sim-test.sh` is the
+smoke test CI runs: it walks a few screens and fails if a screendump is missing
+or blank, and runs the Classic's deck, player and settings.
 
 `sim-shot.sh` runs the simulator headless and saves screendumps as PNG. The
 script is a list of steps: `W<ticks>` wait (100 ticks = 1 s), `D` screendump,
@@ -188,6 +200,11 @@ switch.
       the player, in the header of the lists. `button_tick` posts a redraw when
       the switch moves, so an idle deck wakes up for it. The search and the EQ
       have no status row and show none.
+  39. the Classic (`ipod6g`, 320x240): boots `/.pod/pod.ipod`, the bootloader
+      shows the Δ splash from power on and starts pod when there is no Apple
+      firmware for MENU or HOLD. The splash is the mini's, centred, and the
+      skins still draw at 138x110. Covers are off (the 2-bit records), and the
+      deck holds 65536 tracks.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod
@@ -197,6 +214,7 @@ switch.
   fonts and runs the generator. Orbitron's license reserves its name for
   modified versions, so the converted fonts are called Deck.
 - `scripts/install-bootloader.sh`: installs the pod bootloader with ipodpatcher
+  (minis) or mks5lboot over DFU (Classic)
 - `scripts/bundle-macos.sh`: wraps the app binary in an ad-hoc signed
   `pod link.app`
 - `firmware/device/README.txt`, `firmware/licenses/`: shipped in `/.pod` with the GPL text and

@@ -41,6 +41,7 @@ in
     perl
     SDL2          # UI simulator
     pkg-config
+    libusb1       # mks5lboot, the Classic's bootloader installer
     imagemagick   # theme asset generation
     python3
     zip
@@ -82,7 +83,7 @@ in
       input.targets = "all";
     };
     "sim:setup" = {
-      exec = "scripts/sim-setup.sh build/rockbox";
+      exec = "scripts/sim-setup.sh build/rockbox && scripts/sim-setup.sh build/rockbox ipod6g";
       after = [ "firmware:build" ];
     };
     "sim:test" = {

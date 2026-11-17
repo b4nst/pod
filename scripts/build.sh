@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Build pod for one or both iPod mini generations.
-#   devenv shell -- scripts/build.sh [ipodmini2g|ipodmini1g|ipodpatcher|all]...
+# Build pod for the iPod mini (both generations) and the iPod Classic.
+#   devenv shell -- scripts/build.sh [ipodmini2g|ipodmini1g|ipod6g|ipodpatcher|all]...
 # Rockbox is the firmware/rockbox submodule; its checked out commit is the
 # base the patches apply to.
 # Output:
 #   dist/pod-<target>.zip             firmware, to unzip at the root of the iPod
 #   dist/pod-bootloader-<target>.ipod bootloader, see scripts/install-bootloader.sh
-#   dist/ipodpatcher                  host tool that installs the bootloader
+#   dist/ipodpatcher                  host tool that installs the bootloader (minis)
+#   dist/pod-installer-ipod6g.dfu     the Classic's bootloader, sent over DFU
+#   dist/mks5lboot                    host tool that sends it
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 targets=${*:-all}
-[ "$targets" = all ] && targets="ipodmini2g ipodmini1g ipodpatcher"
+[ "$targets" = all ] && targets="ipodmini2g ipodmini1g ipod6g ipodpatcher"
 fw=$root/firmware
 upstream=$fw/rockbox
 [ -e "$upstream/.git" ] || git -C "$root" submodule update --init firmware/rockbox
@@ -28,6 +30,9 @@ git -C "$src" checkout -q -b pod "$rev"
 git -C "$src" -c user.name=pod -c user.email=pod@localhost am -q "$fw"/patches/*.patch
 
 mkdir -p "$root/dist"
+# the default macOS deployment target (10.5) predates the IOKit calls the host
+# tools use
+mac=; [ "$(uname)" = Darwin ] && mac=-mmacosx-version-min=12.0
 for t in $targets; do
   [ "$t" = ipodpatcher ] && continue
   b=$root/build/$t
@@ -46,6 +51,14 @@ for t in $targets; do
     make -j"$jobs" >make.log 2>&1 || { tail -30 make.log; exit 1; }
   )
   cp "$b-boot/bootloader-$t.ipod" "$root/dist/pod-bootloader-$t.ipod"
+  if [ "$t" = ipod6g ]; then
+    # the Classic's bootloader goes to the NOR through DFU, not to the disk
+    CFLAGS="-Wall -Wextra $mac" make -C "$src/utils/mks5lboot" >"$root/build/mks5lboot.log" 2>&1 \
+      || { tail -30 "$root/build/mks5lboot.log"; exit 1; }
+    cp "$src/utils/mks5lboot/mks5lboot" "$root/dist/mks5lboot"
+    "$root/dist/mks5lboot" --mkdfu-inst "$root/dist/pod-bootloader-$t.ipod" \
+      "$root/dist/pod-installer-$t.dfu"
+  fi
 
   # the theme needs convbdf, which the build above just compiled
   "$root/scripts/build-theme.sh" "$src" "$root/build/unused-splash.bmp" \
@@ -71,8 +84,6 @@ for t in $targets; do
 done
 
 case " $targets " in *" ipodpatcher "*) ;; *) exit 0 ;; esac
-# the default macOS deployment target (10.5) predates the IOKit calls it uses
-mac=; [ "$(uname)" = Darwin ] && mac=-mmacosx-version-min=12.0
 make -C "$src/utils/ipodpatcher" CFLAGS="-Wall -W $mac" >"$root/build/ipodpatcher.log" 2>&1 \
   || { tail -30 "$root/build/ipodpatcher.log"; exit 1; }
 cp "$src/utils/ipodpatcher/ipodpatcher" "$root/dist/ipodpatcher"
