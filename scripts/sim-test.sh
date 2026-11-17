@@ -528,3 +528,19 @@ for i in 02 03; do
     || { echo "the Classic's pane $i looks like Cover" >&2; exit 1; }
 done
 echo "classic player ok"
+
+# The Classic's search: the strip with the cursor on amber, a row per
+# result, and >> into them on the first one. The queue: two-line rows of 28 px, a
+# picked up track in amber, then dropped.
+"$root/scripts/sim-shot.sh" "$out/classic-search" "W300 2M W100 F8 F8 F3 S W50 D R W20 D S W100" ipod6g >/dev/null
+grep -q '^pod: search "T" 3 0 1' "$out/classic-search/sim.log" || { echo "the Classic's search found the wrong hits" >&2; exit 1; }
+grep -q '^pod: search pick track Chrome Tape' "$out/classic-search/sim.log" || { echo "the Classic's search did not pick the first hit" >&2; exit 1; }
+expect "$out/classic-search/01.png" 152 33 FFA621   # the cursor on T
+expect "$out/classic-search/01.png" 1 70 080C10     # no selection on the strip
+expect "$out/classic-search/02.png" 1 70 FFA621     # the first hit's tab
+"$root/scripts/sim-shot.sh" "$out/classic-queue" "W300 F3 P W200 MM W100 D S F1 W20 D S W50 D" ipod6g >/dev/null
+grep -q '^pod: queue move 0 -> 1' "$out/classic-queue/sim.log" || { echo "the Classic's queue did not move the track" >&2; exit 1; }
+expect "$out/classic-queue/01.png" 1 40 FFA621      # the selected row's tab
+expect "$out/classic-queue/02.png" 300 70 FFA621    # picked up
+expect "$out/classic-queue/03.png" 300 70 19253A    # dropped, the selection bar
+echo "classic search ok"
