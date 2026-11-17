@@ -65,7 +65,8 @@ screens and fails if a screendump is missing or blank.
 script is a list of steps: `W<ticks>` wait (100 ticks = 1 s), `D` screendump,
 `M S P L R` press MENU/SELECT/PLAY/PREV/NEXT, a doubled letter is a long
 press and `2<letter>` a double tap, `F<n>`/`B<n>` turn the wheel (`f<n>`/`b<n>`:
-fast), `U` plugs or unplugs USB and `H` the headphones.
+fast), `U` plugs or unplugs USB, `H` the headphones and `K` flips the HOLD
+switch.
 
 ## Layout
 
@@ -183,6 +184,10 @@ fast), `U` plugs or unplugs USB and `H` the headphones.
       (about 1.6 MB of static RAM). It is not built by pod link: the tagcache
       indexes the deck needs only exist after the iPod's own scan, and Rockbox
       reads tags differently (`canonicalartist`).
+  38. a padlock shows while HOLD is on: under the battery on the deck and in
+      the player, in the header of the lists. `button_tick` posts a redraw when
+      the switch moves, so an idle deck wakes up for it. The search and the EQ
+      have no status row and show none.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod

@@ -181,6 +181,8 @@ SYNC also writes:
 ## Good to know
 
 - Unplugging the headphones pauses, and plugging them back in leaves it paused.
+- A padlock shows under the battery (in the header of the lists) while HOLD
+  is on.
 - pod never starts louder than −20 dB.
 - A track longer than 10 minutes (a podcast, an audiobook, a mix) starts where
   you stopped it. PREV takes it back to the start.

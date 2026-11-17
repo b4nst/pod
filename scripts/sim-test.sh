@@ -48,6 +48,18 @@ for i in 03 04; do
 done
 echo "unplug ok"
 
+# the HOLD switch draws a padlock under the battery on the idle deck, and the
+# deck wakes up for it: on, the corner differs, off, it is as it was
+"$root/scripts/sim-shot.sh" "$out/hold-lock" "W300 D K W50 D K W50 D" >/dev/null
+lockpx() {
+  magick compare -metric AE "$out/hold-lock/$1.png[24x24+324+30]" "$out/hold-lock/$2.png[24x24+324+30]" null: 2>&1 | cut -d' ' -f1
+}
+grep -q '^pod: hold on' "$out/hold-lock/sim.log" || { echo "the hold switch did not go on" >&2; exit 1; }
+grep -q '^pod: hold off' "$out/hold-lock/sim.log" || { echo "the hold switch did not go off" >&2; exit 1; }
+[ "$(lockpx 01 02)" != 0 ] || { echo "no padlock while hold is on" >&2; exit 1; }
+[ "$(lockpx 01 03)" = 0 ] || { echo "the padlock stayed after hold went off" >&2; exit 1; }
+echo "hold lock ok"
+
 # a second press within 300 ms of a short tap is a double tap, a slower one
 # or a hold is not (the simulator logs it, whether or not a keymap maps it).
 # A double MENU is mapped on the deck: it opens the search.

@@ -73,6 +73,21 @@ def battery_image(v):
 save(battery_image(INK), "batt.bmp")
 save(battery_image(PAPER), "batt_inv.bmp")
 
+# the padlock while HOLD is on, 5x7
+LOCK = (".###.", ".#.#.", ".#.#.", "#####", "##.##", "##.##", "#####")
+
+
+def lock_image(v):
+    k = Canvas(5, 7, INK if v == PAPER else PAPER)
+    for y, row in enumerate(LOCK):
+        for x, ch in enumerate(row):
+            if ch == "#":
+                k.set(x, y, v)
+    return k
+
+
+save(lock_image(PAPER), "lock.bmp")
+
 
 def dot_grid(c, x0, y0, x1, y1, step=4):
     for y in range(y0, y1 + 1, step):
@@ -188,9 +203,11 @@ sbs = f"""# pod - library chrome for the iPod mini (bΔnst ⧉ design)
 %xl(Sl,knob.bmp,0,0)
 %Vi(-,0,{LIST_Y},{LCD_W - 4},{LIST_H},1)
 %Lb(item,{LCD_W - 4},{UI_H})
+%xl(K,lock.bmp,109,2)
 %?mp<|%xd(S,%mp)|%xd(S,%mp)|%xd(S,%mp)|%xd(S,%mp)>
+%?mh<%xd(K)|>
 
-%V(13,2,103,{orb.height},2)%Vf({lcd(PAPER)})%Vb({lcd(INK)})
+%V(13,2,94,{orb.height},2)%Vf({lcd(PAPER)})%Vb({lcd(INK)})
 %s%Lt
 %V({BAT_FILL[0]},{BAT_FILL[1]},{BAT_FILL[2]},{BAT_FILL[3]},1)
 %bl(0,0,{BAT_FILL[2]},{BAT_FILL[3]},image,batt_inv.bmp)

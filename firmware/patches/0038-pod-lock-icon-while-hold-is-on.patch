@@ -1,0 +1,132 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Tue, 17 Nov 2026 04:09:20 +0100
+Subject: [PATCH] pod: lock icon while hold is on
+
+---
+ apps/gui/pod_deck.c                     | 17 +++++++++++++++++
+ firmware/drivers/button.c               | 12 ++++++++++++
+ firmware/target/hosted/sdl/button-sdl.c | 17 +++++++++++------
+ 3 files changed, 40 insertions(+), 6 deletions(-)
+
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index a877fd6340b7b28c83fe2ad6f611dffcd5bc4789..6e5a801c72b63a89e2a664a82c06ace790d13c23 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -56,6 +56,7 @@
+ #include "screen_access.h"
+ #include "viewport.h"
+ #include "misc.h"
++#include "button.h"
+ #include "audio.h"
+ #include "playlist.h"
+ #include "powermgmt.h"
+@@ -1020,6 +1021,20 @@ static void draw_dots(struct screen *d, int pane, int n)
+     }
+ }
+ 
++/* a 5x7 padlock: the shackle over the body, with a keyhole */
++static void draw_lock(struct screen *d, int x, int y)
++{
++    static const char lock[7][6] = {
++        ".###.", ".#.#.", ".#.#.", "#####", "##.##", "##.##", "#####",
++    };
++
++    d->set_foreground(POD_INK);
++    for (int j = 0; j < 7; j++)
++        for (int i = 0; i < 5; i++)
++            if (lock[j][i] == '#')
++                d->drawpixel(x + i, y + j);
++}
++
+ /* The battery, the sleep timer and the dots of the pane shown (of n). In
+  * browse mode a cassette says whether something plays and the timer is a Z,
+  * in play mode the timer has its time left, beside the battery. */
+@@ -1047,6 +1062,8 @@ static void draw_status(struct screen *d, int font, bool play, int pane, int n)
+ 
+     if (!play && (status & AUDIO_STATUS_PLAY))
+         draw_mini_cassette(d, 96, 0, status & AUDIO_STATUS_PAUSE);
++    if (button_hold())
++        draw_lock(d, 110, play ? 9 : 11);
+     if (n > 1)
+         draw_dots(d, pane, n);
+ }
+diff --git a/firmware/drivers/button.c b/firmware/drivers/button.c
+index cd424d42454b4aee4e362425c8ce95b25a1a8e80..f27c179a527ed63d44499ddd4ad3fa3a2ff569c2 100644
+--- a/firmware/drivers/button.c
++++ b/firmware/drivers/button.c
+@@ -210,6 +210,9 @@ static void button_tick(void)
+ #ifdef HAVE_REMOTE_LCD
+     static bool skip_remote_release = false;
+ #endif
++#endif
++#ifdef HAS_BUTTON_HOLD
++    static bool hold = false;
+ #endif
+     int diff;
+     int btn;
+@@ -217,6 +220,15 @@ static void button_tick(void)
+ 
+     button_remote_post();
+ 
++#ifdef HAS_BUTTON_HOLD
++    /* wake the screens: the padlock follows the switch */
++    if (button_hold() != hold)
++    {
++        hold = !hold;
++        button_queue_try_post(BUTTON_REDRAW, 0);
++    }
++#endif
++
+     btn = button_read(&data);
+ 
+     check_audio_peripheral_state();
+diff --git a/firmware/target/hosted/sdl/button-sdl.c b/firmware/target/hosted/sdl/button-sdl.c
+index 0351aa9f694682d9dc89a329b9f3b618acb2c845..b907a704b8bfce8134dfcff78a5d9f356275595d 100644
+--- a/firmware/target/hosted/sdl/button-sdl.c
++++ b/firmware/target/hosted/sdl/button-sdl.c
+@@ -657,8 +657,8 @@ static void button_event(int key, bool pressed)
+ }
+ #ifdef SIMULATOR
+ /* Scripted input for headless UI checks.  POD_SCRIPT is a space separated
+- * list of steps:  W<ticks> wait, D screendump, X exit, and button steps
+- * M S P L R (menu, select, play, left, right; doubled = long press),
++ * list of steps:  W<ticks> wait, D screendump, X exit, K hold switch, and
++ * button steps M S P L R (menu, select, play, left, right; doubled = long press),
+  * F<n>/B<n> wheel forward/back n clicks, f<n>/b<n> the same at a fast turn
+  * (720 deg/s), and 2<letter> a double tap. */
+ static void script_step(void)
+@@ -719,6 +719,11 @@ static void script_step(void)
+         case 'W': next_tick = current_tick + n; return;
+         case 'D': sim_trigger_screendump(); next_tick = current_tick + HZ; return;
+         case 'X': exit(EXIT_SUCCESS);
++        case 'K':
++            hold_button_state = !hold_button_state;
++            fprintf(stderr, "pod: hold %s\n", hold_button_state ? "on" : "off");
++            next_tick = current_tick + HZ;
++            return;
+         case 'U':
+         {
+             static bool usb = false;
+@@ -779,6 +784,10 @@ int button_read_device(int* data)
+ int button_read_device(void)
+ {
+ #endif
++#ifdef SIMULATOR
++    /* before the hold check, so a K step can switch it off again */
++    script_step();
++#endif
+ #ifdef HAS_BUTTON_HOLD
+     int hold_button = button_hold();
+ 
+@@ -796,10 +805,6 @@ int button_read_device(void)
+         return BUTTON_NONE;
+     else
+ #endif
+-
+-#ifdef SIMULATOR
+-    script_step();
+-#endif
+     return btn;
+ }
+ 
