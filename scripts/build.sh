@@ -61,8 +61,8 @@ for t in $targets; do
   fi
 
   # the theme needs convbdf, which the build above just compiled
-  "$root/scripts/build-theme.sh" "$src" "$root/build/unused-splash.bmp" \
-    "$root/build/unused-usb.bmp" >/dev/null
+  "$root/scripts/build-theme.sh" "$src" "$t" "$root/build/unused-splash.bmp" \
+    "$root/build/unused-usb.bmp" "$root/build/unused-podlogo.h" >/dev/null
 
   stage=$b/stage
   rm -rf "$stage"; mkdir -p "$stage"

@@ -59,6 +59,8 @@ in
   env = {
     JETBRAINS_MONO_DIR = "${pkgs.jetbrains-mono}/share/fonts/truetype";
     ORBITRON_DIR = "${pkgs.orbitron}/share/fonts/truetype";
+    # the Classic's fonts: the BDFs are only in the source tarball
+    TERMINUS_SRC = "${pkgs.terminus_font.src}";
   } // lib.optionalAttrs pkgs.stdenv.isLinux {
     LD_LIBRARY_PATH = lib.makeLibraryPath appLibs;
   };

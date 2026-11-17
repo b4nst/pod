@@ -235,3 +235,49 @@ def load_pgm_levels(path):
             for x in range(w):
                 c.px[y][x] = min(3, int(int(vals[y * w + x]) / mx * 3 + 0.5))
     return c
+
+
+def rgb(v):
+    """A pixel as an (r, g, b) tuple, from a tuple or a hex string."""
+    if isinstance(v, str):
+        return tuple(int(v[i:i + 2], 16) for i in (0, 2, 4))
+    return v
+
+
+class RGBCanvas(Canvas):
+    """Colour canvas for the Classic: pixels are (r, g, b) tuples or hex
+    strings, and are written to the BMP as they are."""
+
+    MAGENTA = "FF00FF"   # Rockbox's transparent colour
+
+    def __init__(self, w, h, fill="000000"):
+        super().__init__(w, h, rgb(fill))
+
+    def set(self, x, y, v):
+        if 0 <= x < self.w and 0 <= y < self.h:
+            self.px[y][x] = rgb(v)
+
+    def crop(self, x, y, w, h):
+        c = RGBCanvas(w, h)
+        for yy in range(h):
+            for xx in range(w):
+                c.px[yy][xx] = self.px[y + yy][x + xx]
+        return c
+
+    def blit(self, other, x, y, transparent=None):
+        super().blit(other, x, y, rgb(transparent) if transparent else None)
+
+    def save_bmp(self, path):
+        row = (self.w * 3 + 3) & ~3
+        data = bytearray()
+        for y in range(self.h - 1, -1, -1):
+            line = bytearray()
+            for x in range(self.w):
+                r, g, b = self.px[y][x]
+                line += bytes((b, g, r))
+            data += line + b"\0" * (row - len(line))
+        hdr = struct.pack("<2sIHHI", b"BM", 54 + len(data), 0, 0, 54)
+        info = struct.pack("<IiiHHIIiiII", 40, self.w, self.h, 1, 24, 0,
+                           len(data), 2835, 2835, 0, 0)
+        with open(path, "wb") as f:
+            f.write(hdr + info + data)

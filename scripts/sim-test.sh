@@ -468,3 +468,26 @@ done
 grep -q '^pod: deck 1/5 Warehouse Sessions' "$out/classic/sim.log" \
   || { echo "the Classic's deck did not load the library" >&2; exit 1; }
 echo "classic ok"
+
+# The Classic's autoreverse look: the colours of the #68 table at a few
+# pixels of the settings list (second row selected), the USB screen and the
+# splash, which is a bitmap in the source tree. The LCD keeps 5, 6 and 5 bits
+# of red, green and blue, so the dumps hold the colours as it rounds them.
+px() { magick "$1" -format '%[hex:p{'$(($2 * 3 + 1))','$(($3 * 3 + 1))'}]' info: | cut -c1-6; }
+expect() { [ "$(px "$1" "$2" "$3")" = "$4" ] || { echo "$1 at $2,$3 is $(px "$1" "$2" "$3"), not $4" >&2; exit 1; }; }
+"$root/scripts/sim-shot.sh" "$out/classic-settings" "W400 MM W100 D F1 W30 D" ipod6g >/dev/null
+f=$out/classic-settings/02.png
+expect "$f" 300 120 080C10   # panel
+expect "$f" 10 24 F7B229     # stripe 1
+expect "$f" 10 30 7B1C3A     # stripe 4
+expect "$f" 1 70 FFA629      # the selected row's tab
+expect "$f" 100 10 101019    # header band
+"$root/scripts/sim-shot.sh" "$out/classic-usb" "W400 U W200 D" ipod6g >/dev/null
+f=$out/classic-usb/01.png
+expect "$f" 300 120 080C10
+expect "$f" 150 10 101019
+src=$root/build/rockbox; [ -d "$src" ] || src=$root/build/src
+splash=$src/apps/bitmaps/native/rockboxlogo.320x240x16.bmp
+[ "$(magick "$splash" -format '%k' info:)" -gt 1 ] || { echo "the splash is blank" >&2; exit 1; }
+[ "$(magick identify -format '%wx%h' "$splash")" = 320x240 ] || { echo "the splash is not 320x240" >&2; exit 1; }
+echo "classic theme ok"

@@ -202,17 +202,29 @@ switch.
       have no status row and show none.
   39. the Classic (`ipod6g`, 320x240): boots `/.pod/pod.ipod`, the bootloader
       shows the Δ splash from power on and starts pod when there is no Apple
-      firmware for MENU or HOLD. The splash is the mini's, centred, and the
-      skins still draw at 138x110. Covers are off (the 2-bit records), and the
+      firmware for MENU or HOLD. Covers are off (the 2-bit records), and the
       deck holds 65536 tracks.
+  40. the Classic's autoreverse theme: a full screen splash and USB screen at
+      320x240 (the bootloader draws its splash from runs of colours in
+      `podlogo.h`), the letter box and the EQ in colour. The EQ has a second
+      layout under `LCD_WIDTH >= 320`. The deck and the player are still the
+      mini's, on a white panel, until they are laid out for the screen.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod
   link's cassette is ported from. Levels are ink (0 = bare panel, 3 = full ink): dark on light,
   because a dark background shows up as a frame on the backlit LCD.
-- `scripts/build-theme.sh`: rasterizes JetBrains Mono and Orbitron to Rockbox
-  fonts and runs the generator. Orbitron's license reserves its name for
-  modified versions, so the converted fonts are called Deck.
+- `firmware/tools/mktheme6g.py`: the same for the Classic, in colour (`RGBCanvas`
+  in `canvas.py`), with autoreverse's palette and layout: header and footer
+  bands, four stripes kicking up to the right, amber readouts, teal status.
+  It also writes `pod.cfg` and `podlogo.h`.
+- `scripts/build-theme.sh <src> <target>`: rasterizes JetBrains Mono and
+  Orbitron to Rockbox fonts and runs the generator for the target. Orbitron's
+  license reserves its name for modified versions, so the converted fonts are
+  called Deck. For the Classic it also converts Terminus (the BDFs in
+  `TERMINUS_SRC`, in 12, 14 bold, 16, 18 bold and 32 bold) as Tape, for the same
+  reason. The 16 is padded to the 24 px rows so a list's selection bar fills
+  them.
 - `scripts/install-bootloader.sh`: installs the pod bootloader with ipodpatcher
   (minis) or mks5lboot over DFU (Classic)
 - `scripts/bundle-macos.sh`: wraps the app binary in an ad-hoc signed
