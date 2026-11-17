@@ -505,3 +505,26 @@ expect "$f" 300 150 080C10   # panel
 [ "$(magick compare -metric AE "$out/classic-deck/01.png[336x336+264+372]" "$out/classic-deck/02.png[336x336+264+372]" null: 2>&1 | cut -d' ' -f1)" != 0 ] \
   || { echo "the Classic's cover did not replace the card" >&2; exit 1; }
 echo "classic deck ok"
+
+# The Classic's player: the panes, the track band, the progress in the
+# stripes, the footer, and the cassette, whose label is striped while it
+# plays and grey on pause.
+"$root/scripts/sim-shot.sh" "$out/classic-player" "W300 F3 P W200 D S W20 D S W20 D P W50 D" ipod6g >/dev/null
+for i in 01 02 03 04; do
+  [ -f "$out/classic-player/$i.png" ] || { echo "classic-player/$i.png is missing" >&2; exit 1; }
+done
+grep -q '^pod: player pane 2' "$out/classic-player/sim.log" || { echo "the Classic's player did not step through its panes" >&2; exit 1; }
+grep -q '^pod: up next Low Orbit' "$out/classic-player/sim.log" || { echo "the Classic's Up next is empty" >&2; exit 1; }
+f=$out/classic-player/01.png
+expect "$f" 100 175 101019   # track band
+expect "$f" 300 233 101019   # footer
+expect "$f" 21 222 F7B629    # progress, stripe 1
+expect "$f" 21 225 7B1C3A    # progress, stripe 4
+expect "$f" 300 222 21283A   # the rest of the tape
+expect "$f" 276 191 F7B629   # the cassette's label
+expect "$out/classic-player/04.png" 276 191 5A6173   # grey on pause
+for i in 02 03; do
+  [ "$(magick compare -metric AE "$f[960x336+0+144]" "$out/classic-player/$i.png[960x336+0+144]" null: 2>&1 | cut -d' ' -f1)" != 0 ] \
+    || { echo "the Classic's pane $i looks like Cover" >&2; exit 1; }
+done
+echo "classic player ok"

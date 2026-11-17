@@ -1,0 +1,828 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Tue, 17 Nov 2026 17:05:30 +0100
+Subject: [PATCH] pod: the Classic's player at 320x240
+
+---
+ apps/gui/pod_deck.c | 514 +++++++++++++++++++++++++++++++++++++++-----
+ apps/gui/pod_deck.h |   9 +
+ apps/gui/wps.c      |   3 +-
+ 3 files changed, 466 insertions(+), 60 deletions(-)
+
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index 5211b6cb50c23199650fe45ac0251f2401a0e364..518356bc7642fef7014d823516a9e770857405b3 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -87,6 +87,7 @@
+  * for what is lit and teal for the status */
+ #define FONT_VALUE      FONT_DIR "/14-Tape-Bold.fnt"
+ #define FONT_TINY       FONT_DIR "/12-Tape.fnt"
++#define FONT_BAND       FONT_DIR "/18-Tape-Bold.fnt"
+ 
+ #define POD_PAPER       POD6_PANEL
+ #define POD_FAINT       POD6_RULE
+@@ -196,7 +197,13 @@
+ #define PANE_N          3
+ #define PANE_BACK       (HZ * 5)    /* back to the first after the last press */
+ #define STAR_W          8
++#if LCD_WIDTH >= 320
++#define STAR_BIG        34      /* a large star and its gap, the player */
++#define STAR_SCALE      4
++#else
+ #define STAR_BIG        17      /* a large star and its gap, the player */
++#define STAR_SCALE      2
++#endif
+ 
+ /* a track: the album it belongs to is told by a hash of the whole album and
+  * artist, the text is only kept for the albums */
+@@ -252,6 +259,9 @@ static const unsigned char corner_cos[BAR_A] = { 64, 62, 55, 45, 32, 17, 0 };
+ /* the deck stays loaded for the player, and so do the fonts */
+ static struct deck deck;
+ static int f_value = -1, f_tiny = -1;
++#if LCD_WIDTH >= 320
++static int f_band = -1;         /* the player's track band */
++#endif
+ 
+ #if LCD_WIDTH >= 320
+ /* what the first track of the album shown says, read on a rest of the deck:
+@@ -763,6 +773,9 @@ static void load_fonts(void)
+     {
+         f_value = load_font(FONT_VALUE);
+         f_tiny = load_font(FONT_TINY);
++#if LCD_WIDTH >= 320
++        f_band = load_font(FONT_BAND);
++#endif
+     }
+ }
+ 
+@@ -1170,7 +1183,7 @@ static void draw_dots(struct screen *d, int pane, int n)
+     {
+ #if LCD_WIDTH >= 320
+         d->set_foreground(i == pane ? POD_AMBER : POD_MID);
+-        d->fillrect(132 + i * 8, 10, 4, 4);
++        d->fillrect(136 + i * 8, 10, 4, 4);
+ #else
+         d->set_foreground(i == pane ? POD_INK : POD_MID);
+         d->fillrect(136 - (n - i) * 4 + 2, 11, 2, 2);
+@@ -1192,6 +1205,36 @@ static void draw_lock(struct screen *d, int x, int y)
+                 d->drawpixel(x + i, y + j);
+ }
+ 
++#if LCD_WIDTH >= 320
++/* the play modes that are on, as small teal tags after the title: shuffled,
++ * Repeat all or one, Infinite */
++static void draw_mode_tags(struct screen *d, int font)
++{
++    const char *tags[3];
++    int n = 0, x = 62;
++
++    if (playlist_get_seed(NULL))
++        tags[n++] = "SHF";
++    if (global_settings.repeat_mode == REPEAT_ONE)
++        tags[n++] = "RPT1";
++    else if (global_settings.repeat_mode != REPEAT_OFF)
++        tags[n++] = "RPT";
++    if (global_settings.pod_infinite)
++        tags[n++] = "INF";
++    d->setfont(font);
++    for (int i = 0; i < n; i++)
++    {
++        int w = text_width(font, tags[i]) + 2;
++
++        d->set_foreground(POD_TEAL);
++        d->fillrect(x, 6, w, 12);
++        d->set_foreground(POD6_BAND);
++        d->putsxy(x + 1, 6, tags[i]);
++        x += w + 2;
++    }
++}
++#endif
++
+ /* The battery, the sleep timer and the dots of the pane shown (of n). In
+  * browse mode a cassette says whether something plays and the timer is a Z,
+  * in play mode the timer has its time left, beside the battery. */
+@@ -1224,12 +1267,14 @@ static void draw_status(struct screen *d, int font, bool play, int pane, int n)
+     if (pod_sleep_left() != POD_SLEEP_OFF)
+     {
+         d->set_foreground(POD_TEAL);
+-        d->putsxy(158, 6, sleep_text(buf, sizeof(buf)));
++        d->putsxy(160, 6, sleep_text(buf, sizeof(buf)));
+     }
+     if (n > 1)
+         draw_dots(d, pane, n);
+     if (!play && (status & AUDIO_STATUS_PLAY))
+         draw_header_cassette(d, 100, 5, status & AUDIO_STATUS_PAUSE);
++    if (play)
++        draw_mode_tags(d, font);
+ #else
+     /* battery */
+     d->set_foreground(POD_INK);
+@@ -1841,26 +1886,46 @@ done:
+ 
+ /* ------------------------------------------------------------ play mode */
+ 
+-/* slanted 7-segment digits for the counter: segments a-g are bits 0-6 */
++/* slanted 7-segment digits for the counter: segments a-g are bits 0-6. A
++ * digit is SEG_W x SEG_H, or scale times that. */
+ #define SEG_W           8
+ #define SEG_H           14
+ #define SEG_STEP        10
+ #define SEG_MINUS       0x40
+ #define VOLUME_SHOWN    (HZ * 3 / 2)    /* the volume, after a turn */
+-#define REMAIN_X        52              /* the time left, SEEK */
+ #if LCD_WIDTH >= 320
+-#define PLAY_COVER_Y    62
+-#define BAND_X          32      /* the track band */
+-#define BAND_Y          178
+-#define BAND_W          284
+-#define BAND_H          20
+-#define COUNTER_X       176     /* the counter's viewport */
+-#define COUNTER_Y       200
++/* the panes under the bargraph, then from x 20 to the right edge the track
++ * band, the counter's viewport with the cassette, the progress and the
++ * footer */
++#define PLAY_Y          48
++#define PLAY_X          20
++#define PLAY_COVER_Y    PLAY_Y
++#define PLAY_INFO_X     (PANE_X + POD_COVER_LARGE + 8)  /* beside the cover */
++#define NEXT_ROW        18
++#define BAND_Y          164
++#define BAND_H          22
++#define COUNTER_X       PLAY_X  /* the counter's viewport */
++#define COUNTER_Y       188
++#define COUNTER_H       32
++#define COUNTER_S       2       /* the elapsed time, twice the mini's */
++#define REMAIN_X        112     /* the time left and SEEK; the time ends 8
++                                 * px before */
++#define CASSETTE_X      242     /* the 56x32 cassette, in the counter */
++#define CASSETTE_Y      0
++#define PROG_Y          222     /* four stripes of 1 px */
++#define FOOT_Y          226
++#define FOOT_TEXT_X     (PANE_X + 30)
++#define HEART_S         3       /* the heart of a love, 3 px a dot */
++#define HEART_BG        POD6_BAND
++#define POD_TAPE        LCD_RGBPACK(0x6b, 0x45, 0x2c)
+ #else
+ #define PLAY_COVER_Y    12
+-#endif
++#define REMAIN_X        52              /* the time left, SEEK */
+ #define CASSETTE_X      105             /* the 30x17 cassette, in the counter */
+ #define CASSETTE_Y      16
++#define HEART_S         1
++#define HEART_BG        POD_PAPER
++#endif
+ 
+ static const unsigned char seg_digits[10] = {
+     0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f,
+@@ -1919,12 +1984,9 @@ static void draw_play_bargraph(struct screen *d, const struct mp3entry *id3,
+                                     / id3->length : 0);
+ }
+ 
+-/* the big heart: filled after a love, an outline after an unlove */
+-static void draw_heart(struct screen *d, int x, int y, bool hollow)
++/* the heart's dots, s px each: filled, or its outline */
++static void heart_dots(struct screen *d, int x, int y, int s, bool hollow)
+ {
+-    d->set_foreground(POD_PAPER);
+-    d->fillrect(x, y, 15, 14);
+-    d->set_foreground(POD_INK);
+     for (int j = 0; j < 10; j++)
+         for (int i = 0; i < 11; i++)
+         {
+@@ -1936,17 +1998,92 @@ static void draw_heart(struct screen *d, int x, int y, bool hollow)
+                    || heart_rows[j][i - 1] != '#' || heart_rows[j][i + 1] != '#'
+                    || heart_rows[j - 1][i] != '#' || heart_rows[j + 1][i] != '#';
+             if (edge || !hollow)
+-                d->drawpixel(x + 2 + i, y + 2 + j);
++                d->fillrect(x + i * s, y + j * s, s, s);
+         }
+ }
+ 
++/* the big heart: filled after a love, an outline after an unlove */
++static void draw_heart(struct screen *d, int x, int y, bool hollow)
++{
++    d->set_foreground(HEART_BG);
++    d->fillrect(x, y, 15 * HEART_S, 14 * HEART_S);
++    d->set_foreground(LCD_WIDTH >= 320 ? POD_AMBER : POD_INK);
++    heart_dots(d, x + 2 * HEART_S, y + 2 * HEART_S, HEART_S, hollow);
++}
++
++#if LCD_WIDTH >= 320
++/* Cover: the 112x112 cover or its card, and beside it the artist, the
++ * album, the year and genre and the codec, as the skin's %fc, %fk and %fb
++ * say it. The heart of a love goes over the cover. */
++static void draw_play_cover(struct screen *d, const struct wps_state *state,
++                            const struct mp3entry *id3,
++                            const struct deck_album *t)
++{
++    char buf[48];
++    int w = LCD_WIDTH - PLAY_INFO_X - 4;
++
++    draw_cover(d, t, PANE_X, PLAY_COVER_Y, POD_COVER_LARGE, f_value);
++    d->set_foreground(POD_AMBER);
++    d->setfont(FONT_UI);
++    tape_text(d, FONT_UI, PLAY_INFO_X, PLAY_Y, w, album_sub(&deck, t), false);
++    d->set_foreground(POD_INK);
++    wrap_name(d, FONT_UI, PLAY_INFO_X, PLAY_Y + 20, w, t->album, false, 18);
++    if (id3->year && id3->genre_string)
++        snprintf(buf, sizeof(buf), "%d \xc2\xb7 %s", id3->year,
++                 id3->genre_string);
++    else if (id3->year)
++        snprintf(buf, sizeof(buf), "%d", id3->year);
++    else
++        strmemccpy(buf, id3->genre_string ? id3->genre_string : "",
++                   sizeof(buf));
++    d->setfont(f_tiny);
++    d->set_foreground(POD_TEXT2);
++    tape_text(d, f_tiny, PLAY_INFO_X, PLAY_Y + 66, w, buf, false);
++    snprintf(buf, sizeof(buf), "%s \xc2\xb7 %ld.%ld kHz \xc2\xb7 %d kbps",
++             audio_formats[id3->codectype].label, id3->frequency / 1000,
++             id3->frequency % 1000 / 100, id3->bitrate);
++    d->set_foreground(POD_TEAL);
++    tape_text(d, f_tiny, PLAY_INFO_X, PLAY_Y + 82, w, buf, false);
++    if (state->love_flash)
++        draw_heart(d, PANE_X + (POD_COVER_LARGE - 15 * HEART_S) / 2,
++                   PLAY_COVER_Y + (POD_COVER_LARGE - 14 * HEART_S) / 2,
++                   state->love_flash == 2);
++}
++
++/* Rating: five large stars in half steps with their value, and under them
++ * how often it was played and how long ago */
++static void draw_play_rating(struct screen *d, const struct mp3entry *id3)
++{
++    char buf[32];
++
++    for (int i = 0; i < 5; i++)
++        draw_star(d, PANE_X + i * STAR_BIG, PLAY_Y + 4,
++                  id3->rating >= 2 * i + 2 ? 2 : id3->rating == 2 * i + 1 ? 1 : 0,
++                  STAR_SCALE);
++    snprintf(buf, sizeof(buf), "%d.%d", id3->rating / 2, id3->rating % 2 * 5);
++    d->setfont(f_value);
++    d->set_foreground(id3->rating ? POD_AMBER : POD_MID);
++    d->putsxy(PANE_X + 5 * STAR_BIG + 4, PLAY_Y + 11, buf);
++    d->setfont(FONT_UI);
++    d->set_foreground(POD_INK);
++    snprintf(buf, sizeof(buf), "PLAYED %ld", id3->playcount);
++    d->putsxy(PANE_X, PLAY_Y + 48, buf);
++    /* the tagcache only keeps a counter of the plays of the library */
++    snprintf(buf, sizeof(buf), "LAST %ld plays ago",
++             tagcache_get_serial() - id3->lastplayed);
++    d->set_foreground(POD_TEXT2);
++    d->putsxy(PANE_X, PLAY_Y + 68, id3->lastplayed ? buf : "LAST never");
++}
++#else
+ /* Cover: the 44x44 cover, the artist and the album beside it, and the heart
+  * of a love over it */
+ static void draw_play_cover(struct screen *d, const struct wps_state *state,
++                            const struct mp3entry *id3,
+                             const struct deck_album *t)
+ {
+     int x = PANE_X + POD_COVER_LARGE + 4;
+ 
++    (void)id3;
+     draw_cover(d, t, PANE_X, PLAY_COVER_Y, POD_COVER_LARGE, f_value);
+     d->setfont(FONT_UI);
+     d->set_foreground(POD_INK);
+@@ -1969,22 +2106,37 @@ static void draw_play_rating(struct screen *d, const struct mp3entry *id3)
+     for (int i = 0; i < 5; i++)
+         draw_star(d, PANE_X + i * STAR_BIG, PANE_Y + 2,
+                   id3->rating >= 2 * i + 2 ? 2 : id3->rating == 2 * i + 1 ? 1 : 0,
+-                  2);
++                  STAR_SCALE);
+     snprintf(buf, sizeof(buf), "played %ld", id3->playcount);
+     pane_text(d, 2, POD_INK, buf);
+ }
++#endif
+ 
+ /* Up next, read again only when the playlist or the list moved: it is drawn
+  * every 200 ms and a read looks the tagcache up, and wakes the disk. */
+ static struct {
+     int here, top, amount;      /* what the rows were read for */
+-    char rows[PANE_ROWS][40];
+-} next = { -1, -1, -1, { "" } };
++    char rows[POD_NEXT_ROWS][40];
++#if LCD_WIDTH >= 320
++    int secs[POD_NEXT_ROWS];
++#endif
++} next = { .here = -1, .top = -1, .amount = -1 };
++
++#if LCD_WIDTH >= 320
++/* the footer's next track, read again when the playlist moved */
++static struct {
++    int here, amount;
++    char text[64];
++} foot = { -1, -1, "" };
++#endif
+ 
+ /* forget the rows: a new playlist can keep the same index and length */
+ void pod_deck_next_reset(void)
+ {
+     next.here = -1;
++#if LCD_WIDTH >= 320
++    foot.here = -1;
++#endif
+ }
+ 
+ /* the path of the track `steps` after the playing one, as the list runs
+@@ -2010,7 +2162,7 @@ bool pod_deck_next_path(int steps, char *path, size_t size)
+     return true;
+ }
+ 
+-/* the tracks after the playing one, each "NN Title" */
++/* the tracks after the playing one, each "NN Title" (and its length) */
+ static void load_next(int top)
+ {
+     struct tagcache_search tcs;
+@@ -2019,9 +2171,12 @@ static void load_next(int top)
+     next.here = playlist_get_display_index() - 1;
+     next.top = top;
+     next.amount = playlist_amount();
+-    for (int r = 0; r < PANE_ROWS; r++)
++    for (int r = 0; r < POD_NEXT_ROWS; r++)
+     {
+         next.rows[r][0] = '\0';
++#if LCD_WIDTH >= 320
++        next.secs[r] = 0;
++#endif
+         if (!pod_deck_next_path(top + 1 + r, path, sizeof(path)))
+             continue;
+         title[0] = '\0';
+@@ -2029,6 +2184,10 @@ static void load_next(int top)
+         {
+             tagcache_retrieve(&tcs, tcs.idx_id, tag_title, title,
+                               sizeof(title));
++#if LCD_WIDTH >= 320
++            next.secs[r] = MAX(0, tagcache_get_numeric(&tcs, tag_length))
++                           / 1000;
++#endif
+             tagcache_search_finish(&tcs);
+         }
+         if (!title[0])
+@@ -2049,29 +2208,145 @@ static void draw_play_next(struct screen *d, int top)
+     if (next.here != playlist_get_display_index() - 1 || next.top != top
+         || next.amount != playlist_amount())
+         load_next(top);
++#if LCD_WIDTH >= 320
++    /* a row each NEXT_ROW px, its length on the right */
++    d->setfont(FONT_UI);
++    if (!next.rows[0][0])
++    {
++        d->set_foreground(POD_TEXT3);
++        d->putsxy(PANE_X, PLAY_Y, "end of queue");
++    }
++    for (int r = 0; r < POD_NEXT_ROWS && next.rows[r][0]; r++)
++    {
++        char len[24];
++        int y = PLAY_Y + r * NEXT_ROW, lw;
++
++        snprintf(len, sizeof(len), "%d:%02d", next.secs[r] / 60,
++                 next.secs[r] % 60);
++        lw = text_width(FONT_UI, len);
++        d->set_foreground(POD_TEXT3);
++        d->putsxy(LCD_WIDTH - 4 - lw, y, len);
++        d->set_foreground(POD_INK);
++        tape_text(d, FONT_UI, PANE_X, y, LCD_WIDTH - 12 - lw - PANE_X,
++                  next.rows[r], false);
++    }
++#else
+     if (!next.rows[0][0])
+         pane_text(d, 0, POD_INK, "end of queue");
+-    for (int r = 0; r < PANE_ROWS && next.rows[r][0]; r++)
++    for (int r = 0; r < POD_NEXT_ROWS && next.rows[r][0]; r++)
+         pane_text(d, r, POD_INK, next.rows[r]);
++#endif
+ }
+ 
+ #if LCD_WIDTH >= 320
+-/* the track: its number and title on a band under the panes */
++/* the track band: the track's place in the queue and its title in 18b, and
++ * a heart when it is loved */
+ static void draw_play_band(struct screen *d, const struct mp3entry *id3)
+ {
+-    char buf[MAX_PATH + 4];
++    char buf[24];
+     const char *title = id3->title ? id3->title
+                         : strrchr(id3->path, '/') ? strrchr(id3->path, '/') + 1
+                                                   : id3->path;
++    int x = PANE_X, right = LCD_WIDTH - 8;
++    int y = BAND_Y + (BAND_H - font_get(f_band)->height) / 2;
+ 
+     d->set_foreground(POD6_BAND);
+-    d->fillrect(BAND_X, BAND_Y, BAND_W, BAND_H);
++    d->fillrect(PLAY_X, BAND_Y, LCD_WIDTH - PLAY_X, BAND_H);
++    d->setfont(f_band);
++    snprintf(buf, sizeof(buf), "%02d/%02d", playlist_get_display_index(),
++             playlist_amount());
++    d->set_foreground(POD_AMBER);
++    d->putsxy(x, y, buf);
++    x += text_width(f_band, buf) + 10;
++    if (id3->rating == 10)
++    {
++        right -= 11;
++        heart_dots(d, right, BAND_Y + (BAND_H - 10) / 2, 1, false);
++        right -= 8;
++    }
+     d->set_foreground(POD_INK);
+-    d->setfont(f_value);
+-    snprintf(buf, sizeof(buf), "%02d %s", playlist_get_display_index(), title);
+-    tape_text(d, f_value, BAND_X + 4,
+-              BAND_Y + (BAND_H - font_get(f_value)->height) / 2, BAND_W - 8,
+-              buf, false);
++    tape_text(d, f_band, x, y, right - x, title, false);
++}
++
++/* the tape: four stripes of 1 px, lit up to the cue position */
++static void draw_play_progress(struct screen *d, const struct mp3entry *id3,
++                               unsigned long elapsed)
++{
++    int w = LCD_WIDTH - PLAY_X;
++    int lit = id3->length ? (unsigned long long)MIN(elapsed, id3->length) * w
++                            / id3->length : 0;
++
++    for (int i = 0; i < 4; i++)
++    {
++        d->set_foreground(POD_HATCH(i));
++        d->fillrect(PLAY_X, PROG_Y + i, lit, 1);
++        d->set_foreground(POD_UNLIT);
++        d->fillrect(PLAY_X + lit, PROG_Y + i, w - lit, 1);
++    }
++}
++
++/* "title · artist" of the next track, or nothing past the last one */
++static void load_foot(void)
++{
++    struct tagcache_search tcs;
++    char path[MAX_PATH], title[MAX_PATH], artist[MAX_PATH];
++
++    foot.here = playlist_get_display_index() - 1;
++    foot.amount = playlist_amount();
++    foot.text[0] = '\0';
++    if (!pod_deck_next_path(1, path, sizeof(path)))
++        return;
++    title[0] = artist[0] = '\0';
++    if (tagcache_find_index(&tcs, path))
++    {
++        tagcache_retrieve(&tcs, tcs.idx_id, tag_title, title, sizeof(title));
++        tagcache_retrieve(&tcs, tcs.idx_id, tag_artist, artist,
++                          sizeof(artist));
++        tagcache_search_finish(&tcs);
++    }
++    if (!title[0])
++        strmemccpy(title, strrchr(path, '/') ? strrchr(path, '/') + 1 : path,
++                   sizeof(title));
++    if (artist[0] && strcmp(artist, UNTAGGED))
++        snprintf(foot.text, sizeof(foot.text), "%.38s \xc2\xb7 %.20s", title,
++                 artist);
++    else
++        strmemccpy(foot.text, title, sizeof(foot.text));
++}
++
++/* The footer: NEXT and the next track, or VOL and a bar of the stripes
++ * while the volume changes */
++static void draw_play_foot(struct screen *d)
++{
++    int y = FOOT_Y + (LCD_HEIGHT - FOOT_Y - font_get(f_tiny)->height) / 2;
++
++    d->set_foreground(POD6_BAND);
++    d->fillrect(PLAY_X, FOOT_Y, LCD_WIDTH - PLAY_X, LCD_HEIGHT - FOOT_Y);
++    d->setfont(f_tiny);
++    d->set_foreground(POD_AMBER);
++    if (volume_shown())
++    {
++        int min = sound_min(SOUND_VOLUME), max = sound_max(SOUND_VOLUME);
++        int w = LCD_WIDTH - 8 - FOOT_TEXT_X;
++        int lit = (global_status.volume - min) * w / MAX(1, max - min);
++
++        d->putsxy(PANE_X, y, "VOL");
++        /* segments of 3 px, each a column of the four stripes */
++        for (int x = 0; x + 3 <= w; x += 4)
++            for (int i = 0; i < 4; i++)
++            {
++                d->set_foreground(x < lit ? POD_HATCH(i) : POD_UNLIT);
++                d->fillrect(FOOT_TEXT_X + x, FOOT_Y + 3 + 2 * i, 3, 2);
++            }
++        return;
++    }
++    d->putsxy(PANE_X, y, "NEXT");
++    if (foot.here != playlist_get_display_index() - 1
++        || foot.amount != playlist_amount())
++        load_foot();
++    d->set_foreground(foot.text[0] ? POD_TEXT2 : POD_TEXT3);
++    tape_text(d, f_tiny, FOOT_TEXT_X, y, LCD_WIDTH - 4 - FOOT_TEXT_X,
++              foot.text[0] ? foot.text : "end of queue", false);
+ }
+ #endif
+ 
+@@ -2089,11 +2364,13 @@ void pod_deck_draw_play(struct screen *d, struct viewport *vp)
+     elapsed = id3->elapsed + state->ff_rewind_count;
+ 
+ #if LCD_WIDTH >= 320
+-    /* all but the counter's corner, which is a viewport of its own on top */
++    /* all but the counter, which is a viewport of its own on top */
+     d->set_drawmode(DRMODE_SOLID);
+     d->set_foreground(POD_PAPER);
+     d->fillrect(0, 0, LCD_WIDTH, COUNTER_Y);
+-    d->fillrect(0, COUNTER_Y, COUNTER_X, LCD_HEIGHT - COUNTER_Y);
++    d->fillrect(0, COUNTER_Y, COUNTER_X, COUNTER_H);
++    d->fillrect(0, COUNTER_Y + COUNTER_H, LCD_WIDTH,
++                LCD_HEIGHT - COUNTER_Y - COUNTER_H);
+ #else
+     d->set_background(POD_PAPER);
+     d->clear_viewport();
+@@ -2107,66 +2384,136 @@ void pod_deck_draw_play(struct screen *d, struct viewport *vp)
+     else if (state->pane == 2)
+         draw_play_next(d, state->next_top);
+     else
+-        draw_play_cover(d, state, play_tape(id3, &tags));
++        draw_play_cover(d, state, id3, play_tape(id3, &tags));
+ #if LCD_WIDTH >= 320
+     draw_play_band(d, id3);
++    draw_play_progress(d, id3, elapsed);
++    draw_play_foot(d);
+ #endif
+     *vp = saved;
+ }
+ 
+ /* the x of a row of a slanted digit: the top leans right */
+-static int slant(int row)
++static int slant(int row, int scale)
+ {
+-    return (SEG_H - 1 - row) / 4;
++    return (SEG_H * scale - 1 - row) / 4;
+ }
+ 
+-/* a segment along rows r0-r1 from column c0 to c1 */
++/* a segment along rows r0-r1 from column c0 to c1. Thicker than 2 px, its
++ * ends are cut to a point so that the segments meet at the corners. */
+ static void seg_rows(struct screen *d, int x, int y, int r0, int r1, int c0,
+-                     int c1)
++                     int c1, int scale)
+ {
+     for (int r = r0; r <= r1; r++)
+-        d->hline(x + slant(r) + c0, x + slant(r) + c1, y + r);
++    {
++        int in = MAX(0, scale - 1 - MIN(r - r0, r1 - r));
++
++        d->hline(x + slant(r, scale) + c0 + in, x + slant(r, scale) + c1 - in,
++                 y + r);
++    }
+ }
+ 
+-static void draw_digit(struct screen *d, int x, int y, unsigned segs)
++static void draw_digit(struct screen *d, int x, int y, unsigned segs,
++                       int scale)
+ {
++    /* w x h, segments t thick, the middle one from row m. A segment runs
++     * up to c + 1 from the edges, where the next one starts. */
++    int w = SEG_W * scale, h = SEG_H * scale, t = 2 * scale, c = scale;
++    int m = h / 2 - c;
++
+     for (int k = 0; k < 7; k++)
+     {
+         if (!(segs & (1 << k)))
+             continue;
+         switch (k)
+         {
+-        case 0: seg_rows(d, x, y, 0, 1, 2, SEG_W - 3); break;
+-        case 1: seg_rows(d, x, y, 2, 5, SEG_W - 2, SEG_W - 1); break;
+-        case 2: seg_rows(d, x, y, 8, 11, SEG_W - 2, SEG_W - 1); break;
+-        case 3: seg_rows(d, x, y, 12, 13, 2, SEG_W - 3); break;
+-        case 4: seg_rows(d, x, y, 8, 11, 0, 1); break;
+-        case 5: seg_rows(d, x, y, 2, 5, 0, 1); break;
+-        case 6: seg_rows(d, x, y, 6, 7, 2, SEG_W - 3); break;
++        case 0: seg_rows(d, x, y, 0, t - 1, c + 1, w - c - 2, scale); break;
++        case 1: seg_rows(d, x, y, c + 1, m + c - 2, w - t, w - 1, scale); break;
++        case 2: seg_rows(d, x, y, m + c + 1, h - c - 2, w - t, w - 1, scale);
++            break;
++        case 3: seg_rows(d, x, y, h - t, h - 1, c + 1, w - c - 2, scale); break;
++        case 4: seg_rows(d, x, y, m + c + 1, h - c - 2, 0, t - 1, scale); break;
++        case 5: seg_rows(d, x, y, c + 1, m + c - 2, 0, t - 1, scale); break;
++        case 6: seg_rows(d, x, y, m, m + t - 1, c + 1, w - c - 2, scale); break;
+         }
+     }
+ }
+ 
+-/* digits, '-' and ':' in 7 segments. Returns the x after them. */
++/* the width of digits, '-' and ':' in 7 segments */
++static int digits_width(const char *s, int scale)
++{
++    int w = 0;
++
++    for (; *s; s++)
++        w += (*s == ':' ? 4 : SEG_STEP) * scale;
++    return w;
++}
++
++/* digits, '-' and ':' in 7 segments, scale times the size. Returns the x
++ * after them. */
+ static int draw_digits(struct screen *d, int x, int y, const char *s,
+-                       unsigned fg)
++                       unsigned fg, int scale)
+ {
+     d->set_foreground(fg);
+     for (; *s; s++)
+     {
+         if (*s == ':')
+         {
+-            d->fillrect(x + slant(4), y + 3, 2, 2);
+-            d->fillrect(x + slant(10), y + 9, 2, 2);
+-            x += 4;
++            d->fillrect(x + slant(4 * scale, scale), y + 3 * scale, 2 * scale,
++                        2 * scale);
++            d->fillrect(x + slant(10 * scale, scale), y + 9 * scale, 2 * scale,
++                        2 * scale);
++            x += 4 * scale;
+             continue;
+         }
+-        draw_digit(d, x, y, *s == '-' ? SEG_MINUS : seg_digits[*s - '0']);
+-        x += SEG_STEP;
++        draw_digit(d, x, y, *s == '-' ? SEG_MINUS : seg_digits[*s - '0'],
++                   scale);
++        x += SEG_STEP * scale;
+     }
+     return x;
+ }
+ 
++#if LCD_WIDTH >= 320
++/* a 56x32 cassette in colour: the stripes on its label, the tape winding
++ * from the left reel to the right along the track, and the hubs' notches
++ * stepping every 200 ms of playback. Grey and still on pause. */
++static void draw_play_cassette(struct screen *d, int x, int y,
++                               unsigned long elapsed, unsigned long length,
++                               bool paused)
++{
++    static const signed char notch[8][2] = {
++        { -2, -2 }, { 0, -2 }, { 2, -2 }, { 2, 0 },
++        { 2, 2 }, { 0, 2 }, { -2, 2 }, { -2, 0 },
++    };
++    int step = paused ? 0 : (elapsed / 200) % 8;
++    int wound = length ? MIN(elapsed, length) * 5 / length : 0;
++
++    d->set_foreground(POD_WELL);
++    d->fillrect(x, y, 56, 32);
++    d->set_foreground(paused ? POD_MID : POD_TEXT3);
++    d->drawrect(x, y, 56, 32);
++    d->hline(x + 14, x + 41, y + 29);
++    for (int i = 0; i < 4; i++)
++    {
++        d->set_foreground(paused ? POD_MID : POD_HATCH(i));
++        d->fillrect(x + 4, y + 3 + 2 * i, 48, 2);
++    }
++    /* the window, and the tape on the reels through it */
++    d->set_foreground(POD_PAPER);
++    d->fillrect(x + 8, y + 12, 40, 17);
++    for (int h = 0; h < 2; h++)
++    {
++        int cx = x + 18 + h * 20, cy = y + 20;
++
++        d->set_foreground(paused ? POD_FAINT : POD_TAPE);
++        disc(d, cx, cy, 3 + (h ? wound : 5 - wound));
++        d->set_foreground(paused ? POD_MID : POD_INK);
++        disc(d, cx, cy, 3);
++        d->set_foreground(POD_PAPER);
++        d->drawpixel(cx + notch[step][0], cy + notch[step][1]);
++    }
++}
++#else
+ /* a 30x17 cassette: the hubs' notches step every 200 ms of playback, and it
+  * is grey and still on pause */
+ static void draw_play_cassette(struct screen *d, int x, int y,
+@@ -2193,6 +2540,7 @@ static void draw_play_cassette(struct screen *d, int x, int y,
+         d->drawpixel(cx + notch[step][0], cy + notch[step][1]);
+     }
+ }
++#endif
+ 
+ void pod_deck_draw_counter(struct screen *d, struct viewport *vp)
+ {
+@@ -2201,7 +2549,6 @@ void pod_deck_draw_counter(struct screen *d, struct viewport *vp)
+     struct viewport saved = *vp;
+     unsigned long elapsed, left;
+     char buf[24];
+-    int x;
+ 
+     if (!id3)
+         return;
+@@ -2215,15 +2562,63 @@ void pod_deck_draw_counter(struct screen *d, struct viewport *vp)
+     d->clear_viewport();
+     d->set_drawmode(DRMODE_FG);
+     d->setfont(f_tiny);
++#if LCD_WIDTH >= 320
++    {
++        /* the time in amber up to REMAIN_X, the time left in 14b
++         * at its foot. Paused, the time dims. */
++        int h = SEG_H * COUNTER_S, y = (COUNTER_H - h) / 2;
++        bool paused = audio_status() & AUDIO_STATUS_PAUSE;
++
++        if (volume_shown())
++        {
++            int dec = sound_numdecimals(SOUND_VOLUME), val;
++
++            val = sound_val2phys(SOUND_VOLUME, global_status.volume);
++            while (dec-- > 0)
++                val /= 10;
++            snprintf(buf, sizeof(buf), "%d", val);
++            draw_digits(d, REMAIN_X - 8 - digits_width(buf, COUNTER_S), y, buf,
++                        POD_AMBER, COUNTER_S);
++            d->setfont(f_value);
++            d->set_foreground(POD_TEXT3);
++            d->putsxy(REMAIN_X, y + h - font_get(f_value)->height, "DB");
++        }
++        else
++        {
++            snprintf(buf, sizeof(buf), "%lu:%02lu", elapsed / 60000,
++                     elapsed / 1000 % 60);
++            draw_digits(d, REMAIN_X - 8 - digits_width(buf, COUNTER_S), y, buf,
++                        paused ? POD_MID : POD_AMBER, COUNTER_S);
++            snprintf(buf, sizeof(buf), "-%lu:%02lu", left / 60000,
++                     left / 1000 % 60);
++            d->setfont(f_value);
++            d->set_foreground(POD_TEXT3);
++            d->putsxy(REMAIN_X, y + h - font_get(f_value)->height, buf);
++        }
++        if (status_get_ffmode())
++        {
++            int th = font_get(f_tiny)->height;
++
++            d->setfont(f_tiny);
++            d->set_foreground(POD_AMBER);
++            d->fillrect(REMAIN_X, y - 1, text_width(f_tiny, "SEEK") + 4,
++                        th + 1);
++            d->set_foreground(POD6_BAND);
++            d->putsxy(REMAIN_X + 2, y, "SEEK");
++        }
++        draw_play_cassette(d, CASSETTE_X, CASSETTE_Y, elapsed, id3->length,
++                           paused);
++    }
++#else
+     if (volume_shown())
+     {
+-        int dec = sound_numdecimals(SOUND_VOLUME), val;
++        int dec = sound_numdecimals(SOUND_VOLUME), val, x;
+ 
+         val = sound_val2phys(SOUND_VOLUME, global_status.volume);
+         while (dec-- > 0)
+             val /= 10;
+         snprintf(buf, sizeof(buf), "%d", val);
+-        x = draw_digits(d, 1, 0, buf, POD_INK);
++        x = draw_digits(d, 1, 0, buf, POD_INK, 1);
+         d->putsxy(x + 1, 8, "DB");
+     }
+     else
+@@ -2232,7 +2627,7 @@ void pod_deck_draw_counter(struct screen *d, struct viewport *vp)
+         snprintf(buf, sizeof(buf), "%lu:%02lu", elapsed / 60000,
+                  elapsed / 1000 % 60);
+         draw_digits(d, 1, 0, buf, audio_status() & AUDIO_STATUS_PAUSE
+-                                  ? POD_MID : POD_INK);
++                                  ? POD_MID : POD_INK, 1);
+         snprintf(buf, sizeof(buf), "-%lu:%02lu", left / 60000,
+                  left / 1000 % 60);
+         d->set_foreground(POD_INK);
+@@ -2249,5 +2644,6 @@ void pod_deck_draw_counter(struct screen *d, struct viewport *vp)
+     }
+     draw_play_cassette(d, CASSETTE_X, CASSETTE_Y, elapsed,
+                        audio_status() & AUDIO_STATUS_PAUSE);
++#endif
+     *vp = saved;
+ }
+diff --git a/apps/gui/pod_deck.h b/apps/gui/pod_deck.h
+index e4173b86baec28240b66f204689296f094a07a31..f5f230840bd9a0acf5703f7d1f69614deb87112b 100644
+--- a/apps/gui/pod_deck.h
++++ b/apps/gui/pod_deck.h
+@@ -21,6 +21,7 @@
+ #define _POD_DECK_H_
+ 
+ #include <stdbool.h>
++#include "config.h"
+ 
+ /* The cassette deck, home: the albums of the library as tapes. SELECT or
+  * PLAY plays one and returns GO_TO_WPS, hold MENU returns GO_TO_MAINMENU,
+@@ -38,6 +39,14 @@ struct viewport;
+ void pod_deck_draw_play(struct screen *d, struct viewport *vp);
+ void pod_deck_draw_counter(struct screen *d, struct viewport *vp);
+ void pod_deck_next_reset(void);
++
++/* the rows of Up next, and the path of the track steps after the playing
++ * one */
++#if LCD_WIDTH >= 320
++#define POD_NEXT_ROWS   6
++#else
++#define POD_NEXT_ROWS   3
++#endif
+ bool pod_deck_next_path(int steps, char *path, size_t size);
+ 
+ #endif /* _POD_DECK_H_ */
+diff --git a/apps/gui/wps.c b/apps/gui/wps.c
+index fd3276ff0988a5376e2ed51603ac60bc18ab690f..b02bd6f8716fd3616c94e54bf4b11f1a9d9ca088 100644
+--- a/apps/gui/wps.c
++++ b/apps/gui/wps.c
+@@ -976,7 +976,8 @@ long gui_wps_show(void)
+                 {   /* Up next: the wheel scrolls the list */
+                     if (button == ACTION_WPS_VOLUP)
+                     {
+-                        if (pod_deck_next_path(state->next_top + 4, NULL, 0))
++                        if (pod_deck_next_path(state->next_top
++                                               + POD_NEXT_ROWS + 1, NULL, 0))
+                             state->next_top++;
+                     }
+                     else if (state->next_top > 0)
