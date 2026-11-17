@@ -227,6 +227,15 @@ switch.
       four stripes, and a footer with the next track, or VOL and a bar of
       stripes while the volume changes. `%pC` is the counter row
       (`mktheme6g.py`'s `COUNTER`).
+  43. the Classic's search and queue at 320x240. The search (`pod_search.c`
+      under `LCD_WIDTH >= 320`) has the query in the header, the strip in
+      the UI font with the cursor in amber, and a 24 px row per result with
+      a teal TRK, ART or ALB tag in place of the group headers, and the
+      artist on a track. The queue draws its own rows
+      (`playlist_viewer.c`'s `queue_draw_item`, which the skin then leaves
+      alone, `draw_item_height` sets their 28 px): the number, or a teal
+      arrow on the playing track, and the title over the artist. A picked
+      up track is amber with a grip.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod

@@ -1,0 +1,538 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Tue, 17 Nov 2026 22:45:20 +0100
+Subject: [PATCH] pod: the Classic's search and queue at 320x240
+
+---
+ apps/gui/list.c        |  10 ++-
+ apps/gui/list.h        |   2 +
+ apps/gui/pod_frame.h   |   1 +
+ apps/gui/pod_search.c  | 168 +++++++++++++++++++++++++++++++++++++++--
+ apps/playlist_viewer.c | 141 ++++++++++++++++++++++++++++++++++
+ 5 files changed, 311 insertions(+), 11 deletions(-)
+
+diff --git a/apps/gui/list.c b/apps/gui/list.c
+index a3568ddd223afbe0c1003da8408e61bc312c6bae..f7021277af01c74a09fa710481ce56855c34b595 100644
+--- a/apps/gui/list.c
++++ b/apps/gui/list.c
+@@ -98,7 +98,9 @@ bool list_display_title(struct gui_synclist *list, enum screen_type screen)
+ 
+ int list_get_nb_lines(struct gui_synclist *list, enum screen_type screen)
+ {
+-    int lines = skinlist_get_line_count(screen, list);
++    /* a list that draws its own items is not the skin's */
++    int lines = list->callback_draw_item ? -1
++              : skinlist_get_line_count(screen, list);
+     if (lines < 0)
+     {
+         lines = list_nb_lines(list, screen);
+@@ -111,7 +113,8 @@ int list_get_nb_lines(struct gui_synclist *list, enum screen_type screen)
+ void list_init_item_height(struct gui_synclist *list, enum screen_type screen)
+ {
+     struct viewport *vp = list->parent[screen];
+-    int line_height = font_get(vp->font)->height;
++    int line_height = list->draw_item_height ? list->draw_item_height
++                                             : (int)font_get(vp->font)->height;
+ #ifdef HAVE_TOUCHSCREEN
+     /* the 4/12 factor is designed for reasonable item size on a 160dpi screen */
+     if (global_settings.list_line_padding == -1)
+@@ -157,6 +160,7 @@ void gui_synclist_init(struct gui_synclist * gui_list,
+     gui_list->callback_get_item_name = callback_get_item_name;
+     gui_list->callback_speak_item = NULL;
+     gui_list->callback_draw_item = NULL;
++    gui_list->draw_item_height = 0;
+     gui_list->nb_items = 0;
+     gui_list->selected_item = 0;
+     gui_synclist_init_display_settings(gui_list);
+@@ -235,7 +239,7 @@ void gui_synclist_draw(struct gui_synclist *gui_list)
+     }
+     FOR_NB_SCREENS(i)
+     {
+-        if (!skinlist_draw(&screens[i], gui_list))
++        if (gui_list->callback_draw_item || !skinlist_draw(&screens[i], gui_list))
+             list_draw(&screens[i], gui_list);
+         skin_mark_dirty(i);
+     }
+diff --git a/apps/gui/list.h b/apps/gui/list.h
+index faa5755b7707b5fed1951b2966474c22efc7fa33..2497e9d0ca0dbaa038e0e14df66fafddf96c0fad 100644
+--- a/apps/gui/list.h
++++ b/apps/gui/list.h
+@@ -169,6 +169,8 @@ struct gui_synclist
+     list_get_name *callback_get_item_name;
+     list_speak_item *callback_speak_item;
+     list_draw_item *callback_draw_item;
++    /* the height of the items a list draws itself, 0 for the font's */
++    int draw_item_height;
+ 
+     /* The data that will be passed to the callback function YOU implement */
+     void * data;
+diff --git a/apps/gui/pod_frame.h b/apps/gui/pod_frame.h
+index 0279cb387539c80e4a608c22392c996fe3409915..f0c1c5ea9c61a8f4b3d21c6c25a194d5fab97c67 100644
+--- a/apps/gui/pod_frame.h
++++ b/apps/gui/pod_frame.h
+@@ -35,6 +35,7 @@
+ #define POD6_AMBER      LCD_RGBPACK(0xff, 0xa5, 0x26)
+ #define POD6_TEAL       LCD_RGBPACK(0x46, 0xdc, 0xc8)
+ #define POD6_SEL0       LCD_RGBPACK(0x26, 0x2e, 0x42)
++#define POD6_SEL1       LCD_RGBPACK(0x17, 0x1c, 0x29)
+ #define POD6_STRIPE(i)  (pod6_stripes[i])
+ 
+ extern const unsigned pod6_stripes[4];
+diff --git a/apps/gui/pod_search.c b/apps/gui/pod_search.c
+index 897629207ea31935cc6e624af3de988d5c9bacbf..8d0eb1bd2d9f72530059ece4660e31101b1cde08 100644
+--- a/apps/gui/pod_search.c
++++ b/apps/gui/pod_search.c
+@@ -52,16 +52,40 @@
+ #include "rbunicode.h"
+ #include "pod_search.h"
+ 
++#if LCD_WIDTH >= 320
++#include "pod_frame.h"
++
++/* the Classic: the deck's dark frame, the query in the header, the strip in
++ * the UI font and a row per result with its kind as a tag */
++#define POD_PAPER       POD6_PANEL
++#define POD_MID         POD6_OFF
++#define POD_INK         POD6_TEXT
++
++#define QUERY_X         26      /* the magnifier and a gap */
++#define QUERY_R         256     /* before the stripes kick up */
++#define CELL_W          16
++#define CELL_N          19      /* the cells in view */
++#define STRIP_X         8
++#define STRIP_Y         32
++#define RULE_Y          58
++#define ROWS_Y          62
++#define ROW_H           24
++#define TAG_X           10
++#define NAME_X          44
++#define ARTIST_W        104     /* the most a track's artist takes */
++#else
+ /* light theme, as the deck */
+ #define POD_PAPER       LCD_WHITE
+ #define POD_MID         LCD_DARKGRAY
+ #define POD_INK         LCD_BLACK
+ 
+-#define QUERY_MAX       15
+ #define QUERY_X         19      /* the magnifier and a gap */
+-#define CELLS           37      /* A-Z, 0-9, space */
+ #define CELL_W          9
+ #define CELL_N          15      /* the cells in view */
++#endif
++
++#define QUERY_MAX       15
++#define CELLS           37      /* A-Z, 0-9, space */
+ #define TEXT_MAX        32
+ #if MEMORYSIZE >= 64
+ #define SX_TRACKS       65536   /* as the deck's */
+@@ -77,12 +101,19 @@
+ enum { G_TRACKS, G_ARTISTS, G_ALBUMS, GROUPS };
+ 
+ static const int cap[GROUPS] = { 16, 8, 8 };
++#if LCD_WIDTH >= 320
++static const char *const group_tag[GROUPS] = { "TRK", "ART", "ALB" };
++#else
+ static const char *const group_name[GROUPS] = { "TRACKS", "ARTISTS", "ALBUMS" };
++#endif
+ 
+ struct hit {
+     uint32_t hash;              /* of the artist, or the album and artist */
+     int32_t idx;                /* a track of it */
+     char text[TEXT_MAX];
++#if LCD_WIDTH >= 320
++    char artist[TEXT_MAX];      /* a track's */
++#endif
+ };
+ 
+ /* a line of the results: a header, or a hit */
+@@ -210,7 +241,8 @@ static void add_hit(int group, int32_t idx, const char *text, uint32_t hash)
+     strmemccpy(h->text, text, sizeof(h->text));
+ }
+ 
+-/* the lines of the results: the groups that have hits, under a header */
++/* the lines of the results: the groups that have hits, under a header (on
++ * the Classic each row carries its group as a tag instead) */
+ static void build_lines(void)
+ {
+     s.count = 0;
+@@ -218,7 +250,9 @@ static void build_lines(void)
+     {
+         if (!s.found[g])
+             continue;
++#if LCD_WIDTH < 320
+         s.lines[s.count++] = (struct line){ g, -1 };
++#endif
+         for (int i = 0; i < s.found[g]; i++)
+             s.lines[s.count++] = (struct line){ g, i };
+     }
+@@ -312,9 +346,17 @@ static bool fill_text(void)
+                                           tag_album };
+ 
+         for (int i = 0; i < s.found[g]; i++)
++        {
+             if (!tagcache_retrieve(&tcs, s.hits[g][i].idx, tags[g],
+                                    s.hits[g][i].text, sizeof(s.hits[g][i].text)))
+                 s.hits[g][i].text[0] = '\0';
++#if LCD_WIDTH >= 320
++            if (g != G_TRACKS || !tagcache_retrieve(&tcs, s.hits[g][i].idx,
++                    tag_virt_canonicalartist, s.hits[g][i].artist,
++                    sizeof(s.hits[g][i].artist)))
++                s.hits[g][i].artist[0] = '\0';
++#endif
++        }
+     }
+     tagcache_search_finish(&tcs);
+     return true;
+@@ -373,14 +415,15 @@ static int text_width(int font, const char *str)
+     return w;
+ }
+ 
+-/* a line of text cut to fit the screen */
+-static void put_text(struct screen *d, int font, int x, int y, const char *str)
++/* a line of text cut to end before r */
++static void put_text(struct screen *d, int font, int x, int y, int r,
++                     const char *str)
+ {
+     char buf[TEXT_MAX];
+     int n = strlen(str);
+ 
+     strmemccpy(buf, str, sizeof(buf));
+-    while (n > 0 && x + text_width(font, buf) > LCD_WIDTH - 2)
++    while (n > 0 && x + text_width(font, buf) > r)
+         buf[--n] = '\0';
+     d->putsxy(x, y, buf);
+ }
+@@ -394,13 +437,120 @@ static const char glass_rows[12][13] = {
+ 
+ static void draw_glass(struct screen *d, int x, int y)
+ {
++#if LCD_WIDTH < 320
+     d->set_foreground(POD_INK);
++#endif
+     for (int j = 0; j < 12; j++)
+         for (int i = 0; i < 12; i++)
+             if (glass_rows[j][i] == '#')
+                 d->drawpixel(x + i, y + j);
+ }
+ 
++#if LCD_WIDTH >= 320
++static void draw(struct screen *d, int f_value, int f_tiny)
++{
++    int vh = font_get(f_value)->height, th = font_get(f_tiny)->height;
++    int uh = font_get(FONT_UI)->height;
++    int vis = (LCD_HEIGHT - ROWS_Y) / ROW_H;
++    int first = MAX(0, MIN(s.cell - CELL_N / 2, CELLS - CELL_N));
++    const char *q = s.query;
++    int qx;
++
++    if (s.sel < s.top)
++        s.top = s.sel;
++    else if (s.sel >= s.top + vis)
++        s.top = s.sel - vis + 1;
++
++    d->set_background(POD_PAPER);
++    d->clear_display();
++    d->set_drawmode(DRMODE_FG);
++
++    /* the header: the query in amber, and the block that is the cursor */
++    pod_frame_header(d, "", f_value);
++    d->set_foreground(POD6_AMBER);
++    draw_glass(d, 8, 6);
++    d->setfont(f_value);
++    while (*q && QUERY_X + text_width(f_value, q) + 10 > QUERY_R)
++        q++;
++    d->putsxy(QUERY_X, 5, q);
++    qx = QUERY_X + 2 + text_width(f_value, q);
++    d->fillrect(qx, 6, 6, vh - 2);
++    if (!s.len)
++    {
++        d->set_foreground(POD_MID);
++        d->putsxy(qx + 10, 5, "SEARCH");
++    }
++
++    /* the strip: the cell under the cursor on amber, an outline in the
++     * results */
++    d->setfont(FONT_UI);
++    for (int i = 0; i < CELL_N; i++)
++    {
++        int c = first + i, x = STRIP_X + i * CELL_W;
++        char str[2] = { cell_char(c) == ' ' ? '_' : cell_char(c), '\0' };
++
++        d->set_foreground(POD6_TEXT2);
++        if (c == s.cell)
++        {
++            d->set_foreground(POD6_AMBER);
++            if (s.results)
++                d->drawrect(x, STRIP_Y, CELL_W - 2, uh);
++            else
++            {
++                d->fillrect(x, STRIP_Y, CELL_W - 2, uh);
++                d->set_foreground(POD_PAPER);
++            }
++        }
++        d->putsxy(x + (CELL_W - 2 - text_width(FONT_UI, str)) / 2, STRIP_Y, str);
++    }
++    d->set_foreground(POD6_RULE);
++    d->hline(0, LCD_WIDTH - 1, RULE_Y);
++
++    if (s.len > 0 && !s.count)
++    {
++        d->setfont(f_value);
++        d->set_foreground(POD6_TEXT3);
++        d->putsxy((LCD_WIDTH - text_width(f_value, "NO MATCH")) / 2,
++                  ROWS_Y + ROW_H, "NO MATCH");
++    }
++
++    /* the results: the kind as a tag, the name, and a track's artist */
++    for (int i = 0; i < vis && s.top + i < s.count; i++)
++    {
++        const struct line *l = &s.lines[s.top + i];
++        const struct hit *h = &s.hits[(int)l->group][l->hit];
++        bool sel = s.results && s.top + i == s.sel;
++        int y = ROWS_Y + i * ROW_H, r = LCD_WIDTH - 8;
++
++        if (sel)
++        {
++            d->gradient_fillrect(0, y, LCD_WIDTH, ROW_H, POD6_SEL0, POD6_SEL1);
++            d->set_foreground(POD6_AMBER);
++            d->fillrect(0, y, 3, ROW_H);
++        }
++        d->setfont(f_tiny);
++        d->set_foreground(POD6_TEAL);
++        d->putsxy(TAG_X, y + (ROW_H - th) / 2, group_tag[(int)l->group]);
++        if (*h->artist)
++        {
++            int aw = MIN(text_width(f_tiny, h->artist), ARTIST_W);
++
++            d->set_foreground(sel ? POD6_TEXT2 : POD6_TEXT3);
++            put_text(d, f_tiny, r - aw, y + (ROW_H - th) / 2, r, h->artist);
++            r -= aw + 10;
++        }
++        d->setfont(FONT_UI);
++        d->set_foreground(sel ? POD6_AMBER : POD6_TEXT);
++        put_text(d, FONT_UI, NAME_X, y + (ROW_H - uh) / 2, r, h->text);
++    }
++
++    d->setfont(FONT_UI);
++    d->set_drawmode(DRMODE_SOLID);
++    d->set_foreground(LCD_DEFAULT_FG);
++    d->set_background(LCD_DEFAULT_BG);
++    d->update();
++}
++#else
+ static void draw(struct screen *d, int f_value, int f_tiny)
+ {
+     int vh = font_get(f_value)->height, th = font_get(f_tiny)->height;
+@@ -483,7 +633,8 @@ static void draw(struct screen *d, int f_value, int f_tiny)
+             d->fillrect(0, y, LCD_WIDTH, rh);
+             d->set_foreground(POD_PAPER);
+         }
+-        put_text(d, f_tiny, 5, y + 1, s.hits[(int)l->group][l->hit].text);
++        put_text(d, f_tiny, 5, y + 1, LCD_WIDTH - 2,
++                 s.hits[(int)l->group][l->hit].text);
+     }
+ 
+     d->setfont(FONT_UI);
+@@ -492,6 +643,7 @@ static void draw(struct screen *d, int f_value, int f_tiny)
+     d->set_background(LCD_DEFAULT_BG);
+     d->update();
+ }
++#endif
+ 
+ /* the selected line is the pick */
+ static void pick_line(struct pod_search_pick *pick)
+@@ -570,7 +722,7 @@ void pod_search(int f_value, int f_tiny, struct pod_search_pick *pick)
+             if (!s.results && s.count)
+             {
+                 s.results = true;
+-                s.sel = step(0, 1);
++                s.sel = s.lines[0].hit >= 0 ? 0 : step(0, 1);
+             }
+             break;
+         case ACTION_TREE_LETTER_PREV:
+diff --git a/apps/playlist_viewer.c b/apps/playlist_viewer.c
+index 5cf9b741d467acc6b9a9e3f5ace34630c7ad9659..4fd7f3195a694d78e3120df2f26a10516f0b4995 100644
+--- a/apps/playlist_viewer.c
++++ b/apps/playlist_viewer.c
+@@ -51,6 +51,10 @@
+ #include "menus/exported_menus.h"
+ #include "yesno.h"
+ #include "playback.h"
++#if defined(HAVE_LCD_COLOR) && LCD_WIDTH >= 320
++#include "font.h"
++#include "gui/pod_frame.h"
++#endif
+ 
+ #ifdef HAVE_DISK_STORAGE
+ #include "storage.h"
+@@ -75,6 +79,15 @@
+ /* Maximum amount of space required for the name buffer.                     */
+ #define MAX_NAME_BUFFER_SZ (MAX_PLAYLIST_ENTRIES * MAX_TRACK_INFO)
+ 
++#if defined(HAVE_LCD_COLOR) && LCD_WIDTH >= 320
++/* The Classic's queue: two-line rows, the title over the artist */
++#define POD_QUEUE
++#define QUEUE_FONT FONT_DIR "/12-Tape.fnt"
++#define QUEUE_ROW_H 28
++#define QUEUE_NUM_W 30          /* the number, right aligned */
++#define QUEUE_TEXT_X 40
++#endif
++
+ /* Over-approximation of view_text plugin size                               */
+ #define VIEW_TEXT_PLUGIN_SZ 5000
+ 
+@@ -543,6 +556,13 @@ static char* retrieve_formatted_id3(struct playlist_entry* track)
+         formatted_id3[len++] = ' ';
+         strmemccpy(&formatted_id3[len], id3->album, MAX_ID3_SZ - len);
+     }
++#ifdef POD_QUEUE
++    /* the artist after it, for the second line of the row */
++    len = strlen(formatted_id3) + 1;
++    if (len < MAX_ID3_SZ)
++        strmemccpy(&formatted_id3[len], id3->artist ? id3->artist : "",
++                   MAX_ID3_SZ - len);
++#endif
+     return formatted_id3;
+ }
+ 
+@@ -883,11 +903,128 @@ static int playlist_callback_voice(int selected_item, void *data)
+     return 0;
+ }
+ 
++#ifdef POD_QUEUE
++static int queue_font = -1;
++
++/* a line cut to fit w, on a character */
++static void queue_text(struct screen *d, int x, int y, int w, const char *str)
++{
++    char buf[MAX_ID3_SZ];
++    int n = strlcpy(buf, str, sizeof(buf)), tw, th;
++
++    n = MIN(n, (int)sizeof(buf) - 1);
++    d->getstringsize(buf, &tw, &th);
++    while (n > 0 && tw > w)
++    {
++        while (--n > 0 && (buf[n] & 0xc0) == 0x80)
++            ;
++        buf[n] = '\0';
++        d->getstringsize(buf, &tw, &th);
++    }
++    d->putsxy(x, y, buf);
++}
++
++/* A row of the queue: the number (a teal arrow on the playing track), the
++ * title over the artist. The selection is the skin's gradient bar and amber
++ * tab, a picked up track is amber with a grip on the right. */
++static void queue_draw_item(struct list_putlineinfo_t *li)
++{
++    struct screen *d = li->display;
++    struct viewport *vp = li->vp;
++    struct playlist_entry *track = pv_get_track(li->list->data, li->line);
++    bool moving = track->index == viewer.moving_playlist_index;
++    int y = li->y, h = li->linedes->height, w = vp->width;
++    int text_w = w - QUEUE_TEXT_X - (moving ? 20 : 6), old_font = vp->font;
++    unsigned fg = moving ? POD6_PANEL : li->is_selected ? POD6_AMBER : POD6_TEXT;
++    unsigned fg2 = moving ? POD6_PANEL : li->is_selected ? POD6_TEXT2 : POD6_TEXT3;
++    char name[MAX_PATH], num[12];
++    const char *title, *artist = "";
++    int tw, th;
++
++    if (track->attr & PLAYLIST_ATTR_RETRIEVE_ID3_SUCCEEDED)
++    {
++        size_t len;
++
++        title = track->name + strlen(track->name) + 1;
++        len = strlen(title) + 1;
++        if (len < MAX_ID3_SZ)
++            artist = title + len;
++    }
++    else
++    {
++        format_name(name, track->name, sizeof(name));
++        title = name;
++    }
++
++    if (moving)
++    {
++        d->set_foreground(POD6_AMBER);
++        d->fillrect(0, y, w, h);
++    }
++    else if (li->is_selected)
++    {
++        d->gradient_fillrect(0, y, w, h, POD6_SEL0, POD6_SEL1);
++        d->set_foreground(POD6_AMBER);
++        d->fillrect(0, y, 3, h);
++    }
++    d->set_drawmode(DRMODE_FG);
++    d->setfont(queue_font);
++
++    if (track->index == viewer.current_playing_track)
++    {
++        /* the playing track: an arrow, 4x7 */
++        d->set_foreground(moving ? POD6_PANEL : POD6_TEAL);
++        for (int i = 0; i < 4; i++)
++            d->vline(QUEUE_NUM_W - 6 + i, y + h / 2 - 3 + i, y + h / 2 + 3 - i);
++    }
++    else
++    {
++        snprintf(num, sizeof(num), "%d", track->display_index);
++        d->getstringsize(num, &tw, &th);
++        d->set_foreground(fg2);
++        d->putsxy(QUEUE_NUM_W - tw, y + (h - th) / 2, num);
++    }
++
++    d->set_foreground(fg);
++    queue_text(d, QUEUE_TEXT_X, y + 2, text_w, title);
++    d->set_foreground(fg2);
++    queue_text(d, QUEUE_TEXT_X, y + h / 2, text_w, artist);
++
++    if (moving)
++    {
++        /* the grip: up and down arrows, 7x4 each */
++        int x = w - 14;
++
++        d->set_foreground(POD6_PANEL);
++        for (int i = 0; i < 4; i++)
++        {
++            d->hline(x + 3 - i, x + 3 + i, y + 5 + i);
++            d->hline(x + 3 - i, x + 3 + i, y + h - 6 - i);
++        }
++    }
++
++    d->setfont(old_font);
++    d->set_drawmode(DRMODE_SOLID);
++}
++#endif
++
+ static void update_gui(struct gui_synclist * playlist_lists, bool init)
+ {
+     if (init)
++    {
+         gui_synclist_init(playlist_lists, playlist_callback_name,
+                           &viewer, false, 1, NULL);
++#ifdef POD_QUEUE
++        if (queue_font < 0)
++            queue_font = font_load(QUEUE_FONT);
++        if (queue_font < 0)
++            queue_font = FONT_UI;
++        playlist_lists->callback_draw_item = queue_draw_item;
++        playlist_lists->draw_item_height = QUEUE_ROW_H;
++        FOR_NB_SCREENS(i)
++            playlist_lists->line_height[i] = QUEUE_ROW_H;
++#endif
++    }
+     gui_synclist_set_nb_items(playlist_lists, viewer.num_tracks);
+     gui_synclist_set_voice_callback(playlist_lists,
+                                     global_settings.talk_file?
+@@ -947,7 +1084,11 @@ static bool open_playlist_viewer(const char* filename,
+         viewer.title = file;
+     }
+     else
++#ifdef POD_QUEUE
++        viewer.title = "QUEUE";
++#else
+         viewer.title = (char *) str(LANG_PLAYLIST);
++#endif
+ 
+     /* Prevent UI from feeling unresponsive when retrieving
+        metadata, or on devices that use disk storage. */
