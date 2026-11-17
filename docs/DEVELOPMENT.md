@@ -207,7 +207,7 @@ switch.
       320x240 (the bootloader draws its splash from runs of colours in
       `podlogo.h`), the letter box and the EQ in colour. The EQ has a second
       layout under `LCD_WIDTH >= 320`. The player is still the mini's, on a
-      white panel, until it is laid out for the screen (see 41).
+      white panel, until it is laid out for the screen (see 42).
   41. the Classic's deck at 320x240: `covers.bin` v3 (RGB565, 112x112 and
       56x56, read as `fb_data`), the header the screens share
       (`apps/gui/pod_frame.c`: palette, band, title, stripes), and the deck
@@ -215,8 +215,18 @@ switch.
       of 112 px covers, four-row panes (Details with year, genre and codec
       read from the first track on a rest of the deck, Tracks with lengths and
       loved hearts, Stats with the top track), and a header with the clock,
-      the battery, the sleep timer, the dots and the cassette. Its player
-      keeps the deck's layout, with the track band drawn by the firmware.
+      the battery, the sleep timer, the dots and the cassette.
+  42. the Classic's player at 320x240 (`pod_deck.c` under
+      `LCD_WIDTH >= 320`): the header with SHF, RPT, RPT1 and INF tags when
+      they are on, the Cover pane at 112 px with the year, genre and codec,
+      Rating in large stars with the plays and the last play, six rows of Up
+      next with their lengths (`POD_NEXT_ROWS`), a track band in 18b with
+      `%pp/%pe` and the loved heart, the counter in 7-segment digits twice
+      the mini's size with the time left beside it, a colour cassette whose
+      tape winds from reel to reel along the track, the progress in the
+      four stripes, and a footer with the next track, or VOL and a bar of
+      stripes while the volume changes. `%pC` is the counter row
+      (`mktheme6g.py`'s `COUNTER`).
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod

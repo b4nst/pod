@@ -217,10 +217,10 @@ sbs = f"""# pod - library chrome for the iPod Classic (bΔnst ⧉ design)
 # ---------------------------------------------------------------- WPS
 
 # The player is the deck in play mode: the firmware draws the whole screen
-# (%pD: header, bargraph, panes and the track band, everywhere but the
-# counter) and the counter with the cassette (%pC, the mini's 144x40) on top
-# of it. The layout is the deck's until the player has its own.
-COUNTER = (176, 200, 144, 40)
+# (%pD: header, bargraph, panes, the track band, the progress and the
+# footer, everywhere but the counter) and the counter row with the time and
+# the cassette (%pC) on top of it. COUNTER is pod_deck.c's.
+COUNTER = (20, 188, 300, 32)
 
 wps = f"""# pod - cassette deck WPS for the iPod Classic (bΔnst ⧉ design)
 %wd
