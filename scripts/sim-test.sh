@@ -544,3 +544,101 @@ expect "$out/classic-queue/01.png" 1 40 FFA621      # the selected row's tab
 expect "$out/classic-queue/02.png" 300 70 FFA621    # picked up
 expect "$out/classic-queue/03.png" 300 70 19253A    # dropped, the selection bar
 echo "classic search ok"
+
+# The Classic walks the mini's script, with the same checks of the log and its
+# own areas of the screen: browse by letter, the deck panes, play from Tracks,
+# search and pick, the player panes, rate and read it back, the 5 s return,
+# pause, volume and cue, love, hold SELECT to queue, the queue editor, sleep
+# and the EQ. Each run starts with no playlist, and the dumps stay in
+# classic-walk.
+cw=$out/classic-walk
+csim() {
+  rm -f "$classic"/simdisk/.pod/.playlist_control* "$classic"/simdisk/.pod/.resume.cfg*
+  "$root/scripts/sim-shot.sh" "$cw/$1" "$2" ipod6g >/dev/null
+}
+# the screen under the header, the panes right of the bargraph, the counter
+# row and the cover, at 3x
+cdiff() {
+  magick compare -metric AE "$cw/$1.png[$3]" "$cw/$2.png[$3]" null: 2>&1 | cut -d' ' -f1
+}
+body=960x648+0+72 pane=900x336+60+144 counter=900x96+60+564 cover=336x336+60+144
+clog() { grep -q "^pod: $2" "$cw/$1/sim.log" || { echo "classic $1: $3" >&2; exit 1; }; }
+clast() { [ "$(grep "^pod: $2" "$cw/$1/sim.log" | tail -1)" = "pod: $3" ] || { echo "classic $1: $4" >&2; exit 1; }; }
+csim deck "W300 D F1 W20 D R W20 D L W20 D"
+clog deck 'deck 1/5 Warehouse Sessions' "the deck did not open on the first album"
+clog deck 'deck 2/5 Afterglow' "the wheel did not move the deck"
+clog deck 'deck 4/5 Signal / Noise' ">> did not jump to the next initial"
+clast deck 'deck [0-9]' 'deck 2/5 Afterglow' "<< did not jump back"
+[ "$(cdiff deck/01 deck/04 $body)" != 0 ] || { echo "the Classic's deck did not change" >&2; exit 1; }
+csim panes "W300 F3 W50 D S W20 D S W20 D S W20 D"
+csim panes-back "W300 F3 W50 D S W20 D W700 D"
+csim tracks-play "W300 F3 S F1 P W200 D"
+clog panes 'deck pane 1' "SELECT did not open Tracks"
+clog panes 'deck pane 2' "SELECT did not open Stats"
+clast panes 'deck pane' 'deck pane 0' "SELECT did not go back to Details"
+[ "$(cdiff panes/01 panes/02 $body)" != 0 ] || { echo "the Classic's Tracks looks like Details" >&2; exit 1; }
+[ "$(cdiff panes/02 panes/03 $body)" != 0 ] || { echo "the Classic's Stats looks like Tracks" >&2; exit 1; }
+[ "$(cdiff panes/01 panes/04 $body)" = 0 ] || { echo "the Classic's panes did not come back to Details" >&2; exit 1; }
+[ "$(cdiff panes-back/01 panes-back/03 $body)" = 0 ] || { echo "the Classic's pane did not go back after 5 s" >&2; exit 1; }
+clog tracks-play 'deck play Signal / Noise from 2' "PLAY in Tracks did not play from the track"
+csim search-album "W300 2M W100 F8 F8 F3 S R F3 S W100 D"
+csim search-track "W300 2M W100 F2 S F5 S R S W200 D M W100 D"
+clog search-album 'search pick album Tape Loop' "SELECT did not pick the album"
+clog search-album 'deck 5/5 Tape Loop' "the deck is not on the album"
+clog search-track 'search "CH" 1 0 0' "CH did not narrow to a track"
+clog search-track 'deck play Magnetic Dawn from 2' "the track did not play from its place"
+clog search-track 'deck 4/6 Magnetic Dawn' "MENU did not go back to the album"
+csim pane "W300 F2 P W200 D S W20 D S W50 D S W50 D"
+csim pane-back "W300 F2 P W200 S W20 D W700 D"
+csim rate "W300 F2 P W200 S F4 W20 D R W100 L W100 S W50 S W50 S W50 D"
+[ "$(grep '^pod: player pane' "$cw/pane/sim.log" | cut -d' ' -f4 | tr -d '\n')" = 120 ] || { echo "the Classic's SELECT did not step Rating, Up next, Cover" >&2; exit 1; }
+[ "$(cdiff pane/01 pane/02 $pane)" != 0 ] || { echo "the Classic's Rating looks like Cover" >&2; exit 1; }
+[ "$(cdiff pane/02 pane/03 $pane)" != 0 ] || { echo "the Classic's Up next looks like Rating" >&2; exit 1; }
+[ "$(cdiff pane/01 pane/04 $pane)" = 0 ] || { echo "the Classic's panes did not come back to Cover" >&2; exit 1; }
+[ "$(cdiff pane-back/01 pane-back/02 $pane)" != 0 ] || { echo "the Classic's Rating is not shown" >&2; exit 1; }
+[ "$(cdiff pane-back/02 pane/01 $pane)" = 0 ] || { echo "the Classic's pane did not go back after 5 s" >&2; exit 1; }
+clast rate 'rate' 'rate 4' "the wheel did not rate the track"
+clast rate 'player pane' 'player pane 1 rating 4' "the rating was lost on a skip"
+csim pause "W300 F2 P W200 D P W100 D W100 D"
+csim volume "W300 F2 P W200 F3 W10 D W200 D"
+csim cue "W300 F2 P W200 RR W20 D"
+[ "$(cdiff pause/01 pause/02 $counter)" != 0 ] || { echo "the Classic's counter did not change on pause" >&2; exit 1; }
+[ "$(cdiff pause/02 pause/03 $counter)" = 0 ] || { echo "the Classic's counter moved while paused" >&2; exit 1; }
+[ "$(cdiff volume/01 volume/02 $counter)" != 0 ] || { echo "the Classic's counter did not show the volume" >&2; exit 1; }
+cue=$(sed -n 's/^pod: cue //p' "$cw/cue/sim.log" | tail -1)
+[ -n "$cue" ] && [ "$cue" -gt 4000 ] || { echo "holding >> did not cue the Classic (cue '$cue')" >&2; exit 1; }
+csim love "W300 F2 P W100 2S W20 D W200 D"
+csim unlove "W300 F2 P W100 2S W200 2S W20 D W200 D"
+csim love-keep "W300 F2 P W100 2S W100 R W100 L W100 S W20 D"
+clog love 'love 10' "double SELECT did not love"
+clog unlove 'love 0' "double SELECT did not unlove"
+[ "$(cdiff love/01 love/02 $cover)" != 0 ] || { echo "the Classic's heart flash is not shown" >&2; exit 1; }
+[ "$(cdiff love/01 unlove/01 $cover)" != 0 ] || { echo "the Classic's unlove flash looks like the love one" >&2; exit 1; }
+[ "$(cdiff love/02 unlove/02 $cover)" = 0 ] || { echo "the Classic's heart stayed" >&2; exit 1; }
+clast love-keep 'player pane' 'player pane 1 rating 10' "the love was lost on a skip"
+csim search-queue "W300 P W200 M W100 2M W100 F2 S F5 S R SS W50 D"
+csim queue-next "W300 F3 P W200 M W100 F1 SS W50 D S W150 B9 D"
+csim queue-edit "W300 F3 P W200 MM W100 D S F1 D S W50 D SS W50 D M W100 D"
+clog search-queue 'queue Chrome Tape' "hold SELECT did not queue the track"
+clog queue-next 'deck insert next Tape Loop' "hold SELECT did not add the album"
+clog queue-edit 'queue move 0 -> 1' "the track was not moved"
+clog queue-edit 'queue remove' "the track was not removed"
+[ "$(cdiff queue-edit/01 queue-edit/04 $body)" != 0 ] || { echo "the Classic's queue did not change" >&2; exit 1; }
+[ "$(cdiff queue-edit/04 queue-edit/05 $body)" != 0 ] || { echo "MENU did not go back to the Classic's player" >&2; exit 1; }
+export POD_SLEEP_FAST=1
+csim sleep "W300 2M W100 S F7 F6 S R S W100 MM W100 MM W100 F3 S W50 D M W100 M W100 D W2000 D"
+unset POD_SLEEP_FAST
+clog sleep 'sleep fade' "the sleep timer did not fade"
+clog sleep 'sleep pause Analog Heart' "the sleep timer did not pause"
+# the time left is in the header, left of the battery
+[ "$(cdiff sleep/02 sleep/03 132x60+474+6)" != 0 ] || { echo "the Classic's time left stayed after the pause" >&2; exit 1; }
+# the EQ (Settings, row 1): the wheel sets the gain, >> the band, SELECT the
+# preset, PLAY bypasses it and MENU goes back to the settings. The settings
+# are put back after.
+cp "$classic/simdisk/.pod/config.cfg" "$classic/simdisk/.pod/config.cfg.eq"
+csim eq "W400 MM W100 S W100 D F2 W20 D R W20 D S W20 D P W20 D M W100 D"
+mv "$classic/simdisk/.pod/config.cfg.eq" "$classic/simdisk/.pod/config.cfg"
+for i in 1 2 3 4 5; do
+  [ "$(cdiff eq/0$i eq/0$((i + 1)) $body)" != 0 ] || { echo "the Classic's EQ did not change at step $i" >&2; exit 1; }
+done
+echo "classic walk ok"

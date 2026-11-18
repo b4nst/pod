@@ -71,7 +71,11 @@ after `build.sh`, and then the target: `ipod6g` builds the Classic's
 simulator in `build/sim-ipod6g` (the default is `ipodmini2g`, in `build/sim`).
 `sim-shot.sh` takes the target as its third argument. `sim-test.sh` is the
 smoke test CI runs: it walks a few screens and fails if a screendump is missing
-or blank, and runs the Classic's deck, player and settings.
+or blank, and on the Classic walks the mini's script (deck, search, player,
+rating, love, queue, sleep, EQ) with the same checks. Its dumps are in
+`build/shots/test/classic-walk`, which is where `docs/classic.png` comes
+from (`panes/01`, `panes/02` and `pane/01`, `pane/03`, `queue-edit/01`, with
+`classic-search/02`), at 2x with a 6 px `999999` frame.
 
 `sim-shot.sh` runs the simulator headless and saves screendumps as PNG. The
 script is a list of steps: `W<ticks>` wait (100 ticks = 1 s), `D` screendump,

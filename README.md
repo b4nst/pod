@@ -125,6 +125,16 @@ Hold MENU on the deck or the queue (in the player, hold MENU opens the queue fir
 - Rescan Library rebuilds the library and keeps the play counts and ratings.
 - System: battery, disk, version.
 
+### On the iPod Classic
+
+![the Classic](docs/classic.png)
+
+The Classic has the same deck, search, player, queue and settings, at
+320x240 in colour. The extra room shows more: the covers at 112 px, four
+rows in the deck's panes, six in Up next, the artist under each title in the
+queue, and the mode tags (SHF, RPT, RPT1, INF) in the player's header. The
+buttons are the same, and the Controls table below holds for both.
+
 ## Controls
 
 | Where        | Button            | Action                                    |
