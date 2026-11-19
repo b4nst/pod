@@ -188,7 +188,10 @@ MIRROR also deletes music that isn't in the folder anymore. FORMAT can convert
 lossless files (FLAC, WAV, AIFF, ALAC) to Ogg Vorbis (OGG Q3, Q5 or Q7, about
 110, 160 or 220 kbit/s) to fit more music: tags, ReplayGain and cover art are
 kept, files above 48 kHz are resampled to 44.1 kHz, and everything else is
-copied as it is. Changing the FORMAT replaces only the files it affects.
+copied as it is. 16 BIT keeps lossless but reduces the hi-res files (24-bit,
+or above 48 kHz) to dithered 16-bit FLAC at 44.1 or 48 kHz, about half their
+size: pod outputs 16-bit audio, so they sound the same and decode on less
+battery. Changing the FORMAT replaces only the files it affects.
 
 SCAN first imports the iPod's play log into a history kept per iPod on the
 computer, and backs up the play counts and ratings.

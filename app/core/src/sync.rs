@@ -4,8 +4,8 @@
 //! A file is up to date when size and modification time match; FAT keeps
 //! times to 2 s. Copies get the source's mtime so the next sync agrees.
 //!
-//! With a transcode profile, lossless files are converted to Ogg Vorbis
-//! instead. They can't be compared by size, so `/.pod/sync.json` records
+//! With a transcode profile, lossless files are converted to Ogg Vorbis or
+//! 16-bit FLAC instead. They can't be compared by size, so `/.pod/sync.json` records
 //! where each one came from.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -272,8 +272,8 @@ pub fn plan(src: &Path, mount: &Path, mode: Mode, profile: Profile, cancel: &Ato
         let rel = e.path().strip_prefix(src).unwrap();
         let rel_s = slash(rel);
         let plain: PathBuf = rel.iter().map(|c| sanitize(&c.to_string_lossy())).collect();
-        let length = if profile == Profile::Off { None } else { transcode::needs(e.path()) };
-        let mut dst = if length.is_some() { plain.with_extension("ogg") } else { plain.clone() };
+        let estimate = transcode::needs(e.path(), profile);
+        let mut dst = if estimate.is_some() { plain.with_extension(profile.ext()) } else { plain.clone() };
         // FAT is case insensitive: two names that differ in case collide
         let mut n = 2;
         let base = dst.clone();
@@ -285,18 +285,20 @@ pub fn plan(src: &Path, mount: &Path, mode: Mode, profile: Profile, cancel: &Ato
 
         let meta = e.metadata().map_err(|e| Error::Other(e.to_string()))?;
         let dst_s = slash(&dst);
-        let old = match (length, plain.extension()) {
-            (Some(_), Some(ext)) => Some(dst.with_extension(ext)),
-            (Some(_), None) => None,
-            (None, _) => converted.get(rel_s.as_str()).filter(|d| **d != dst_s).map(PathBuf::from),
-        };
-        let old = old.and_then(|o| Some((music.join(&o).metadata().ok()?.len(), o)));
+        // the copy, or the file converted to another profile; a FLAC reduced
+        // to FLAC replaces its copy
+        let copy = estimate.map(|_| plain.clone());
+        let old = [copy, converted.get(rel_s.as_str()).map(PathBuf::from)]
+            .into_iter()
+            .flatten()
+            .filter(|o| key(o) != key(&dst))
+            .find_map(|o| Some((music.join(&o).metadata().ok()?.len(), o)));
         if let Some((_, o)) = &old {
             olds.insert(key(o));
         }
 
         let current = fs::metadata(music.join(&dst)).ok();
-        let up_to_date = current.as_ref().is_some_and(|d| match length {
+        let up_to_date = current.as_ref().is_some_and(|d| match estimate {
             Some(_) => {
                 manifest.files.get(&dst_s)
                     == Some(&Entry { src: rel_s.clone(), size: meta.len(), mtime: secs(mtime(&meta)), profile })
@@ -314,9 +316,9 @@ pub fn plan(src: &Path, mount: &Path, mode: Mode, profile: Profile, cancel: &Ato
             src: e.path().into(),
             rel: rel_s,
             dst,
-            size: length.map_or(meta.len(), |l| profile.estimate(l)),
+            size: estimate.unwrap_or(meta.len()),
             replaces: current.map_or(0, |d| d.len()) + old.as_ref().map_or(0, |o| o.0),
-            transcode: length.map(|_| profile),
+            transcode: estimate.map(|_| profile),
             old: old.map(|o| o.1),
         });
     }
@@ -504,8 +506,8 @@ fn tmp_name(dst: &Path) -> PathBuf {
 fn convert(c: &CopyOp, music: &Path, stop: &AtomicBool) -> Result<()> {
     let dst = music.join(&c.dst);
     let tmp = tmp_name(&dst);
-    let Some(Profile::Vorbis(q)) = c.transcode else { unreachable!("not a conversion") };
-    if let Err(e) = transcode::encode(&c.src, &tmp, q, stop) {
+    let Some(profile) = c.transcode else { unreachable!("not a conversion") };
+    if let Err(e) = transcode::encode(&c.src, &tmp, profile, stop) {
         let _ = fs::remove_file(&tmp);
         return Err(e);
     }
@@ -567,7 +569,13 @@ pub(crate) mod tests {
 
     /// A silent stereo 16 bit WAV.
     pub(crate) fn write_wav(p: &Path, rate: u32, secs: f32) {
-        let data = (rate as f32 * secs) as u32 * 4;
+        write_wav_bits(p, rate, 16, secs);
+    }
+
+    /// A stereo tone of 16 or 24 bits.
+    pub(crate) fn write_wav_bits(p: &Path, rate: u32, bits: u16, secs: f32) {
+        let frame = bits as u32 / 4;
+        let data = (rate as f32 * secs) as u32 * frame;
         let mut b = Vec::new();
         b.extend(b"RIFF");
         b.extend((36 + data).to_le_bytes());
@@ -575,13 +583,14 @@ pub(crate) mod tests {
         b.extend(16u32.to_le_bytes());
         b.extend([1, 0, 2, 0]);
         b.extend(rate.to_le_bytes());
-        b.extend((rate * 4).to_le_bytes());
-        b.extend([4, 0, 16, 0]);
+        b.extend((rate * frame).to_le_bytes());
+        b.extend((frame as u16).to_le_bytes());
+        b.extend(bits.to_le_bytes());
         b.extend(b"data");
         b.extend(data.to_le_bytes());
-        b.extend((0..data / 4).flat_map(|i| {
-            let s = ((i as f32 * 0.05).sin() * 8000.0) as i16;
-            [s, s / 2].into_iter().flat_map(i16::to_le_bytes)
+        b.extend((0..data / frame).flat_map(|i| {
+            let s = ((i as f32 * 0.05).sin() * 8000.0) as i32 * (1 << (bits - 16));
+            [s, s / 2].into_iter().flat_map(|s| s.to_le_bytes().into_iter().take(bits as usize / 8))
         }));
         put(p, &b);
     }
@@ -720,6 +729,41 @@ pub(crate) mod tests {
         let p = plan(&src, &ipod, Mode::Update, Profile::Vorbis(7), &no()).unwrap();
         assert_eq!(p.copies.len(), 1);
         assert!(p.copies[0].old.is_none());
+    }
+
+    #[test]
+    fn reduces_hi_res_flac_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let (src, ipod) = (dir.path().join("src"), dir.path().join("ipod"));
+        write_wav_bits(&src.join("A/hi.wav"), 96_000, 24, 0.5);
+        write_wav(&src.join("A/cd.wav"), 44_100, 0.5);
+        // a 24-bit FLAC, to land on its own name
+        let tmp = dir.path().join("hi.wav");
+        write_wav_bits(&tmp, 48_000, 24, 0.5);
+        crate::transcode::tests::flac24(&tmp, &src.join("A/hi.flac"));
+
+        let p = plan(&src, &ipod, Mode::Update, Profile::Off, &no()).unwrap();
+        apply(&p, &ipod, &mut |_| {}, &no()).1.unwrap();
+        let p = plan(&src, &ipod, Mode::Update, Profile::Flac16, &no()).unwrap();
+        // the CD-quality file stays as it is
+        assert_eq!(p.converted(), 2);
+        assert_eq!(p.unchanged, 1);
+        let c = p.copies.iter().find(|c| c.rel == "A/hi.flac").unwrap();
+        assert_eq!((c.dst.as_path(), c.old.as_deref()), (Path::new("A/hi.flac"), None));
+        // `hi.wav` would become `hi.flac` too
+        let c = p.copies.iter().find(|c| c.rel == "A/hi.wav").unwrap();
+        assert_eq!((c.dst.as_path(), c.old.as_deref()), (Path::new("A/hi (2).flac"), Some(Path::new("A/hi.wav"))));
+        apply(&p, &ipod, &mut |_| {}, &no()).1.unwrap();
+        let props = lofty::read_from_path(ipod.join("Music/A/hi.flac")).unwrap();
+        let props = lofty::file::AudioFile::properties(&props);
+        assert_eq!(props.bit_depth(), Some(16));
+        assert!(ipod.join("Music/A/cd.wav").exists());
+        assert!(plan(&src, &ipod, Mode::Update, Profile::Flac16, &no()).unwrap().is_empty());
+
+        // to Vorbis, the reduced FLAC goes
+        let p = plan(&src, &ipod, Mode::Update, Profile::Vorbis(3), &no()).unwrap();
+        let c = p.copies.iter().find(|c| c.rel == "A/hi.flac").unwrap();
+        assert_eq!(c.old.as_deref(), Some(Path::new("A/hi.flac")));
     }
 
     #[test]

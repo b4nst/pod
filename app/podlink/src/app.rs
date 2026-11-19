@@ -884,10 +884,17 @@ impl App {
             row![
                 label("FORMAT").width(80),
                 profile_key(Profile::Off, "AS IS"),
+                profile_key(Profile::Flac16, "16 BIT"),
                 profile_key(Profile::Vorbis(3), "OGG Q3"),
                 profile_key(Profile::Vorbis(5), "OGG Q5"),
                 profile_key(Profile::Vorbis(7), "OGG Q7"),
-                text("lossless is converted, the rest copied").size(11).style(theme::mid),
+                text(match self.profile {
+                    Profile::Off => "everything is copied",
+                    Profile::Flac16 => "hi-res lossless is reduced to 16-bit FLAC",
+                    Profile::Vorbis(_) => "lossless is converted, the rest copied",
+                })
+                .size(11)
+                .style(theme::mid),
             ]
             .spacing(8)
             .align_y(Center),
