@@ -83,17 +83,31 @@ pub fn album_hash(album: &str, artist: &str) -> u32 {
     h
 }
 
-/// The album and artist the database has for a track: `canonicalartist` is
-/// the track artist, or the album artist when there is none.
-fn album_key(tag: Option<&Tag>) -> (String, String) {
-    let text = |keys: &[ItemKey]| {
-        let tag = tag?;
-        keys.iter().find_map(|k| tag.get_string(k).filter(|s| !s.is_empty())).map(str::to_string)
-    };
+/// The album of the track at `path` (under the mount) and what tells it apart
+/// from another of the same title, as `album_key` in the deck: its album
+/// artist, or with none its folder, the parent's for a disc's folder.
+fn album_key(tag: Option<&Tag>, path: &str) -> (String, String) {
+    let text = |key: &ItemKey| tag?.get_string(key).filter(|s| !s.is_empty()).map(str::to_string);
     (
-        text(&[ItemKey::AlbumTitle]).unwrap_or_else(|| UNTAGGED.into()),
-        text(&[ItemKey::TrackArtist, ItemKey::AlbumArtist]).unwrap_or_else(|| UNTAGGED.into()),
+        text(&ItemKey::AlbumTitle).unwrap_or_else(|| UNTAGGED.into()),
+        text(&ItemKey::AlbumArtist).unwrap_or_else(|| album_folder(path).into()),
     )
+}
+
+fn album_folder(path: &str) -> &str {
+    let dir = path.rsplit_once('/').map_or("", |(d, _)| d);
+    match dir.rsplit_once('/') {
+        Some((parent, name)) if is_disc_folder(name) => parent,
+        _ => dir,
+    }
+}
+
+/// CD1, Disc 2, disk_3...
+fn is_disc_folder(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    let Some(rest) = ["cd", "disc", "disk"].iter().find_map(|w| name.strip_prefix(w)) else { return false };
+    let num = rest.strip_prefix([' ', '_', '-']).unwrap_or(rest);
+    !num.is_empty() && num.bytes().all(|b| b.is_ascii_digit())
 }
 
 fn tag_of(file: &TaggedFile) -> Option<&Tag> {
@@ -171,7 +185,9 @@ struct Track {
     size: u64,
     mtime: i64,
     album: String,
-    artist: String,
+    /// the album artist or folder: a cache from before has an artist, fails
+    /// to load and is made again
+    key: String,
     /// sha256 of the picture the tags carry
     picture: Option<String>,
 }
@@ -298,9 +314,9 @@ pub fn write(
             _ => {
                 let file = lofty::read_from_path(e.path()).ok();
                 let tag = file.as_ref().and_then(tag_of);
-                let (album, artist) = album_key(tag);
+                let (album, key) = album_key(tag, &rel);
                 let picture = tag.and_then(picture).map(sha256_hex);
-                Track { size, mtime, album, artist, picture }
+                Track { size, mtime, album, key, picture }
             }
         };
         tracks.insert(rel, track);
@@ -309,7 +325,7 @@ pub fn write(
     // the first key seen owns a hash, a track with another key is ignored
     let mut albums: BTreeMap<u32, Album> = BTreeMap::new();
     for (path, t) in &tracks {
-        let key = (t.album.clone(), t.artist.clone());
+        let key = (t.album.clone(), t.key.clone());
         let a = albums.entry(album_hash(&key.0, &key.1)).or_insert_with(|| Album { key: key.clone(), tracks: vec![] });
         if a.key == key {
             a.tracks.push((path.clone(), t.picture.clone()));
@@ -415,14 +431,15 @@ mod tests {
         out.into_inner()
     }
 
-    /// A WAV in `dir` tagged `album` by `artist`, with `picture` embedded.
+    /// A WAV in `dir` tagged `album` by the album artist `artist`, with
+    /// `picture` embedded.
     fn track(dir: &Path, name: &str, album: &str, artist: &str, picture: Option<Vec<u8>>) {
         let p = dir.join(name);
         fs::create_dir_all(dir).unwrap();
         write_wav(&p, 8000, 0.1);
         let mut tag = Tag::new(TagType::Id3v2);
         tag.set_album(album.into());
-        tag.set_artist(artist.into());
+        tag.insert_text(ItemKey::AlbumArtist, artist.into());
         if let Some(data) = picture {
             tag.push_picture(Picture::new_unchecked(PictureType::CoverFront, Some(MimeType::Png), None, data));
         }
@@ -447,14 +464,44 @@ mod tests {
     }
 
     #[test]
-    fn key_follows_canonical_artist() {
+    fn key_is_the_album_artist_or_the_folder() {
         let mut tag = Tag::new(TagType::Id3v2);
         tag.set_album("A".into());
-        tag.insert_text(ItemKey::AlbumArtist, "Band".into());
-        assert_eq!(album_key(Some(&tag)), ("A".into(), "Band".into()));
         tag.set_artist("Guest".into());
-        assert_eq!(album_key(Some(&tag)), ("A".into(), "Guest".into()));
-        assert_eq!(album_key(None), (UNTAGGED.into(), UNTAGGED.into()));
+        assert_eq!(album_key(Some(&tag), "/Music/V/A/1.mp3"), ("A".into(), "/Music/V/A".into()));
+        tag.insert_text(ItemKey::AlbumArtist, "Band".into());
+        assert_eq!(album_key(Some(&tag), "/Music/V/A/1.mp3"), ("A".into(), "Band".into()));
+        assert_eq!(album_key(None, "/Music/1.mp3"), (UNTAGGED.into(), "/Music".into()));
+    }
+
+    #[test]
+    fn a_disc_folder_is_its_album_folder() {
+        for f in ["CD1", "cd 2", "Disc_10", "disk-3"] {
+            assert_eq!(album_folder(&format!("/Music/A/{f}/1.mp3")), "/Music/A", "{f}");
+        }
+        for f in ["CD", "Disco", "Disc 2b", "Bonus"] {
+            assert_eq!(album_folder(&format!("/Music/A/{f}/1.mp3")), format!("/Music/A/{f}"), "{f}");
+        }
+    }
+
+    #[test]
+    fn an_album_of_many_artists_is_one() {
+        let dir = tempdir().unwrap();
+        let m = dir.path();
+        pod(m);
+        for (i, artist) in ["One", "Two"].iter().enumerate() {
+            let p = m.join(format!("Music/V/{i}.wav"));
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            write_wav(&p, 8000, 0.1);
+            let mut tag = Tag::new(TagType::Id3v2);
+            tag.set_album("Mix".into());
+            tag.set_artist((*artist).into());
+            tag.save_to_path(&p, WriteOptions::default()).unwrap();
+        }
+        fs::write(m.join("Music/V/cover.jpg"), art(ImageFormat::Jpeg, 0)).unwrap();
+        assert_eq!(run(m), Report { albums: 1, covers: 1, decoded: 1 });
+        let idx = index(&fs::read(m.join(".pod/covers.bin")).unwrap());
+        assert_eq!(idx, [album_hash("Mix", "/Music/V")]);
     }
 
     #[test]

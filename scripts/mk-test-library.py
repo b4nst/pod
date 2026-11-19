@@ -16,6 +16,9 @@ LIB = [
 # tracks of another length than 20 s, as (secs, rate): 11 minutes of silence
 LONG = {"Zero Hour": (660, 8000)}
 
+# tracks of a guest: the album artist keeps them on the album's tape
+FEAT = {"Concrete": "Kollektiv 7 feat. MC Bin"}
+
 def tone(path, freq, secs=20, rate=22050):
     with wave.open(path, "wb") as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
@@ -32,7 +35,8 @@ for artist, album, year, genre, tracks in LIB:
         secs, rate = LONG.get(title, (20, 22050))
         tone(wav, 0 if title in LONG else 220 * (1 + n / 4), secs, rate)
         subprocess.run(["flac", "-s", "-f", "-o", os.path.join(d, f"{n:02d} {title}.flac"),
-                        f"--tag=ARTIST={artist}", f"--tag=ALBUM={album}",
+                        f"--tag=ARTIST={FEAT.get(title, artist)}",
+                        f"--tag=ALBUMARTIST={artist}", f"--tag=ALBUM={album}",
                         f"--tag=TITLE={title}", f"--tag=TRACKNUMBER={n}",
                         f"--tag=DATE={year}", f"--tag=GENRE={genre}", wav], check=True)
         os.remove(wav)

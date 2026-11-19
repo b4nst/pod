@@ -1,0 +1,179 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Thu, 19 Nov 2026 21:44:54 +0100
+Subject: [PATCH] pod: an album with several artists is one tape
+
+---
+ apps/gui/pod_deck.c | 100 +++++++++++++++++++++++++++++++++++++-------
+ 1 file changed, 84 insertions(+), 16 deletions(-)
+
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index 518356bc7642fef7014d823516a9e770857405b3..d64bd061b729fc4f272f9b6a6bf4a1f3b87b276f 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -20,11 +20,12 @@
+ 
+ /*
+  * The cassette deck, home, in browse mode: one tape per album (an artist's
+- * and another's of the same name are two), after a tape per mix of /Mixes
+- * and the queue, the current playlist, first of all. A bargraph with the
+- * artists' initials round the corner, a gallery of the covers below, and
+- * three panes beside the bargraph for SELECT to step through: the album,
+- * its tracks and its stats. The albums go by artist, then title.
++ * and another's of the same name are two, see album_key), after a tape per
++ * mix of /Mixes and the queue, the current playlist, first of all. A
++ * bargraph with the artists' initials round the corner, a gallery of the
++ * covers below, and three panes beside the bargraph for SELECT to step
++ * through: the album, its tracks and its stats. The albums go by artist,
++ * then title.
+  *
+  * The player is the deck in play mode: the WPS draws the top of it with %pD,
+  * the bargraph on the cue position (or the volume) and three panes for
+@@ -33,11 +34,12 @@
+  * cassette.
+  *
+  * On entry the albums are read from the tagcache: a row per track (album,
+- * artist, disc, track) sorted by album, so an album is a run of rows that is
+- * already in play order. The rows are static, and so are the fonts once
+- * loaded: allocating from buflib while a track plays makes the player stop
+- * and resume it. They are read once: again when the tagcache has changed or
+- * after USB, and the Stats pane reads its album again.
++ * album artist or folder, disc, track) sorted by album, so an album is a run
++ * of rows that is already in play order. The rows are static, and so are
++ * the fonts once loaded: allocating from buflib while a track plays makes
++ * the player stop and resume it. They are read once: again when the
++ * tagcache has changed or after USB, and the Stats pane reads its album
++ * again.
+  */
+ 
+ #include "config.h"
+@@ -322,6 +324,49 @@ static uint32_t hash_tags(const char *album, const char *artist)
+     return h;
+ }
+ 
++/* whether name is a disc's folder of an album: CD1, Disc 2, disk_3... */
++static bool is_disc_folder(const char *name)
++{
++    static const char *const words[] = { "cd", "disc", "disk" };
++
++    for (unsigned i = 0; i < ARRAYLEN(words); i++)
++    {
++        size_t n = strlen(words[i]);
++
++        if (strncasecmp(name, words[i], n))
++            continue;
++        name += n;
++        if (*name == ' ' || *name == '_' || *name == '-')
++            name++;
++        if (!isdigit((unsigned char)*name))
++            return false;
++        while (isdigit((unsigned char)*name))
++            name++;
++        return !*name;
++    }
++    return false;
++}
++
++/* What tells an album apart from another of the same title: its album
++ * artist, or with none its folder (a disc's folder is its parent's), so the
++ * tracks of an album with several artists stay one tape. pod link keys the
++ * covers the same way (album_key in covers.rs). */
++static const char *album_key(const char *path, const char *albumartist,
++                             char *buf, size_t size)
++{
++    char *slash;
++
++    if (albumartist && *albumartist && strcmp(albumartist, UNTAGGED))
++        return albumartist;
++    strmemccpy(buf, path, size);
++    slash = strrchr(buf, '/');
++    *(slash ? slash : buf) = '\0';
++    slash = strrchr(buf, '/');
++    if (slash && is_disc_folder(slash + 1))
++        *slash = '\0';
++    return buf;
++}
++
+ /* the tag of a track, or <Untagged> */
+ static void get_tag(struct tagcache_search *tcs, int32_t idx, int tag,
+                     char *buf, long size)
+@@ -391,9 +436,10 @@ static void read_stats(const struct tagcache_search *tcs, struct deck_track *t)
+ static bool load_albums(struct deck *k)
+ {
+     struct tagcache_search tcs;
+-    char path[MAX_PATH], album[MAX_PATH], artist[MAX_PATH];
++    char path[MAX_PATH], album[MAX_PATH], artist[MAX_PATH], key[MAX_PATH];
+     int total = tagcache_get_stat()->total_entries;
+     bool full = total > DECK_MAX_TRACKS;
++    bool by_folder = false;     /* the album has no album artist */
+     long changes = tagcache_pod_changes();
+     long started = current_tick;
+     bool loading = false;
+@@ -429,8 +475,8 @@ static bool load_albums(struct deck *k)
+ 
+         t->idx = tcs.idx_id;
+         get_tag(&tcs, t->idx, tag_album, album, sizeof(album));
+-        get_tag(&tcs, t->idx, tag_virt_canonicalartist, artist, sizeof(artist));
+-        t->hash = hash_tags(album, artist);
++        get_tag(&tcs, t->idx, tag_albumartist, artist, sizeof(artist));
++        t->hash = hash_tags(album, album_key(path, artist, key, sizeof(key)));
+         t->disc = MAX(0, tagcache_get_numeric(&tcs, tag_discnumber));
+         t->track = MAX(0, tagcache_get_numeric(&tcs, tag_tracknumber));
+         t->secs = MIN(65535, MAX(0, tagcache_get_numeric(&tcs, tag_length)) / 1000);
+@@ -453,7 +499,19 @@ static bool load_albums(struct deck *k)
+ 
+         if (i > 0 && k->tracks[i - 1].hash == k->tracks[i].hash)
+         {
+-            k->albums[k->count - 1].end = i + 1;
++            a = &k->albums[k->count - 1];
++            a->end = i + 1;
++            /* tracks of other artists and no album artist: a compilation */
++            if (by_folder)
++            {
++                get_tag(&tcs, k->tracks[i].idx, tag_virt_canonicalartist,
++                        artist, sizeof(artist));
++                if (strcmp(artist, key))
++                {
++                    strmemccpy(a->artist, "Various Artists", sizeof(a->artist));
++                    by_folder = false;
++                }
++            }
+             continue;
+         }
+         if (k->count == DECK_MAX_ALBUMS)
+@@ -467,8 +525,15 @@ static bool load_albums(struct deck *k)
+         a->end = i + 1;
+         a->cover = pod_covers_find(k->tracks[i].hash);
+         get_tag(&tcs, k->tracks[i].idx, tag_album, album, sizeof(album));
+-        get_tag(&tcs, k->tracks[i].idx, tag_virt_canonicalartist, artist,
++        get_tag(&tcs, k->tracks[i].idx, tag_albumartist, artist,
+                 sizeof(artist));
++        by_folder = !strcmp(artist, UNTAGGED);
++        if (by_folder)
++        {
++            get_tag(&tcs, k->tracks[i].idx, tag_virt_canonicalartist, artist,
++                    sizeof(artist));
++            strmemccpy(key, artist, sizeof(key));   /* its first artist */
++        }
+         strmemccpy(a->album, album, sizeof(a->album));
+         strmemccpy(a->artist, artist, sizeof(a->artist));
+     }
+@@ -1944,6 +2009,8 @@ static const char heart_rows[10][12] = {
+ static const struct deck_album *play_tape(const struct mp3entry *id3,
+                                           struct deck_album *tags)
+ {
++    char key[MAX_PATH];
++
+     if (strcmp(id3->path, play_path))
+     {
+         strmemccpy(play_path, id3->path, sizeof(play_path));
+@@ -1957,7 +2024,8 @@ static const struct deck_album *play_tape(const struct mp3entry *id3,
+     strmemccpy(tags->artist, id3->albumartist ? id3->albumartist
+                              : id3->artist ? id3->artist : UNTAGGED,
+                sizeof(tags->artist));
+-    tags->cover = pod_covers_find(hash_tags(tags->album, tags->artist));
++    tags->cover = pod_covers_find(hash_tags(tags->album,
++        album_key(id3->path, id3->albumartist, key, sizeof(key))));
+     return tags;
+ }
+ 
