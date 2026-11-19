@@ -11,9 +11,24 @@ anyway.
 
 ## Install by hand
 
-The iPod Classic (`ipod6g`) installs over DFU, see the README's By hand
-section: `pod-installer-ipod6g.dfu` keeps the Apple firmware, and
-`pod-installer-ipod6g-single.dfu` is for a Classic without it.
+The iPod Classic (`ipod6g`) installs over DFU with `mks5lboot`:
+`pod-installer-ipod6g.dfu` keeps the Apple firmware, and
+`pod-installer-ipod6g-single.dfu` is for a Classic without it (one that had a
+single boot Rockbox). Unzip `pod-ipod6g.zip` at its root first, then:
+
+```sh
+xattr -d com.apple.quarantine mks5lboot-macos-arm64
+chmod +x mks5lboot-macos-arm64
+./mks5lboot-macos-arm64 --dfuscan --loop   # hold MENU+SELECT until "mode: DFU", then Ctrl-C
+./mks5lboot-macos-arm64 --dfusend pod-installer-ipod6g.dfu
+```
+
+On macOS, pause Finder's device agents first (`kill -STOP` MobileDeviceUpdater,
+AMPDeviceDiscoveryAgent and AMPDevicesAgent, `kill -CONT` after): they load
+Apple's recovery image into the iPod, and the installer then hangs it. The
+repository's `scripts/install-bootloader.sh ipod6g [single]` does all of this.
+On Linux use `mks5lboot-linux-x86_64` with sudo (it needs libusb). If the
+Classic still boots "Rockbox boot loader", it needed the single installer.
 
 Pick the files for your iPod mini: `1g` (first generation) or `2g` (second
 generation).

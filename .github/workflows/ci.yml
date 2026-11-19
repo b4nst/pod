@@ -104,6 +104,16 @@ jobs:
           make -C firmware/rockbox/utils/ipodpatcher CFLAGS="-Wall -W $mac"
           mkdir -p dist
           cp firmware/rockbox/utils/ipodpatcher/ipodpatcher dist/ipodpatcher-${{ matrix.suffix }}
+      # sends the Classic's installer over DFU: IOKit on macOS, libusb on Linux
+      - name: mks5lboot
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mac=; [ "$RUNNER_OS" = macOS ] && mac=-mmacosx-version-min=12.0
+          [ "$RUNNER_OS" = Linux ] && sudo apt-get install -y libusb-1.0-0-dev
+          make -C firmware/rockbox/utils/mks5lboot CFLAGS="-Wall -Wextra $mac"
+          mkdir -p dist
+          cp firmware/rockbox/utils/mks5lboot/mks5lboot dist/mks5lboot-${{ matrix.suffix }}
       - name: Package
         shell: bash
         run: |
@@ -139,7 +149,7 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: |
-          chmod +x ipodpatcher-* podlink-linux-*
+          chmod +x ipodpatcher-* mks5lboot-* podlink-linux-*
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
       - name: Publish

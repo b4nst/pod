@@ -57,7 +57,9 @@ music is picked up at boot.
 The iPod Classic (6G) is by hand only: unzip `pod-ipod6g.zip` at its root as
 above, then install the bootloader over DFU with
 `scripts/install-bootloader.sh ipod6g`, or `ipod6g single` on a Classic whose
-Apple firmware is gone (one that had a single boot Rockbox), see
+Apple firmware is gone (one that had a single boot Rockbox). The release has
+the installers and `mks5lboot-<os>` to send them without a build (see its
+notes). The details are in
 [Install the bootloader by hand](docs/DEVELOPMENT.md#install-the-bootloader-by-hand).
 If it still boots the old bootloader after that, it needed `single`. Its
 controls are the same.
