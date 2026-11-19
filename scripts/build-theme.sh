@@ -63,8 +63,10 @@ if [ "$target" = ipod6g ]; then
   cvt -o "$out/fonts/16-Tape.fnt" "$work/ter16.bdf"
   cvt -o "$out/fonts/18-Tape-Bold.fnt" "$work/ter18b.bdf"
   cvt -o "$out/fonts/32-Tape-Bold.fnt" "$work/ter32b.bdf"
-  # config.cfg: the generated theme, then the defaults from the first blank line
+  # config.cfg: the generated theme, then the defaults from the first blank line.
+  # The Classic's LCD is dark without the backlight: it stays on twice as long.
   { head -n1 "$root/firmware/theme/config.cfg"
     grep -v '^#' "$out/themes/pod.cfg"
-    sed -n '/^$/,$p' "$root/firmware/theme/config.cfg"; } >"$out/config.cfg"
+    sed -n '/^$/,$p' "$root/firmware/theme/config.cfg" \
+      | sed 's/^backlight timeout: .*/backlight timeout: 30/'; } >"$out/config.cfg"
 fi
