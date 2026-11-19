@@ -14,17 +14,31 @@ diskutil list                                          # find the iPod, e.g. dis
 scripts/install-bootloader.sh ipodmini1g /dev/disk5
 ```
 
-The Classic's bootloader goes to its NOR flash over DFU, with the iPod in DFU
-mode (hold MENU+SELECT to reset, then SELECT+PLAY, see
-`firmware/rockbox/utils/mks5lboot/README`). It needs sudo on Linux. The Classic takes no disk argument:
+The Classic's bootloader goes to its NOR flash over DFU. The Classic takes no
+disk argument, and it needs sudo on Linux:
 
 ```sh
-scripts/install-bootloader.sh ipod6g
+scripts/install-bootloader.sh ipod6g          # the Apple firmware stays
+scripts/install-bootloader.sh ipod6g single   # an iPod without it
 ```
 
+Plug the iPod in, run the script, then hold MENU+SELECT through the reset until
+the screen stays black (about 15 s). The script waits for DFU mode, tells you
+to let go and sends the installer. On macOS it pauses Finder's device agents
+(and usbmuxd, with sudo) while it runs: they load Apple's recovery image into
+an iPod in DFU (WTF mode), and the installer then hangs it until the battery
+is disconnected.
+
+The default installer keeps Apple's NOR boot behind pod's, and it only writes
+when it finds it. An iPod that had a single boot Rockbox (no Apple firmware)
+has none, so the installer reboots it unchanged. Use `single` there: it writes
+pod's bootloader without that check. Its beeps don't tell the two apart; the
+boot does. pod's bootloader shows the pod splash, and a `Rockbox boot loader`
+screen means the old one is still there.
+
 `dist/` holds what the build below makes: `pod-<target>.zip`,
-`pod-bootloader-<target>.ipod`, `pod-installer-ipod6g.dfu`, `mks5lboot` and
-`ipodpatcher`.
+`pod-bootloader-<target>.ipod`, `pod-installer-ipod6g.dfu`,
+`pod-installer-ipod6g-single.dfu`, `mks5lboot` and `ipodpatcher`.
 
 ## Build
 

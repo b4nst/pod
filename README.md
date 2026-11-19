@@ -13,7 +13,8 @@ app, installs pod and puts your music on the iPod.
 
 pod lives in `/.pod` and boots `/.pod/pod.ipod`, so it needs its own
 bootloader. The stock Rockbox bootloader won't find it. The Apple firmware
-stays installed: hold MENU (or switch HOLD on) at power on to boot it.
+stays installed: hold MENU (or switch HOLD on) at power on to boot it. A
+Classic without it boots pod either way.
 
 pod needs a Windows formatted (FAT32) iPod: one restored on a Mac is HFS+,
 and pod link says so.
@@ -55,9 +56,11 @@ music is picked up at boot.
 
 The iPod Classic (6G) is by hand only: unzip `pod-ipod6g.zip` at its root as
 above, then install the bootloader over DFU with
-`scripts/install-bootloader.sh ipod6g`, see
+`scripts/install-bootloader.sh ipod6g`, or `ipod6g single` on a Classic whose
+Apple firmware is gone (one that had a single boot Rockbox), see
 [Install the bootloader by hand](docs/DEVELOPMENT.md#install-the-bootloader-by-hand).
-Its controls are the same.
+If it still boots the old bootloader after that, it needed `single`. Its
+controls are the same.
 
 Copy music into `/Music` in disk mode and pod scans it at boot.
 

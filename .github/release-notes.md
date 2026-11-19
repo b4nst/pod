@@ -11,6 +11,10 @@ anyway.
 
 ## Install by hand
 
+The iPod Classic (`ipod6g`) installs over DFU, see the README's By hand
+section: `pod-installer-ipod6g.dfu` keeps the Apple firmware, and
+`pod-installer-ipod6g-single.dfu` is for a Classic without it.
+
 Pick the files for your iPod mini: `1g` (first generation) or `2g` (second
 generation).
 

@@ -8,6 +8,7 @@
 #   dist/pod-bootloader-<target>.ipod bootloader, see scripts/install-bootloader.sh
 #   dist/ipodpatcher                  host tool that installs the bootloader (minis)
 #   dist/pod-installer-ipod6g.dfu     the Classic's bootloader, sent over DFU
+#   dist/pod-installer-ipod6g-single.dfu  the same without Apple's NOR boot
 #   dist/mks5lboot                    host tool that sends it
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -58,6 +59,10 @@ for t in $targets; do
     cp "$src/utils/mks5lboot/mks5lboot" "$root/dist/mks5lboot"
     "$root/dist/mks5lboot" --mkdfu-inst "$root/dist/pod-bootloader-$t.ipod" \
       "$root/dist/pod-installer-$t.dfu"
+    # the dual boot installer keeps Apple's NOR boot behind pod's and does
+    # nothing without it (an iPod that had a single boot Rockbox)
+    "$root/dist/mks5lboot" --mkdfu-inst "$root/dist/pod-bootloader-$t.ipod" \
+      "$root/dist/pod-installer-$t-single.dfu" --single
   fi
 
   # the theme needs convbdf, which the build above just compiled
