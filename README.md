@@ -25,13 +25,14 @@ and pod link says so.
 
 Download pod link (macOS, Linux, Windows) from the
 [latest release](https://github.com/b4nst/pod/releases/latest)
-(`podlink-<os>`), plug the iPod in, and go through the screens in order:
+(`podlink-<os>`) and plug the iPod in. It opens on SYNC, the screen for every
+day; the first time, go through them in this order:
 
 1. UPGRADE copies the firmware into `/.pod`. It keeps your settings and can
    remove a stock Rockbox install.
-2. FLASH installs the bootloader, once per iPod. It asks for your password,
-   because it writes the firmware partition directly (macOS: the system
-   prompt, Linux: pkexec, Windows: UAC).
+2. FLASH, under MORE, installs the bootloader, once per iPod. It asks for your
+   password, because it writes the firmware partition directly (macOS: the
+   system prompt, Linux: pkexec, Windows: UAC).
 3. SYNC copies your music folder to `/Music` (see pod link below).
 
 On the iPod Classic (6G), UPGRADE and SYNC work the same, but FLASH is still

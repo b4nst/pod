@@ -40,9 +40,10 @@ pub fn run() -> iced::Result {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
-    Flash,
-    Upgrade,
     Sync,
+    Upgrade,
+    /// Once per iPod, and not on every model: kept under MORE.
+    Flash,
 }
 
 impl Tab {
@@ -95,11 +96,20 @@ enum Message {
     Scanned(Vec<Device>),
     Select(String),
     Tab(Tab),
+    /// Open or close the MORE keys.
+    More,
     Release(Result<Option<Release>, String>),
     Model(Model),
-    UseRelease { firmware: bool },
-    PickLocal { firmware: bool },
-    Picked { firmware: bool, path: Option<PathBuf> },
+    UseRelease {
+        firmware: bool,
+    },
+    PickLocal {
+        firmware: bool,
+    },
+    Picked {
+        firmware: bool,
+        path: Option<PathBuf>,
+    },
     KeepSettings(bool),
     RemoveRockbox(bool),
     PickFolder,
@@ -122,6 +132,8 @@ struct App {
     selected: Option<PathBuf>,
     scanning: bool,
     tab: Tab,
+    /// The MORE keys are shown.
+    more: bool,
     release: Remote,
     model: Option<Model>,
     boot_local: Option<PathBuf>,
@@ -157,7 +169,8 @@ impl App {
             devices: Vec::new(),
             selected: None,
             scanning: true,
-            tab: Tab::Flash,
+            tab: Tab::Sync,
+            more: false,
             release: Remote::Loading,
             model: None,
             boot_local: None,
@@ -258,6 +271,11 @@ impl App {
             }
             Message::Tab(t) => {
                 self.tab = t;
+                self.more = false;
+                Task::none()
+            }
+            Message::More => {
+                self.more = !self.more;
                 Task::none()
             }
             Message::Release(r) => {
@@ -623,7 +641,30 @@ impl App {
                 .width(Fill)
                 .on_press_maybe(self.job.is_none().then_some(Message::Tab(t)))
         };
-        row![key(Tab::Flash), key(Tab::Upgrade), key(Tab::Sync)].into()
+        let idle = self.job.is_none();
+        // lit while one of its screens is open
+        let more = button(
+            container(text(if self.more { "MORE ▴" } else { "MORE ▾" }).font(DECK_BOLD).size(13)).center_x(Fill),
+        )
+        .style(theme::deck_key(self.more || self.tab == Tab::Flash))
+        .padding([10, 0])
+        .width(110)
+        .on_press_maybe(idle.then_some(Message::More));
+        let keys = row![key(Tab::Sync), key(Tab::Upgrade), more];
+        if !self.more {
+            return keys.into();
+        }
+        let extra = row![
+            button(text(Tab::Flash.label()).font(DECK_BOLD).size(12))
+                .style(theme::deck_key(self.tab == Tab::Flash))
+                .padding([6, 14])
+                .on_press_maybe(idle.then_some(Message::Tab(Tab::Flash))),
+            text("the bootloader, once per iPod; not on the Classic").size(11).style(theme::mid),
+        ]
+        .spacing(10)
+        .padding([8, 14])
+        .align_y(Center);
+        column![keys, extra].into()
     }
 
     fn deck(&self) -> Element<'_, Message> {
@@ -645,9 +686,9 @@ impl App {
             None => (0.0, "---".into(), "--".into(), String::new()),
         };
         let side = match self.tab {
-            Tab::Flash => "A",
+            Tab::Sync => "A",
             Tab::Upgrade => "B",
-            Tab::Sync => "C",
+            Tab::Flash => "C",
         };
         let hud = column![
             container(text(format!("SIDE {side}")).font(DECK_BOLD).size(11)).style(theme::bar).padding([2, 6]),
@@ -666,9 +707,9 @@ impl App {
 
     fn screen(&self) -> Element<'_, Message> {
         let content = match self.tab {
-            Tab::Flash => self.flash_screen(),
-            Tab::Upgrade => self.upgrade_screen(),
             Tab::Sync => self.sync_screen(),
+            Tab::Upgrade => self.upgrade_screen(),
+            Tab::Flash => self.flash_screen(),
         };
         stack![
             canvas(Dots).width(Fill).height(Fill),
