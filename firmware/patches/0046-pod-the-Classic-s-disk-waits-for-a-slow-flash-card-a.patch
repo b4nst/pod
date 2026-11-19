@@ -1,0 +1,146 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Thu, 19 Nov 2026 19:02:59 +0100
+Subject: [PATCH] pod: the Classic's disk waits for a slow flash card, a failed
+ USB write no longer wedges the link
+
+---
+ .../arm/s5l8702/ipod6g/storage_ata-6g.c       | 13 +++---
+ firmware/usbstack/usb_storage.c               | 40 ++++++++++++-------
+ 2 files changed, 33 insertions(+), 20 deletions(-)
+
+diff --git a/firmware/target/arm/s5l8702/ipod6g/storage_ata-6g.c b/firmware/target/arm/s5l8702/ipod6g/storage_ata-6g.c
+index 7e151fc32f937e4871f1bc4eb9e73c7eac66989e..e0c7a57b9cc70c4360870fc500bf5a1620b13679 100644
+--- a/firmware/target/arm/s5l8702/ipod6g/storage_ata-6g.c
++++ b/firmware/target/arm/s5l8702/ipod6g/storage_ata-6g.c
+@@ -60,6 +60,9 @@
+ #define CEATA_POWERUP_TIMEOUT 20000000
+ #define CEATA_COMMAND_TIMEOUT 1000000
+ #define CEATA_DAT_NONBUSY_TIMEOUT 5000000
++/* pod: a flash card behind a PATA adapter can keep the bus busy for longer
++ * than the hard drive did: SDXC allows 500 ms for a write */
++#define ATA_RW_TIMEOUT 1000000
+ #define CEATA_MMC_RCA 1
+ 
+ /** static, private data **/
+@@ -817,7 +820,7 @@ static int ata_rw_chunk_internal(uint64_t sector, uint32_t cnt, void* buffer, bo
+     }
+ 
+     {
+-        PASS_RC(ata_wait_for_rdy(100000), 2, 0);
++        PASS_RC(ata_wait_for_rdy(ATA_RW_TIMEOUT), 2, 0);
+         ata_write_cbr(&ATA_PIO_DVR, 0);
+         if (ata_lba48)
+         {
+@@ -850,7 +853,7 @@ static int ata_rw_chunk_internal(uint64_t sector, uint32_t cnt, void* buffer, bo
+ #ifdef HAVE_ATA_DMA
+         if (ata_dma)
+         {
+-            PASS_RC(ata_wait_for_start_of_transfer(500000), 2, 1);
++            PASS_RC(ata_wait_for_start_of_transfer(ATA_RW_TIMEOUT), 2, 1);
+             if (write)
+             {
+                 ATA_SBUF_START = buffer;
+@@ -870,7 +873,7 @@ static int ata_rw_chunk_internal(uint64_t sector, uint32_t cnt, void* buffer, bo
+             ATA_IRQ = BITRANGE(0, 4);
+             ATA_IRQ_MASK = BIT(0);
+             ATA_COMMAND = BIT(0);
+-            if (semaphore_wait(&ata_wakeup, 500000 * HZ / 1000000) == OBJ_WAIT_TIMEDOUT)
++            if (semaphore_wait(&ata_wakeup, ATA_RW_TIMEOUT * HZ / 1000000) == OBJ_WAIT_TIMEDOUT)
+             {
+                 ATA_COMMAND = BIT(1);
+                 ATA_CFG &= ~(BITRANGE(2, 3) | BIT(12));
+@@ -885,7 +888,7 @@ static int ata_rw_chunk_internal(uint64_t sector, uint32_t cnt, void* buffer, bo
+             while (cnt--)
+             {
+                 uint16_t i;
+-                PASS_RC(ata_wait_for_start_of_transfer(500000), 2, 1);
++                PASS_RC(ata_wait_for_start_of_transfer(ATA_RW_TIMEOUT), 2, 1);
+                 if (write)
+                     for (i = 0; i < log_sector_size/2; i++)
+                         ata_write_cbr(&ATA_PIO_DTR, ((uint16_t*)buffer)[i]);
+@@ -895,7 +898,7 @@ static int ata_rw_chunk_internal(uint64_t sector, uint32_t cnt, void* buffer, bo
+                 buffer += log_sector_size;
+             }
+         }
+-        PASS_RC(ata_wait_for_end_of_transfer(100000), 2, 3);
++        PASS_RC(ata_wait_for_end_of_transfer(ATA_RW_TIMEOUT), 2, 3);
+         return 0;
+     }
+ }
+diff --git a/firmware/usbstack/usb_storage.c b/firmware/usbstack/usb_storage.c
+index df93475e402ff0f4d3f3dad8f6ba0b81925f49b1..cb6c502531290974d93756a8df0edc489673b378 100644
+--- a/firmware/usbstack/usb_storage.c
++++ b/firmware/usbstack/usb_storage.c
+@@ -306,6 +306,8 @@ static struct {
+     unsigned char data_select;
+     unsigned int last_result;
+     unsigned int data_residue;
++    /* pod: a block of this write failed, the rest of the data is dropped */
++    bool write_failed;
+ } cur_cmd;
+ 
+ static struct {
+@@ -586,25 +588,31 @@ static void usb_storage_transfer_complete(int ep,int dir,int status,int length)
+                         cur_cmd.data[cur_cmd.data_select],
+                         MIN(WRITE_BUFFER_SIZE/cur_cmd.block_size, cur_cmd.count)*cur_cmd.block_size);
+ #else
+-                int result = USBSTOR_WRITE_SECTORS_FILTER();
+-
+-                if (result == 0) {
+-                    result = storage_write_sectors(IF_MD(cur_cmd.lun,)
+-                        cur_cmd.sector,
+-                        MIN(WRITE_BUFFER_SIZE/cur_cmd.block_size, cur_cmd.count),
+-                        cur_cmd.data[cur_cmd.data_select]);
+-                }
++                /* pod: once a block failed, the rest still has to be taken
++                 * from the host: a CSW sent in the middle of the data, with
++                 * the next block already asked for, has the host's data read
++                 * as the next command, and both pipes stall for good */
++                if (!cur_cmd.write_failed) {
++                    int result = USBSTOR_WRITE_SECTORS_FILTER();
++
++                    if (result == 0) {
++                        result = storage_write_sectors(IF_MD(cur_cmd.lun,)
++                            cur_cmd.sector,
++                            MIN(WRITE_BUFFER_SIZE/cur_cmd.block_size, cur_cmd.count),
++                            cur_cmd.data[cur_cmd.data_select]);
++                    }
+ 
+-                if(result != 0) {
+-                    send_csw(UMS_STATUS_FAIL);
+-                    cur_sense_data.sense_key=SENSE_MEDIUM_ERROR;
+-                    cur_sense_data.asc=ASC_WRITE_ERROR;
+-                    cur_sense_data.ascq=0;
+-                    break;
++                    if(result != 0) {
++                        cur_cmd.write_failed = true;
++                        cur_sense_data.sense_key=SENSE_MEDIUM_ERROR;
++                        cur_sense_data.asc=ASC_WRITE_ERROR;
++                        cur_sense_data.ascq=0;
++                    }
+                 }
+ #endif
+                 if(next_count==0) {
+-                    send_csw(UMS_STATUS_GOOD);
++                    send_csw(cur_cmd.write_failed ? UMS_STATUS_FAIL
++                                                  : UMS_STATUS_GOOD);
+                 }
+ 
+                 /* Switch buffers for the next one */
+@@ -1321,6 +1329,7 @@ static void handle_scsi_ready(struct command_block_wrapper* cbw)
+             cur_cmd.data[0] = tb.transfer_buffer;
+             cur_cmd.data[1] = &tb.transfer_buffer[WRITE_BUFFER_SIZE];
+             cur_cmd.data_select=0;
++            cur_cmd.write_failed = false;
+             cur_cmd.sector = block_size_mult *
+                 (cbw->command_block[2] << 24 |
+                  cbw->command_block[3] << 16 |
+@@ -1363,6 +1372,7 @@ static void handle_scsi_ready(struct command_block_wrapper* cbw)
+             cur_cmd.data[0] = tb.transfer_buffer;
+             cur_cmd.data[1] = &tb.transfer_buffer[WRITE_BUFFER_SIZE];
+             cur_cmd.data_select=0;
++            cur_cmd.write_failed = false;
+             cur_cmd.sector = block_size_mult *
+                 ((uint64_t)cbw->command_block[2] << 56 |
+                  (uint64_t)cbw->command_block[3] << 48 |

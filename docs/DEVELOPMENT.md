@@ -259,6 +259,14 @@ switch.
       clockwise when the host writes, back when it reads, a 15° step every
       100 ms until 500 ms without blocks, none with the backlight off. The
       hubs are redrawn in C at `mktheme6g.py`'s reel positions.
+  46. the Classic's disk waits up to 1 s (`ATA_RW_TIMEOUT`) for the bus
+      before and after a read or write, where the hard drive got 100 ms: a
+      flash card behind a PATA adapter can stay busy longer, and SDXC allows
+      500 ms for a write. A write that fails over USB still takes the rest of
+      its data from the host before the failed CSW
+      (`cur_cmd.write_failed`): sent mid-data, with the next block already
+      asked for, it had the host's data read as the next command, and both
+      pipes stalled until a reboot.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod
