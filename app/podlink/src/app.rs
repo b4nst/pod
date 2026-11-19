@@ -29,18 +29,25 @@ const CLASSIC_FLASH: &str =
 const RESUMES: usize = 5;
 const RECONNECT: Duration = Duration::from_secs(5 * 60);
 
+/// The iPod at `mount` reads back what is on it. One whose disk failed stays
+/// mounted, and the metadata macOS has cached still reads: listing `/Music`
+/// does not.
+fn answers(mount: &Path) -> bool {
+    std::fs::read_dir(mount.join("Music")).and_then(|mut d| d.next().transpose()).is_ok()
+}
+
 /// The volume at `mount` is gone, or no longer answers.
 fn dropped(mount: &Path) -> bool {
     // macOS takes a moment to unmount a disk that went away
     std::thread::sleep(Duration::from_secs(2));
-    device::inspect(mount).is_none() || std::fs::read_dir(mount.join("Music")).is_err()
+    device::inspect(mount).is_none() || !answers(mount)
 }
 
 /// Where the iPod named `label` is mounted once it is back.
 fn reconnected(label: &str, cancel: &AtomicBool) -> Option<PathBuf> {
     let start = Instant::now();
     while start.elapsed() < RECONNECT && !cancel.load(Ordering::Relaxed) {
-        if let Some(d) = device::scan().into_iter().find(|d| d.label == label) {
+        if let Some(d) = device::scan().into_iter().find(|d| d.label == label && answers(&d.mount)) {
             return Some(d.mount);
         }
         std::thread::sleep(Duration::from_secs(2));
@@ -396,7 +403,7 @@ impl App {
                             Err(e) if !matches!(e, Error::Cancelled) && resumes < RESUMES && dropped(&mount) => {
                                 resumes += 1;
                                 progress(Progress {
-                                    item: "LOST THE IPOD, WAITING FOR IT".into(),
+                                    item: "LOST THE IPOD: WAITING, REBOOT IT IF IT HANGS".into(),
                                     ..Default::default()
                                 });
                                 let Some(m) = reconnected(&label, cancel) else { break Err(e) };
