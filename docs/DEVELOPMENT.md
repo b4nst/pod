@@ -254,6 +254,11 @@ switch.
       alone, `draw_item_height` sets their 28 px): the number, or a teal
       arrow on the playing track, and the title over the artist. A picked
       up track is amber with a grip.
+  45. the Classic's Linked screen turns the cassette's hubs while blocks go
+      over USB (`usb_storage_last_transfer()`, set in `usb_storage.c`):
+      clockwise when the host writes, back when it reads, a 15° step every
+      100 ms until 500 ms without blocks, none with the backlight off. The
+      hubs are redrawn in C at `mktheme6g.py`'s reel positions.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod

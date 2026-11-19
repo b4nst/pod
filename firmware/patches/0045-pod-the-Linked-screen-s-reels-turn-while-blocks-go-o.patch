@@ -1,0 +1,234 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Thu, 19 Nov 2026 16:00:04 +0100
+Subject: [PATCH] pod: the Linked screen's reels turn while blocks go over USB,
+ back on reads
+
+---
+ apps/gui/usb_screen.c           | 91 +++++++++++++++++++++++++++++++--
+ apps/usb_keymaps.c              |  4 +-
+ apps/usb_keymaps.h              |  2 +-
+ firmware/export/usb_core.h      |  6 +++
+ firmware/usbstack/usb_storage.c | 14 +++++
+ 5 files changed, 110 insertions(+), 7 deletions(-)
+
+diff --git a/apps/gui/usb_screen.c b/apps/gui/usb_screen.c
+index 7d6f618fccfe68187d360518462786aa18fab03a..13f3ebb15222ddc8c5eddfea1d7954fc4b1c5ed3 100644
+--- a/apps/gui/usb_screen.c
++++ b/apps/gui/usb_screen.c
+@@ -52,6 +52,22 @@
+ #include "ata_mmc.h"
+ #endif
+ 
++#if BMPHEIGHT_usblogo == LCD_HEIGHT && LCD_WIDTH >= 320 \
++    && defined(USB_ENABLE_STORAGE)
++/* the Classic: the hubs of the cassette on the logo turn while blocks go
++ * over the bus, forward when the host writes, back when it reads */
++#define USB_REELS
++#include "backlight.h"
++#include "pod_frame.h"
++
++/* the reels of mktheme6g.py's cassette() at (60, 44) */
++#define REEL_X(h)       (126 + (h) * 68)
++#define REEL_Y          120
++#define HUB_R           6
++#define REEL_STEP       (HZ/10)
++#define REEL_IDLE       (HZ/2) /* no blocks for this long: the tape stops */
++#endif
++
+ struct usb_screen_vps_t
+ {
+     struct viewport parent;
+@@ -75,11 +91,70 @@ static void draw_usb_keypad_mode(struct viewport *title)
+ }
+ #endif /* USB_ENABLE_HID */
+ 
+-static void handle_usb_events(struct viewport *title)
++#ifdef USB_REELS
++/* a hub with its six spokes, turned phase times 15 degrees clockwise */
++static void draw_hub(struct screen *d, int cx, int cy, int phase)
++{
++    static const signed char spoke[4][3][2] = {
++        { { 6, 0 }, { 3, 5 }, { -3, 5 } },
++        { { 6, 2 }, { 2, 6 }, { -4, 4 } },
++        { { 5, 3 }, { 0, 6 }, { -5, 3 } },
++        { { 4, 4 }, { -2, 6 }, { -6, 2 } },
++    };
++
++    d->set_foreground(POD6_TEXT2);
++    for (int dy = -HUB_R; dy <= HUB_R; dy++)
++    {
++        int dx = 0;
++        while ((dx + 1) * (dx + 1) + dy * dy <= HUB_R * HUB_R)
++            dx++;
++        d->hline(cx - dx, cx + dx, cy + dy);
++    }
++    d->set_foreground(POD6_WELL);
++    for (int i = 0; i < 3; i++)
++    {
++        d->drawline(cx, cy, cx + spoke[phase][i][0], cy + spoke[phase][i][1]);
++        d->drawline(cx, cy, cx - spoke[phase][i][0], cy - spoke[phase][i][1]);
++    }
++    d->fillrect(cx - 1, cy - 1, 3, 3);
++    d->hline(cx - 2, cx + 2, cy);
++    d->vline(cx, cy - 2, cy + 2);
++    d->update_viewport_rect(cx - HUB_R, cy - HUB_R, 2 * HUB_R + 1,
++                            2 * HUB_R + 1);
++}
++
++/* Steps the hubs while blocks go over the bus. Returns how long the screen
++ * can wait for the next step, idle if they stand still. */
++static int turn_reels(struct viewport *logo, int *phase, int idle)
++{
++    struct screen *d = &screens[SCREEN_MAIN];
++    struct viewport *last_vp;
++    bool write;
++    long last = usb_storage_last_transfer(&write);
++
++    if (last < 0 || TIME_AFTER(current_tick, last + REEL_IDLE)
++        || !is_backlight_on(false))
++        return idle;
++    *phase = (*phase + (write ? 1 : 3)) % 4;
++    last_vp = d->set_viewport(logo);
++    d->set_drawmode(DRMODE_SOLID);
++    for (int h = 0; h < 2; h++)
++        draw_hub(d, REEL_X(h), REEL_Y, *phase);
++    d->set_viewport(last_vp);
++    return REEL_STEP;
++}
++#endif /* USB_REELS */
++
++static void handle_usb_events(struct viewport *title, struct viewport *logo)
+ {
+ #if (CONFIG_STORAGE & STORAGE_MMC) && !defined(SIMULATOR)
+     int next_update = 0;
+ #endif /* STORAGE_MMC */
++#ifdef USB_REELS
++    int phase = 0;
++#else
++    (void)logo;
++#endif
+     int button;
+ 
+     /* Don't return until we get SYS_USB_DISCONNECTED */
+@@ -90,7 +165,11 @@ static void handle_usb_events(struct viewport *title)
+ #else
+         if (global_settings.usb_hid)
+         {
+-            button = get_hid_usb_action();
++            int tmo = HZ/4;
++#ifdef USB_REELS
++            tmo = turn_reels(logo, &phase, tmo);
++#endif
++            button = get_hid_usb_action(tmo);
+             if (button == ACTION_USB_HID_MODE_SWITCH_NEXT ||
+                 button == ACTION_USB_HID_MODE_SWITCH_PREV)
+                 draw_usb_keypad_mode(title);
+@@ -98,9 +177,13 @@ static void handle_usb_events(struct viewport *title)
+         else
+ #endif
+         {
++            int tmo = HZ/2;
++#ifdef USB_REELS
++            tmo = turn_reels(logo, &phase, tmo);
++#endif
+             /* hid emits the event in get_action */
+             send_event(GUI_EVENT_ACTIONUPDATE, NULL);
+-            button = button_get_w_tmo(HZ/2);
++            button = button_get_w_tmo(tmo);
+         }
+         if (button == SYS_USB_DISCONNECTED)
+             return;
+@@ -296,7 +379,7 @@ void gui_usb_screen_run(bool early_usb, intptr_t seqnum)
+     }
+     usb_acknowledge(SYS_USB_CONNECTED_ACK, seqnum);
+     usb_screens_draw(usb_screen_vps_ar);
+-    handle_usb_events(title);
++    handle_usb_events(title, &usb_screen_vps_ar[SCREEN_MAIN].logo);
+ 
+ #if defined(USB_ENABLE_HID)
+     if (global_settings.usb_hid)
+diff --git a/apps/usb_keymaps.c b/apps/usb_keymaps.c
+index 7eab3973542bd864919b72c7e6aa4a06b923c9e5..8c15d4972075ef2b9625acaafa270495965ffcab 100644
+--- a/apps/usb_keymaps.c
++++ b/apps/usb_keymaps.c
+@@ -169,13 +169,13 @@ static const hid_key_mapping_t *hid_key_mappings[] =
+ 
+ extern int usb_keypad_mode;
+ 
+-int get_hid_usb_action(void)
++int get_hid_usb_action(int timeout)
+ {
+     int action, step;
+     const hid_key_mapping_t *key_mapping = hid_key_mappings[usb_keypad_mode];
+ 
+     step = -1;
+-    action = get_action(key_mapping->context, HZ/4);
++    action = get_action(key_mapping->context, timeout);
+     switch (action)
+     {
+         case ACTION_USB_HID_MODE_SWITCH_NEXT:
+diff --git a/apps/usb_keymaps.h b/apps/usb_keymaps.h
+index 5ef44f12d742e5b9d43dd9f02ca0cfb314a6f684..af2a6abbd8644666e2f19ea46026a19d8159c16b 100644
+--- a/apps/usb_keymaps.h
++++ b/apps/usb_keymaps.h
+@@ -20,7 +20,7 @@
+ #ifndef _USB_KEYMAPS_H_
+ #define _USB_KEYMAPS_H_
+ 
+-int get_hid_usb_action(void);
++int get_hid_usb_action(int timeout);
+ 
+ int keypad_mode_name_get(unsigned int mode);
+ 
+diff --git a/firmware/export/usb_core.h b/firmware/export/usb_core.h
+index 60a7c80f3a721c2d3fa93590a4f734a53ae1c5ab..42220a87535d3056a2b083231ec96fd9501ddf8a 100644
+--- a/firmware/export/usb_core.h
++++ b/firmware/export/usb_core.h
+@@ -74,6 +74,12 @@ void usb_core_handle_notify(long id, intptr_t data);
+ void usb_core_notify_set_address(uint8_t addr); /* IRQ-safe notification */
+ void usb_core_notify_set_config(uint8_t config);
+ 
++#ifdef USB_ENABLE_STORAGE
++/* the tick blocks last went over the bus (-1: never), and whether the host
++ * wrote them */
++long usb_storage_last_transfer(bool *write);
++#endif
++
+ #ifdef HAVE_HOTSWAP
+ void usb_core_hotswap_event(int volume,bool inserted);
+ #endif
+diff --git a/firmware/usbstack/usb_storage.c b/firmware/usbstack/usb_storage.c
+index 07daf00205cc6985dfbbe3330a657b08138dfad7..df93475e402ff0f4d3f3dad8f6ba0b81925f49b1 100644
+--- a/firmware/usbstack/usb_storage.c
++++ b/firmware/usbstack/usb_storage.c
+@@ -1521,8 +1521,20 @@ static void reject_command(const struct command_block_wrapper *cbw)
+     send_csw(UMS_STATUS_FAIL);
+ }
+ 
++/* pod: when blocks last went over the bus, and whether the host wrote them */
++static long last_transfer = -1;
++static bool last_transfer_write;
++
++long usb_storage_last_transfer(bool *write)
++{
++    *write = last_transfer_write;
++    return last_transfer;
++}
++
+ static void send_block_data(void *data,int size)
+ {
++    last_transfer = current_tick;
++    last_transfer_write = false;
+     usb_drv_send_nonblocking(EP_IN, data,size);
+     state = SENDING_BLOCKS;
+ }
+@@ -1549,6 +1561,8 @@ static void receive_time(void)
+ 
+ static void receive_block_data(void *data,int size)
+ {
++    last_transfer = current_tick;
++    last_transfer_write = true;
+     usb_drv_recv_nonblocking(EP_OUT, data, size);
+     state = RECEIVING_BLOCKS;
+ }
