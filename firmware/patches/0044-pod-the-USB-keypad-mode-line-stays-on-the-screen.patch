@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Thu, 19 Nov 2026 12:24:11 +0100
+Subject: [PATCH] pod: the USB keypad mode line stays on the screen
+
+---
+ apps/gui/usb_screen.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/apps/gui/usb_screen.c b/apps/gui/usb_screen.c
+index 2d2b3249cfb88c2346659aea36e8fcff83d68d3a..7d6f618fccfe68187d360518462786aa18fab03a 100644
+--- a/apps/gui/usb_screen.c
++++ b/apps/gui/usb_screen.c
+@@ -194,6 +194,10 @@ static void usb_screen_fix_viewports(struct screen *screen,
+             logo->y = parent->y;
+             title->y = parent->y + logo->height;
+         }
++        /* a full screen logo leaves no room below it: the title goes over
++           its bottom, the LCD code doesn't clip a viewport off the screen */
++        if (title->y + title->height > parent->y + parent->height)
++            title->y = parent->y + parent->height - title->height;
+ 
+         int i =0, langid = LANG_USB_KEYPAD_MODE;
+         while (langid >= 0) /* ensure the USB mode strings get cached */
