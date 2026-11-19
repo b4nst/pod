@@ -279,6 +279,13 @@ switch.
       cassette always there (`draw_header_cassette`; the lists' skin has it
       as `tape.bmp`, with `%pW`). The greys lean to violet and the fourth
       stripe is plum, for a purple shell.
+  49. the Classic's header readouts: a 15x11 car battery with its
+      terminals and four cells filling up, amber on the last one
+      (`draw_battery`; `batt.bmp` in the lists' skin, picked by `%bl`), the
+      cassette at the mini's 19x11, each in its place from the right edge.
+      The pane dots stay in the middle, with the sleep timer and the play
+      modes left of them. Teal is now a neon ultraviolet (`POD6_UV`), with
+      the purple shell.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod
@@ -286,7 +293,7 @@ switch.
   because a dark background shows up as a frame on the backlit LCD.
 - `firmware/tools/mktheme6g.py`: the same for the Classic, in colour (`RGBCanvas`
   in `canvas.py`), with autoreverse's palette and layout: header and footer
-  bands, amber readouts, teal status, the four stripes for what is lit.
+  bands, amber readouts, ultraviolet status, the four stripes for what is lit.
   It also writes `pod.cfg` and `podlogo.h`.
 - `scripts/build-theme.sh <src> <target>`: rasterizes JetBrains Mono and
   Orbitron to Rockbox fonts and runs the generator for the target. Orbitron's

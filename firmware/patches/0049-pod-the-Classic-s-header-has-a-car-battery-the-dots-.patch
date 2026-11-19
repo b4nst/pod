@@ -1,0 +1,385 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Thu, 19 Nov 2026 23:57:36 +0100
+Subject: [PATCH] pod: the Classic's header has a car battery, the dots stay in
+ the middle, ultraviolet for teal
+
+---
+ apps/bitmaps/native/usblogo.320x240x16.bmp | Bin 230454 -> 230454 bytes
+ apps/gui/pod_deck.c                        | 142 +++++++++++----------
+ apps/gui/pod_eq.c                          |   4 +-
+ apps/gui/pod_frame.h                       |   2 +-
+ apps/gui/pod_search.c                      |   2 +-
+ apps/playlist_viewer.c                     |   8 +-
+ 6 files changed, 84 insertions(+), 74 deletions(-)
+
+diff --git a/apps/bitmaps/native/usblogo.320x240x16.bmp b/apps/bitmaps/native/usblogo.320x240x16.bmp
+index 1171618adf7799f8c62b136b05145d08e0324dca..16841cf20501c1e7f6e953b8f107aa558ff4e97d 100644
+GIT binary patch
+delta 1660
+zcmdni!MCl0uc3u;3sYc??th;x5F{@s0znY&f1fQ7uDqZKTx2?<0aN()t2IoP%*JR6
+zAj*)nV2W%%Si$7XG+iN!nSXkMD>K{lcpqk!=^xUVg{BJ_F#Sg{5@HfTOQ>Wd+@AkF
+zTR=t{GEKkW!pu4Sd>S*`_Iy`nUq<YXgNF>Vb0LO7O|oKwdsTY-oF*nC940{wfRhk2
+zAVEl+Ne~?n5^fB{05}($NikEIOc}{Z2BOoMs+an~Lx3ub?GLq>i<p`J`)mOvH4hL2
+zix5c8V0)hnvlBDOeq`@KT!BjjA`2nmYTyj0t;W+8(wTXt`?)f6PG8`{%s+kK945}`
+z2CmFJpp?rqeO~}G+w^yJOl)u#CnSmke3&`6AMjwlz=UuWa(qD85E5c3gbg8)MIdYl
+z33pYW3p3|-DIaDtBu^96ikSc)rou_6@n#@Tb8f%u&umN+<F`)<X0{<@G9+T)eu8u1
+zB5+qjyah@JmfOR_nJw{}jHw-21epyn9~vZ<+r^_vFd1SFgoK*|VZceK$u`sbT$uT{
+zzl>v6$Lny2FCoDIF$2PekPs1M5^B6XC@zJzuTNrDM9oT|@UjQl&AB}-jads*(rLRw
+X7PA4^O%OY%LV~Py+WsJyIZO-yEUGQH
+
+delta 1660
+zcmdni!MCl0uc3u;3sYc??uk2Y5F{@s0znY&i92o(uDqZKTx2?<0aN()t2IoP%*JR6
+zAj*)nV2W%%Si$7XG+iN!nSXkMD>K{lcpqk!=^xUVg{BJ_F#Sg{5@HfTOQ>Wd+@2G6
+z+(1SeGEKkW!pu4Sd>S*`_Iy`nUq<YXgNF>Vb0LO7O|oKwdsTY-oF*nC940{wfRhk2
+zAVEl+Ne~?n5^fB{05}($NikEIOc}{Z2BOoMs+an~Lx3ub?GLq>i<p^D+;IaXH4hL2
+zix5c8V0)hnvlBDOeq`@KT!BjjA`2nmYTyj0t;W+8(wTXt`?)f6PG8`{%s+kK945}`
+z2CmFJpp?rqeO~}G+w^yJOl)u#CnSmke3&`6AMjwlz=UuWa(qD85E5c3gbg8)MIdYl
+z33pYW3p3|-DIaDtBu^96ikSc)rou_6@n#@Tb8f%u&umN+<F`)<X0{<@G9+T)eu8u1
+zB5+qjyah@JmfOR_nJw{}jHw-21epyn9~vZ<+r^_vFd1SFgoK*|VZceK$u`sbT$uT{
+zzl>v6$Lny2FCoDIF$2PekPs1M5^B6XC@zJzuTNrDM9oT|@UjQl&AB}-jads*(rLRw
+X7PA4^O%OY%LV~Py+WsJyIZO-yhq@l0
+
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index 440d41e5e695cfa3868e512b154018ec6ce13264..65b4d57114e58472b5cb89db4d89aec4b704a59c 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -86,7 +86,7 @@
+ 
+ #if LCD_WIDTH >= 320
+ /* autoreverse, the palette of pod_frame.h: cream on the dark panel, amber
+- * for what is lit and teal for the status */
++ * for what is lit and ultraviolet for the status */
+ #define FONT_VALUE      FONT_DIR "/14-Tape-Bold.fnt"
+ #define FONT_TINY       FONT_DIR "/12-Tape.fnt"
+ #define FONT_BAND       FONT_DIR "/18-Tape-Bold.fnt"
+@@ -96,7 +96,7 @@
+ #define POD_MID         POD6_OFF
+ #define POD_INK         POD6_TEXT
+ #define POD_AMBER       POD6_AMBER
+-#define POD_TEAL        POD6_TEAL
++#define POD_UV          POD6_UV
+ #define POD_TEXT2       POD6_TEXT2
+ #define POD_TEXT3       POD6_TEXT3
+ #define POD_UNLIT       POD6_RULE
+@@ -120,7 +120,7 @@
+ #define POD_MID         LCD_DARKGRAY
+ #define POD_INK         LCD_BLACK
+ #define POD_AMBER       POD_INK
+-#define POD_TEAL        POD_INK
++#define POD_UV          POD_INK
+ #define POD_TEXT2       POD_INK
+ #define POD_TEXT3       POD_INK
+ #define POD_UNLIT       POD_MID
+@@ -963,24 +963,12 @@ static void draw_ticks(struct screen *d, int lit)
+ }
+ 
+ #if LCD_WIDTH >= 320
+-/* what the seekbar shows, under its foot: amber, or on amber while it is
+- * something else than usual */
+-static void draw_caption(struct screen *d, int font, const char *str,
+-                         bool alert)
++/* what the seekbar shows, in amber under its foot */
++static void draw_caption(struct screen *d, int font, const char *str)
+ {
+-    int x = BAR_X - BAR_TICK_L / 2;
+-
+     d->setfont(font);
+-    if (alert)
+-    {
+-        d->set_foreground(POD_AMBER);
+-        d->fillrect(x - 1, BAR_CAPTION - 1, text_width(font, str) + 2,
+-                    font_get(font)->height + 1);
+-        d->set_foreground(POD6_BAND);
+-    }
+-    else
+-        d->set_foreground(POD_AMBER);
+-    d->putsxy(x, BAR_CAPTION, str);
++    d->set_foreground(POD_AMBER);
++    d->putsxy(BAR_X - BAR_TICK_L / 2, BAR_CAPTION, str);
+ }
+ #endif
+ 
+@@ -1014,7 +1002,7 @@ static void draw_bargraph(struct screen *d, const struct deck *k, int cur,
+ 
+     draw_ticks(d, bar_segment(k, cur) + 1);
+ #if LCD_WIDTH >= 320
+-    draw_caption(d, font, "A-Z", false);
++    draw_caption(d, font, "A-Z");
+ #endif
+ 
+     /* a letter at the first album of each initial; the current one is
+@@ -1269,28 +1257,28 @@ static void draw_mini_cassette(struct screen *d, int x, int y, bool paused)
+ }
+ 
+ #else
+-/* a 25x15 cassette, the mini's at twice the size, always in the header:
+- * teal and turning while it plays, teal and still on pause or with a queue
+- * to play, grey with nothing. mktheme6g.py draws the same for the lists. */
++/* a 19x11 cassette, the mini's, always in the header: ultraviolet and
++ * turning while it plays, ultraviolet and still on pause or with a queue to
++ * play, grey with nothing. mktheme6g.py draws the same for the lists. */
+ static void draw_header_cassette(struct screen *d, int x, int y, bool lit,
+                                  bool turning)
+ {
+     static const signed char notch[8][2] = {
+-        { -2, -2 }, { 0, -2 }, { 2, -2 }, { 2, 0 },
+-        { 2, 2 }, { 0, 2 }, { -2, 2 }, { -2, 0 },
++        { -1, -1 }, { 0, -1 }, { 1, -1 }, { 1, 0 },
++        { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 },
+     };
+     int step = turning ? (current_tick / (HZ / 5)) % 8 : 0;
+-    unsigned fg = lit ? POD_TEAL : POD_MID;
++    unsigned fg = lit ? POD_UV : POD_MID;
+ 
+     d->set_foreground(fg);
+-    d->drawrect(x, y, 25, 15);
+-    d->hline(x + 6, x + 18, y + 11);
++    d->drawrect(x, y, 19, 11);
++    d->hline(x + 5, x + 13, y + 8);
+     for (int h = 0; h < 2; h++)
+     {
+-        int cx = x + 7 + h * 11, cy = y + 6;
++        int cx = x + 5 + h * 8, cy = y + 4;
+ 
+-        d->fillrect(cx - 2, cy - 2, 5, 5);
+-        d->set_foreground(POD_PAPER);
++        d->fillrect(cx - 1, cy - 1, 3, 3);
++        d->set_foreground(POD6_BAND);
+         d->drawpixel(cx + notch[step][0], cy + notch[step][1]);
+         d->set_foreground(fg);
+     }
+@@ -1328,9 +1316,38 @@ static void draw_lock(struct screen *d, int x, int y)
+ }
+ 
+ #if LCD_WIDTH >= 320
+-/* the play modes that are on, as small teal tags ending at x: shuffled,
+- * Repeat all or one, Infinite. Returns the x before them. */
+-static int draw_mode_tags(struct screen *d, int font, int x)
++/* The battery, a car battery of 15x11: its outline and terminals in grey,
++ * and four cells inside filling up, amber on the last one. mktheme6g.py
++ * draws the same for the lists. */
++#define BATT_W          15
++static void draw_battery(struct screen *d, int x, int y, int level)
++{
++    static const char battery[11][16] = {
++        "..##.......##..", "..##.......##..", "###############",
++        "#.............#", "#.............#", "#.............#",
++        "#.............#", "#.............#", "#.............#",
++        "#.............#", "###############",
++    };
++    int cells = level < 0 ? 0 : level < 25 ? 1 : level < 50 ? 2
++                : level < 75 ? 3 : 4;
++
++    d->set_foreground(POD_MID);
++    for (int j = 0; j < 11; j++)
++        for (int i = 0; i < BATT_W; i++)
++            if (battery[j][i] == '#')
++                d->drawpixel(x + i, y + j);
++    for (int i = 0; i < 4; i++)
++    {
++        d->set_foreground(i >= cells ? POD_FAINT : cells == 1 ? POD_AMBER
++                          : POD_UV);
++        d->fillrect(x + 2 + 3 * i, y + 4, 2, 5);
++    }
++}
++
++/* the play modes that are on, as small ultraviolet tags ending at x:
++ * shuffled, Repeat all or one, Infinite. Returns the x before them, and
++ * leaves out those that would go left of min. */
++static int draw_mode_tags(struct screen *d, int font, int x, int min)
+ {
+     const char *tags[3];
+     int n = 0;
+@@ -1348,8 +1365,10 @@ static int draw_mode_tags(struct screen *d, int font, int x)
+     {
+         int w = text_width(font, tags[i]) + 2;
+ 
++        if (x - w < min)
++            break;
+         x -= w;
+-        d->set_foreground(POD_TEAL);
++        d->set_foreground(POD_UV);
+         d->fillrect(x, 6, w, 12);
+         d->set_foreground(POD6_BAND);
+         d->putsxy(x + 1, 6, tags[i]);
+@@ -1370,49 +1389,40 @@ static void draw_status(struct screen *d, int font, bool play, int pane, int n)
+ 
+ #if LCD_WIDTH >= 320
+     struct tm *tm = get_time();
+-    int x = LCD_WIDTH - 6;
++    int x = LCD_WIDTH - 6, dots = (LCD_WIDTH - 3 * 8 + 4) / 2;
+ 
+-    /* the title, and the readouts from the right edge: clock, battery,
+-     * hold, the cassette, sleep timer, dots, and the play modes */
++    /* the title, the dots in the middle, and the readouts from the right
++     * edge, each in its place: clock, battery, hold and the cassette. The
++     * sleep timer and the play modes end before the dots. */
+     pod_frame_header(d, play ? "PLAYER" : "DECK", f_value);
+     d->setfont(font);
+-    d->set_foreground(POD_TEAL);
++    d->set_foreground(POD_UV);
+     snprintf(buf, sizeof(buf), "%02d:%02d", tm->tm_hour, tm->tm_min);
+     x -= text_width(font, buf);
+     d->putsxy(x, 6, buf);
+-    x -= 6 + 25;
+-    d->set_foreground(POD_MID);
+-    d->drawrect(x, 6, 23, 12);
+-    d->fillrect(x + 23, 10, 2, 4);
+-    d->set_foreground(POD_FAINT);
+-    d->fillrect(x + 2, 8, 19, 8);
+-    d->set_foreground(POD_TEAL);
+-    for (int i = 0; i < (MIN(level, 100) * 5 + 99) / 100; i++)
+-        d->fillrect(x + 2 + i * 4, 8, 3, 8);
++    x -= 6 + BATT_W;
++    draw_battery(d, x, 7, level);
++    x -= 6 + 5;
+     if (button_hold())
+-    {
+-        x -= 6 + 5;
+         draw_lock(d, x, 8);
+-    }
+-    x -= 6 + 25;
+-    draw_header_cassette(d, x, 5, (status & AUDIO_STATUS_PLAY) || deck.queue,
++    x -= 6 + 19;
++    draw_header_cassette(d, x, 7, (status & AUDIO_STATUS_PLAY) || deck.queue,
+                          (status & AUDIO_STATUS_PLAY)
+                          && !(status & AUDIO_STATUS_PAUSE));
++    if (n > 1)
++        draw_dots(d, dots, pane, n);
++    x = dots - 8;
+     if (pod_sleep_left() != POD_SLEEP_OFF)
+     {
+         const char *z = sleep_text(buf, sizeof(buf));
+ 
+-        x -= 6 + text_width(font, z);
+-        d->set_foreground(POD_TEAL);
++        x -= text_width(font, z);
++        d->set_foreground(POD_UV);
+         d->putsxy(x, 6, z);
+-    }
+-    if (n > 1)
+-    {
+-        x -= 6 + n * 8 - 4;
+-        draw_dots(d, x, pane, n);
++        x -= 6;
+     }
+     if (play)
+-        draw_mode_tags(d, font, x - 8);
++        draw_mode_tags(d, font, x, 8 + text_width(f_value, "PLAYER") + 8);
+ #else
+     /* battery */
+     d->set_foreground(POD_INK);
+@@ -1597,7 +1607,7 @@ static void draw_pane_details(struct screen *d, const struct deck *k,
+         pane_text_at(d, f_tiny, DETAIL_X, PANE_X + PANE_W - DETAIL_X, 0,
+                      POD_TEXT2, buf);
+         pane_text_at(d, f_tiny, DETAIL_X, PANE_X + PANE_W - DETAIL_X, 2,
+-                     POD_TEAL, info.codec);
++                     POD_UV, info.codec);
+     }
+ #else
+     if (t->start < 0)
+@@ -2119,7 +2129,7 @@ static void draw_play_bargraph(struct screen *d, const struct mp3entry *id3,
+ 
+         draw_ticks(d, (global_status.volume - min) * BAR_N / MAX(1, max - min));
+ #if LCD_WIDTH >= 320
+-        draw_caption(d, f_tiny, "VOL", true);
++        draw_caption(d, f_tiny, "VOL");
+ #endif
+     }
+     else
+@@ -2128,9 +2138,9 @@ static void draw_play_bargraph(struct screen *d, const struct mp3entry *id3,
+                                     / id3->length : 0);
+ #if LCD_WIDTH >= 320
+         if (status_get_ffmode())
+-            draw_caption(d, f_tiny, "SEEK", true);
++            draw_caption(d, f_tiny, "SEEK");
+         else
+-            draw_caption(d, f_tiny, "TIME", false);
++            draw_caption(d, f_tiny, "TIME");
+ #endif
+     }
+ }
+@@ -2193,7 +2203,7 @@ static void draw_play_cover(struct screen *d, const struct wps_state *state,
+     snprintf(buf, sizeof(buf), "%s \xc2\xb7 %ld.%ld kHz \xc2\xb7 %d kbps",
+              audio_formats[id3->codectype].label, id3->frequency / 1000,
+              id3->frequency % 1000 / 100, id3->bitrate);
+-    d->set_foreground(POD_TEAL);
++    d->set_foreground(POD_UV);
+     tape_text(d, f_tiny, PLAY_INFO_X, PLAY_Y + 82, w, buf, false);
+     if (state->love_flash)
+         draw_heart(d, PANE_X + (POD_COVER_LARGE - 15 * HEART_S) / 2,
+diff --git a/apps/gui/pod_eq.c b/apps/gui/pod_eq.c
+index ac4844f1649cd4728c41137e31ec232f0397859e..d5a76cb7c55a24d9ccd3b18686ccc2f8ba96ec02 100644
+--- a/apps/gui/pod_eq.c
++++ b/apps/gui/pod_eq.c
+@@ -48,7 +48,7 @@
+ #define POD_FS          44100.0f
+ 
+ #if LCD_WIDTH >= 320
+-/* autoreverse: amber on the dark panel, teal labels */
++/* autoreverse: amber on the dark panel, ultraviolet labels */
+ #define FONT_LABEL      FONT_DIR "/14-Tape-Bold.fnt"
+ #define FONT_VALUE      FONT_DIR "/18-Tape-Bold.fnt"
+ #define FONT_TINY       FONT_DIR "/12-Tape.fnt"
+@@ -60,7 +60,7 @@
+ #define POD_INK         LCD_RGBPACK(0xed, 0xe3, 0xcf)
+ #define POD_AXIS        LCD_RGBPACK(0x8c, 0x86, 0x78)
+ #define POD_ACCENT      LCD_RGBPACK(0xff, 0xa5, 0x26)
+-#define POD_LABEL       LCD_RGBPACK(0x46, 0xdc, 0xc8)
++#define POD_LABEL       LCD_RGBPACK(0xb4, 0x4c, 0xff)
+ 
+ /* plot area */
+ #define GX  24
+diff --git a/apps/gui/pod_frame.h b/apps/gui/pod_frame.h
+index 55683b3641b23ff59fe10d01b6b9d08babb7ba29..cc3174da65626e2fee38d1558675d8895a961131 100644
+--- a/apps/gui/pod_frame.h
++++ b/apps/gui/pod_frame.h
+@@ -34,7 +34,7 @@
+ #define POD6_TEXT3      LCD_RGBPACK(0x8c, 0x86, 0x78)
+ #define POD6_OFF        LCD_RGBPACK(0x65, 0x5e, 0x7a)
+ #define POD6_AMBER      LCD_RGBPACK(0xff, 0xa5, 0x26)
+-#define POD6_TEAL       LCD_RGBPACK(0x46, 0xdc, 0xc8)
++#define POD6_UV         LCD_RGBPACK(0xb4, 0x4c, 0xff)
+ #define POD6_SEL0       LCD_RGBPACK(0x31, 0x28, 0x4a)
+ #define POD6_SEL1       LCD_RGBPACK(0x1d, 0x18, 0x30)
+ #define POD6_STRIPE(i)  (pod6_stripes[i])
+diff --git a/apps/gui/pod_search.c b/apps/gui/pod_search.c
+index 671032d3be5cdf9a7fa1ab342d2e4edc1d7834ea..009636df28ba7b6f58e1be4eede6a0ed0e8dea48 100644
+--- a/apps/gui/pod_search.c
++++ b/apps/gui/pod_search.c
+@@ -530,7 +530,7 @@ static void draw(struct screen *d, int f_value, int f_tiny)
+             d->fillrect(0, y, 3, ROW_H);
+         }
+         d->setfont(f_tiny);
+-        d->set_foreground(POD6_TEAL);
++        d->set_foreground(POD6_UV);
+         d->putsxy(TAG_X, y + (ROW_H - th) / 2, group_tag[(int)l->group]);
+         if (*h->artist)
+         {
+diff --git a/apps/playlist_viewer.c b/apps/playlist_viewer.c
+index 4fd7f3195a694d78e3120df2f26a10516f0b4995..92e2e70bc3e2791e678e07dc63f04ca360d99653 100644
+--- a/apps/playlist_viewer.c
++++ b/apps/playlist_viewer.c
+@@ -924,9 +924,9 @@ static void queue_text(struct screen *d, int x, int y, int w, const char *str)
+     d->putsxy(x, y, buf);
+ }
+ 
+-/* A row of the queue: the number (a teal arrow on the playing track), the
+- * title over the artist. The selection is the skin's gradient bar and amber
+- * tab, a picked up track is amber with a grip on the right. */
++/* A row of the queue: the number (an ultraviolet arrow on the playing
++ * track), the title over the artist. The selection is the skin's gradient
++ * bar and amber tab, a picked up track is amber with a grip on the right. */
+ static void queue_draw_item(struct list_putlineinfo_t *li)
+ {
+     struct screen *d = li->display;
+@@ -973,7 +973,7 @@ static void queue_draw_item(struct list_putlineinfo_t *li)
+     if (track->index == viewer.current_playing_track)
+     {
+         /* the playing track: an arrow, 4x7 */
+-        d->set_foreground(moving ? POD6_PANEL : POD6_TEAL);
++        d->set_foreground(moving ? POD6_PANEL : POD6_UV);
+         for (int i = 0; i < 4; i++)
+             d->vline(QUEUE_NUM_W - 6 + i, y + h / 2 - 3 + i, y + h / 2 + 3 - i);
+     }

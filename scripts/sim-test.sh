@@ -632,8 +632,8 @@ csim sleep "W300 2M W100 S F7 F6 S R S W100 MM W100 MM W100 F3 S W50 D M W100 M 
 unset POD_SLEEP_FAST
 clog sleep 'sleep fade' "the sleep timer did not fade"
 clog sleep 'sleep pause Analog Heart' "the sleep timer did not pause"
-# the time left is in the header, left of the cassette
-[ "$(cdiff sleep/02 sleep/03 216x60+450+6)" != 0 ] || { echo "the Classic's time left stayed after the pause" >&2; exit 1; }
+# the time left is in the header, left of the dots
+[ "$(cdiff sleep/02 sleep/03 228x60+300+6)" != 0 ] || { echo "the Classic's time left stayed after the pause" >&2; exit 1; }
 # the EQ (Settings, row 1): the wheel sets the gain, >> the band, SELECT the
 # preset, PLAY bypasses it and MENU goes back to the settings. The settings
 # are put back after.
