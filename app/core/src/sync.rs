@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use filetime::FileTime;
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,10 @@ const IMAGES_AND_LISTS: &[&str] = &["jpg", "jpeg", "png", "bmp", "m3u", "m3u8"];
 
 /// Room left free for pod's database and settings.
 const RESERVE: u64 = 16 * 1000 * 1000;
+
+/// How often the manifest is saved while converting, so a sync cut short
+/// keeps the conversions already done.
+const SAVE_EVERY: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
@@ -354,8 +358,10 @@ pub fn apply(
     let mut manifest = plan.manifest.clone();
     manifest.profile = plan.profile;
     let mut renames = Vec::new();
+    // the temporary files of a sync cut short, when the iPod dropped off the bus
+    remove_strays(&mount.join("Music"));
     let res = run(plan, mount, &mut manifest, &mut renames, progress, cancel);
-    remove_apple_double(&mount.join("Music"));
+    remove_strays(&mount.join("Music"));
     let saved = manifest.save(mount);
     (renames, res.and(saved))
 }
@@ -432,6 +438,7 @@ fn run(
     let next = AtomicUsize::new(0);
     let workers = thread::available_parallelism().map_or(2, |n| n.get()).min(jobs.len());
     let mut failed = (!jobs.is_empty() && stop.load(Ordering::Relaxed)).then_some(Error::Cancelled);
+    let mut saved = Instant::now();
     thread::scope(|s| {
         let (tx, rx) = mpsc::channel();
         for _ in 0..workers {
@@ -471,6 +478,11 @@ fn run(
                             manifest.files.insert(slash(&c.dst), entry);
                             if let Err(e) = replaced(c, &music, manifest, renames) {
                                 failed.get_or_insert(e);
+                            }
+                            if saved.elapsed() >= SAVE_EVERY {
+                                // apply saves it in the end, and says if that fails
+                                let _ = manifest.save(mount);
+                                saved = Instant::now();
                             }
                         }
                         Err(e) => {
@@ -537,10 +549,12 @@ fn remove(p: &Path) -> Result<()> {
 }
 
 /// macOS writes the xattrs of every file it creates on FAT (if only
-/// `com.apple.provenance`) to a `._` file next to it. pod has no use for them.
-fn remove_apple_double(music: &Path) {
+/// `com.apple.provenance`) to a `._` file next to it. pod has no use for them,
+/// nor for the temporary files a sync leaves when the iPod goes away.
+fn remove_strays(music: &Path) {
     for e in WalkDir::new(music).into_iter().filter_map(|e| e.ok()) {
-        if e.file_type().is_file() && e.file_name().to_string_lossy().starts_with("._") {
+        let name = e.file_name().to_string_lossy();
+        if e.file_type().is_file() && (name.starts_with("._") || name.starts_with('.') && name.ends_with(".podlink")) {
             let _ = fs::remove_file(e.path());
         }
     }
@@ -776,6 +790,18 @@ pub(crate) mod tests {
         let left: Vec<_> = fs::read_dir(ipod.join("Music")).unwrap().collect();
         assert!(left.is_empty(), "{left:?}");
         assert_eq!(Manifest::load(&ipod).unwrap().profile, Profile::Vorbis(5));
+    }
+
+    #[test]
+    fn removes_the_temporary_files_of_a_sync_cut_short() {
+        let dir = tempfile::tempdir().unwrap();
+        let (src, ipod) = (dir.path().join("src"), dir.path().join("ipod"));
+        put(&src.join("A/a.mp3"), b"aaaa");
+        put(&ipod.join("Music/B/.b.flac.podlink"), b"half");
+        let p = plan(&src, &ipod, Mode::Update, Profile::Off, &no()).unwrap();
+        apply(&p, &ipod, &mut |_| {}, &no()).1.unwrap();
+        assert!(!ipod.join("Music/B/.b.flac.podlink").exists());
+        assert!(ipod.join("Music/A/a.mp3").exists());
     }
 
     #[test]

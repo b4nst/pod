@@ -1,6 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures::channel::{mpsc, oneshot};
@@ -23,6 +23,30 @@ use crate::theme::{self, DECK, DECK_BOLD, MONO, MONO_BOLD};
 /// doesn't do yet.
 const CLASSIC_FLASH: &str =
     "The Classic's bootloader is flashed over DFU: for now run scripts/install-bootloader.sh ipod6g.";
+
+/// How many times a sync picks up again after the iPod dropped off the bus,
+/// and how long it waits each time for it to come back.
+const RESUMES: usize = 5;
+const RECONNECT: Duration = Duration::from_secs(5 * 60);
+
+/// The volume at `mount` is gone, or no longer answers.
+fn dropped(mount: &Path) -> bool {
+    // macOS takes a moment to unmount a disk that went away
+    std::thread::sleep(Duration::from_secs(2));
+    device::inspect(mount).is_none() || std::fs::read_dir(mount.join("Music")).is_err()
+}
+
+/// Where the iPod named `label` is mounted once it is back.
+fn reconnected(label: &str, cancel: &AtomicBool) -> Option<PathBuf> {
+    let start = Instant::now();
+    while start.elapsed() < RECONNECT && !cancel.load(Ordering::Relaxed) {
+        if let Some(d) = device::scan().into_iter().find(|d| d.label == label) {
+            return Some(d.mount);
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    None
+}
 
 pub fn run() -> iced::Result {
     let mut app = iced::application(App::boot, App::update, App::view)
@@ -355,10 +379,37 @@ impl App {
                     self.say(true, e.to_string());
                     return Task::none();
                 }
-                let mount = d.mount.clone();
-                let model = self.current_model();
+                let (mut mount, label) = (d.mount.clone(), d.label.clone());
+                let Some(src) = self.folder.clone() else { return Task::none() };
+                let (mode, model) = (self.mode, self.current_model());
                 self.start("SYNCING", move |progress, cancel| {
-                    let (renames, res) = sync::apply(&plan, &mount, progress, cancel);
+                    let (copied, converted, deleted) = (plan.copies.len(), plan.converted(), plan.deletes.len());
+                    let mut plan = plan;
+                    let mut renames = Vec::new();
+                    let mut resumes = 0;
+                    // the iPod can drop off the bus in a long sync: wait for it
+                    // and go on with what is left
+                    let res = loop {
+                        let (r, res) = sync::apply(&plan, &mount, progress, cancel);
+                        renames.extend(r);
+                        match res {
+                            Err(e) if !matches!(e, Error::Cancelled) && resumes < RESUMES && dropped(&mount) => {
+                                resumes += 1;
+                                progress(Progress {
+                                    item: "LOST THE IPOD, WAITING FOR IT".into(),
+                                    ..Default::default()
+                                });
+                                let Some(m) = reconnected(&label, cancel) else { break Err(e) };
+                                mount = m;
+                                // the renames so far still go to the stats below
+                                match sync::plan(&src, &mount, mode, plan.profile, cancel) {
+                                    Ok(p) => plan = p,
+                                    Err(e) => break Err(e),
+                                }
+                            }
+                            res => break res,
+                        }
+                    };
                     // a mixtapes problem is reported, but doesn't fail the sync. The
                     // stats follow the files already converted even if it failed
                     let store = if mount.join(".pod").is_dir() {
@@ -388,13 +439,7 @@ impl App {
                     } else {
                         Ok(0)
                     };
-                    Ok(Done::Synced {
-                        copied: plan.copies.len(),
-                        converted: plan.converted(),
-                        deleted: plan.deletes.len(),
-                        mixes,
-                        covers,
-                    })
+                    Ok(Done::Synced { copied, converted, deleted, mixes, covers })
                 })
             }
             Message::Eject => {
@@ -682,6 +727,7 @@ impl App {
                     j.progress.item.clone(),
                 )
             }
+            Some(j) if !j.progress.item.is_empty() => (0.5, "---".into(), "--".into(), j.progress.item.clone()),
             Some(j) => (0.5, "---".into(), "--".into(), j.label.to_string()),
             None => (0.0, "---".into(), "--".into(), String::new()),
         };
