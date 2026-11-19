@@ -1,0 +1,1118 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Thu, 19 Nov 2026 22:51:28 +0100
+Subject: [PATCH] pod: the Classic's seekbar sweeps from the middle of the left
+ edge, the header keeps the cassette
+
+---
+ .../bitmaps/native/rockboxlogo.320x240x16.bmp | Bin 230454 -> 230454 bytes
+ apps/bitmaps/native/usblogo.320x240x16.bmp    | Bin 230454 -> 230454 bytes
+ apps/gui/pod_deck.c                           | 263 +++++++++++-------
+ apps/gui/pod_eq.c                             |  28 +-
+ apps/gui/pod_frame.c                          |  28 +-
+ apps/gui/pod_frame.h                          |  25 +-
+ apps/gui/pod_letter.c                         |   4 +-
+ apps/gui/pod_search.c                         |   1 +
+ bootloader/podlogo.h                          |   4 +-
+ 9 files changed, 194 insertions(+), 159 deletions(-)
+
+diff --git a/apps/bitmaps/native/rockboxlogo.320x240x16.bmp b/apps/bitmaps/native/rockboxlogo.320x240x16.bmp
+index 7da97f5bdc87a6ce949019aaf2d755fbb0664a86..f54c520875a72ca0e84db97443eee2cf22e8fbec 100644
+GIT binary patch
+literal 230454
+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
+
+literal 230454
+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
+
+diff --git a/apps/bitmaps/native/usblogo.320x240x16.bmp b/apps/bitmaps/native/usblogo.320x240x16.bmp
+index 2c6141718cc2caa56385557cd00221671fb1575d..1171618adf7799f8c62b136b05145d08e0324dca 100644
+GIT binary patch
+literal 230454
+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
+
+literal 230454
+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
+L0a}Lu?XoZcm5YSL
+
+diff --git a/apps/gui/pod_deck.c b/apps/gui/pod_deck.c
+index d64bd061b729fc4f272f9b6a6bf4a1f3b87b276f..440d41e5e695cfa3868e512b154018ec6ce13264 100644
+--- a/apps/gui/pod_deck.c
++++ b/apps/gui/pod_deck.c
+@@ -134,19 +134,22 @@
+ #endif
+ 
+ #if LCD_WIDTH >= 320
+-/* bargraph: ticks every 6 px up the left edge, round a 30 px corner and
+- * across the top. A tick is 3 px along the path and 9 across. */
++/* the seekbar, a dashboard's sweep: ticks every 6 px from the middle of the
++ * left edge up, round a 36 px corner and across the top, right under the
++ * header. A tick is 3 px along the path and 8 across, the four stripes from
++ * the outside in when it is lit. */
+ #define BAR_STEP        6
+ #define BAR_X           6       /* the vertical run */
+-#define BAR_Y0          230     /* its lowest tick */
+-#define BAR_R           30      /* corner radius, its centre at (R+6, R+38) */
+-#define BAR_TOP         38      /* the horizontal run */
+-#define BAR_V           27      /* ticks of the vertical run */
+-#define BAR_A           8       /* ticks of the corner */
+-#define BAR_H           46      /* ticks of the horizontal run, up to x 312 */
+-#define BAR_TICK_L      9
++#define BAR_Y0          136     /* its lowest tick */
++#define BAR_R           36      /* corner radius, its centre at (R+6, R+28) */
++#define BAR_TOP         28      /* the horizontal run */
++#define BAR_V           12      /* ticks of the vertical run */
++#define BAR_A           10      /* ticks of the corner */
++#define BAR_H           45      /* ticks of the horizontal run, up to x 312 */
++#define BAR_TICK_L      8
+ #define BAR_TICK_T      3
+ #define BAR_LABEL       14      /* labels sit this far inside the ticks */
++#define BAR_CAPTION     (BAR_Y0 + 7)    /* what it shows, under its foot */
+ #else
+ /* bargraph: ticks every 4 px up the left edge, round a 19 px corner and
+  * across the top. A tick is 2 px along the path and 5 across. */
+@@ -166,17 +169,19 @@
+ #define LABEL_GAP       3       /* ticks: 12 px between two labels */
+ 
+ #if LCD_WIDTH >= 320
+-/* the gallery */
++/* the gallery, down into the corner the seekbar leaves */
+ #define GALLERY_Y       180
+-#define GALLERY_X       28      /* the previous one; the next two follow */
++#define GALLERY_X       4       /* the previous one; the next three follow,
++                                 * the last one cut by the edge */
++#define GALLERY_NEXT    3
+ #define GALLERY_GAP     4
+-#define CURRENT_X       88
++#define CURRENT_X       64
+ #define CURRENT_Y       124
+ #define CURRENT_BAR     3       /* the bar over the current one, 4 px up */
+ 
+ /* the panes, beside the bargraph */
+ #define PANE_X          32
+-#define PANE_Y          62
++#define PANE_Y          54
+ #define PANE_W          284
+ #define PANE_ROW        14
+ #define PANE_ROWS       4       /* rows of the tracks and of up next */
+@@ -184,6 +189,7 @@
+ /* the gallery */
+ #define GALLERY_Y       81
+ #define GALLERY_X       1       /* the previous one; the next two follow */
++#define GALLERY_NEXT    2
+ #define GALLERY_GAP     3
+ #define CURRENT_X       32
+ #define CURRENT_Y       60
+@@ -253,7 +259,9 @@ static struct pod_mix mixes[POD_MIXES_MAX];
+ /* cos of 0 to 90 degrees in BAR_A steps, in 64ths: the corner of the
+  * bargraph */
+ #if LCD_WIDTH >= 320
+-static const unsigned char corner_cos[BAR_A] = { 64, 62, 58, 50, 40, 28, 14, 0 };
++static const unsigned char corner_cos[BAR_A] = {
++    64, 63, 60, 55, 49, 41, 32, 22, 11, 0,
++};
+ #else
+ static const unsigned char corner_cos[BAR_A] = { 64, 62, 55, 45, 32, 17, 0 };
+ #endif
+@@ -891,21 +899,23 @@ static void bar_pos(int s, int *x, int *y, int *ix, int *iy)
+     }
+ }
+ 
+-static void bar_tick(struct screen *d, int s)
++/* the part of the tick s from a to b across the path, from the outside in:
++ * 0 to BAR_TICK_L - 1 is all of it */
++static void bar_span(struct screen *d, int s, int a, int b)
+ {
+     int x, y, ix, iy;
+ 
++    a -= BAR_TICK_L / 2;
++    b -= BAR_TICK_L / 2;
+     bar_pos(s, &x, &y, &ix, &iy);
+     if (s < BAR_V)
+-        d->fillrect(x - BAR_TICK_L / 2, y - BAR_TICK_T / 2, BAR_TICK_L,
+-                    BAR_TICK_T);
++        d->fillrect(x + a, y - BAR_TICK_T / 2, b - a + 1, BAR_TICK_T);
+     else if (s >= BAR_V + BAR_A)
+-        d->fillrect(x - BAR_TICK_T / 2, y - BAR_TICK_L / 2, BAR_TICK_T,
+-                    BAR_TICK_L);
++        d->fillrect(x - BAR_TICK_T / 2, y + a, BAR_TICK_T, b - a + 1);
+     else
+     {
+-        int x0 = x - BAR_TICK_L / 2 * ix / 64, y0 = y - BAR_TICK_L / 2 * iy / 64;
+-        int x1 = x + BAR_TICK_L / 2 * ix / 64, y1 = y + BAR_TICK_L / 2 * iy / 64;
++        int x0 = x + a * ix / 64, y0 = y + a * iy / 64;
++        int x1 = x + b * ix / 64, y1 = y + b * iy / 64;
+ 
+         /* BAR_TICK_T px wide: shift by one across the steeper axis */
+         for (int w = 0; w < BAR_TICK_T; w++)
+@@ -918,22 +928,62 @@ static void bar_tick(struct screen *d, int s)
+     }
+ }
+ 
++static void bar_tick(struct screen *d, int s)
++{
++    bar_span(d, s, 0, BAR_TICK_L - 1);
++}
++
+ static int bar_segment(const struct deck *k, int album)
+ {
+     return k->count > 1 ? (album * (BAR_N - 1) + (k->count - 1) / 2)
+                           / (k->count - 1) : BAR_N - 1;
+ }
+ 
+-/* the first lit ticks, the rest faint */
++/* the first lit ticks, the rest faint. On the Classic a lit tick is the
++ * four stripes, yellow outside. */
+ static void draw_ticks(struct screen *d, int lit)
+ {
+     for (int s = 0; s < BAR_N; s++)
+     {
++#if LCD_WIDTH >= 320
++        if (s < lit)
++        {
++            for (int i = 0; i < 4; i++)
++            {
++                d->set_foreground(POD_HATCH(i));
++                bar_span(d, s, i * BAR_TICK_L / 4,
++                         (i + 1) * BAR_TICK_L / 4 - 1);
++            }
++            continue;
++        }
++#endif
+         d->set_foreground(s < lit ? POD_AMBER : POD_UNLIT);
+         bar_tick(d, s);
+     }
+ }
+ 
++#if LCD_WIDTH >= 320
++/* what the seekbar shows, under its foot: amber, or on amber while it is
++ * something else than usual */
++static void draw_caption(struct screen *d, int font, const char *str,
++                         bool alert)
++{
++    int x = BAR_X - BAR_TICK_L / 2;
++
++    d->setfont(font);
++    if (alert)
++    {
++        d->set_foreground(POD_AMBER);
++        d->fillrect(x - 1, BAR_CAPTION - 1, text_width(font, str) + 2,
++                    font_get(font)->height + 1);
++        d->set_foreground(POD6_BAND);
++    }
++    else
++        d->set_foreground(POD_AMBER);
++    d->putsxy(x, BAR_CAPTION, str);
++}
++#endif
++
+ /* a label inside the curve at the tick s, inverted when it is the current one */
+ static void draw_label(struct screen *d, int font, int s, const char *str,
+                        bool current)
+@@ -963,6 +1013,9 @@ static void draw_bargraph(struct screen *d, const struct deck *k, int cur,
+     int cur_s = 0, last_s = -LABEL_GAP;
+ 
+     draw_ticks(d, bar_segment(k, cur) + 1);
++#if LCD_WIDTH >= 320
++    draw_caption(d, font, "A-Z", false);
++#endif
+ 
+     /* a letter at the first album of each initial; the current one is
+      * inverted and always there */
+@@ -1155,7 +1208,7 @@ static void draw_cover(struct screen *d, const struct deck_album *a, int x,
+ static void draw_gallery(struct screen *d, const struct deck *k, int cur,
+                          int font)
+ {
+-    for (int i = -1; i <= 2; i++)
++    for (int i = -1; i <= GALLERY_NEXT; i++)
+     {
+         int a = cur + i;
+ 
+@@ -1216,17 +1269,20 @@ static void draw_mini_cassette(struct screen *d, int x, int y, bool paused)
+ }
+ 
+ #else
+-/* a 25x15 cassette, the mini's at twice the size, teal while it plays and
+- * grey and still on pause */
+-static void draw_header_cassette(struct screen *d, int x, int y, bool paused)
++/* a 25x15 cassette, the mini's at twice the size, always in the header:
++ * teal and turning while it plays, teal and still on pause or with a queue
++ * to play, grey with nothing. mktheme6g.py draws the same for the lists. */
++static void draw_header_cassette(struct screen *d, int x, int y, bool lit,
++                                 bool turning)
+ {
+     static const signed char notch[8][2] = {
+         { -2, -2 }, { 0, -2 }, { 2, -2 }, { 2, 0 },
+         { 2, 2 }, { 0, 2 }, { -2, 2 }, { -2, 0 },
+     };
+-    int step = paused ? 0 : (current_tick / (HZ / 5)) % 8;
++    int step = turning ? (current_tick / (HZ / 5)) % 8 : 0;
++    unsigned fg = lit ? POD_TEAL : POD_MID;
+ 
+-    d->set_foreground(paused ? POD_MID : POD_TEAL);
++    d->set_foreground(fg);
+     d->drawrect(x, y, 25, 15);
+     d->hline(x + 6, x + 18, y + 11);
+     for (int h = 0; h < 2; h++)
+@@ -1236,22 +1292,23 @@ static void draw_header_cassette(struct screen *d, int x, int y, bool paused)
+         d->fillrect(cx - 2, cy - 2, 5, 5);
+         d->set_foreground(POD_PAPER);
+         d->drawpixel(cx + notch[step][0], cy + notch[step][1]);
+-        d->set_foreground(paused ? POD_MID : POD_TEAL);
++        d->set_foreground(fg);
+     }
+ }
+ #endif
+ 
+-/* the panes: dots, the current one lit */
+-static void draw_dots(struct screen *d, int pane, int n)
++/* the panes: dots, the current one lit. On the Classic they start at x,
++ * on the mini they end there. */
++static void draw_dots(struct screen *d, int x, int pane, int n)
+ {
+     for (int i = 0; i < n; i++)
+     {
+ #if LCD_WIDTH >= 320
+         d->set_foreground(i == pane ? POD_AMBER : POD_MID);
+-        d->fillrect(136 + i * 8, 10, 4, 4);
++        d->fillrect(x + i * 8, 10, 4, 4);
+ #else
+         d->set_foreground(i == pane ? POD_INK : POD_MID);
+-        d->fillrect(136 - (n - i) * 4 + 2, 11, 2, 2);
++        d->fillrect(x - (n - i) * 4 + 2, 11, 2, 2);
+ #endif
+     }
+ }
+@@ -1271,12 +1328,12 @@ static void draw_lock(struct screen *d, int x, int y)
+ }
+ 
+ #if LCD_WIDTH >= 320
+-/* the play modes that are on, as small teal tags after the title: shuffled,
+- * Repeat all or one, Infinite */
+-static void draw_mode_tags(struct screen *d, int font)
++/* the play modes that are on, as small teal tags ending at x: shuffled,
++ * Repeat all or one, Infinite. Returns the x before them. */
++static int draw_mode_tags(struct screen *d, int font, int x)
+ {
+     const char *tags[3];
+-    int n = 0, x = 62;
++    int n = 0;
+ 
+     if (playlist_get_seed(NULL))
+         tags[n++] = "SHF";
+@@ -1287,16 +1344,18 @@ static void draw_mode_tags(struct screen *d, int font)
+     if (global_settings.pod_infinite)
+         tags[n++] = "INF";
+     d->setfont(font);
+-    for (int i = 0; i < n; i++)
++    for (int i = n - 1; i >= 0; i--)
+     {
+         int w = text_width(font, tags[i]) + 2;
+ 
++        x -= w;
+         d->set_foreground(POD_TEAL);
+         d->fillrect(x, 6, w, 12);
+         d->set_foreground(POD6_BAND);
+         d->putsxy(x + 1, 6, tags[i]);
+-        x += w + 2;
++        x -= 2;
+     }
++    return x;
+ }
+ #endif
+ 
+@@ -1311,35 +1370,49 @@ static void draw_status(struct screen *d, int font, bool play, int pane, int n)
+ 
+ #if LCD_WIDTH >= 320
+     struct tm *tm = get_time();
++    int x = LCD_WIDTH - 6;
+ 
+-    /* the header, then its readouts from the right, ending before the kick
+-     * of the stripes: clock, battery, hold, sleep timer, dots, cassette */
++    /* the title, and the readouts from the right edge: clock, battery,
++     * hold, the cassette, sleep timer, dots, and the play modes */
+     pod_frame_header(d, play ? "PLAYER" : "DECK", f_value);
+     d->setfont(font);
+     d->set_foreground(POD_TEAL);
+     snprintf(buf, sizeof(buf), "%02d:%02d", tm->tm_hour, tm->tm_min);
+-    d->putsxy(232, 6, buf);
++    x -= text_width(font, buf);
++    d->putsxy(x, 6, buf);
++    x -= 6 + 25;
+     d->set_foreground(POD_MID);
+-    d->drawrect(204, 6, 23, 12);
+-    d->fillrect(227, 10, 2, 4);
++    d->drawrect(x, 6, 23, 12);
++    d->fillrect(x + 23, 10, 2, 4);
+     d->set_foreground(POD_FAINT);
+-    d->fillrect(206, 8, 19, 8);
++    d->fillrect(x + 2, 8, 19, 8);
+     d->set_foreground(POD_TEAL);
+     for (int i = 0; i < (MIN(level, 100) * 5 + 99) / 100; i++)
+-        d->fillrect(206 + i * 4, 8, 3, 8);
++        d->fillrect(x + 2 + i * 4, 8, 3, 8);
+     if (button_hold())
+-        draw_lock(d, 192, 8);
++    {
++        x -= 6 + 5;
++        draw_lock(d, x, 8);
++    }
++    x -= 6 + 25;
++    draw_header_cassette(d, x, 5, (status & AUDIO_STATUS_PLAY) || deck.queue,
++                         (status & AUDIO_STATUS_PLAY)
++                         && !(status & AUDIO_STATUS_PAUSE));
+     if (pod_sleep_left() != POD_SLEEP_OFF)
+     {
++        const char *z = sleep_text(buf, sizeof(buf));
++
++        x -= 6 + text_width(font, z);
+         d->set_foreground(POD_TEAL);
+-        d->putsxy(160, 6, sleep_text(buf, sizeof(buf)));
++        d->putsxy(x, 6, z);
+     }
+     if (n > 1)
+-        draw_dots(d, pane, n);
+-    if (!play && (status & AUDIO_STATUS_PLAY))
+-        draw_header_cassette(d, 100, 5, status & AUDIO_STATUS_PAUSE);
++    {
++        x -= 6 + n * 8 - 4;
++        draw_dots(d, x, pane, n);
++    }
+     if (play)
+-        draw_mode_tags(d, font);
++        draw_mode_tags(d, font, x - 8);
+ #else
+     /* battery */
+     d->set_foreground(POD_INK);
+@@ -1362,7 +1435,7 @@ static void draw_status(struct screen *d, int font, bool play, int pane, int n)
+     if (button_hold())
+         draw_lock(d, 110, play ? 9 : 11);
+     if (n > 1)
+-        draw_dots(d, pane, n);
++        draw_dots(d, 136, pane, n);
+ #endif
+ }
+ 
+@@ -1959,27 +2032,25 @@ done:
+ #define SEG_MINUS       0x40
+ #define VOLUME_SHOWN    (HZ * 3 / 2)    /* the volume, after a turn */
+ #if LCD_WIDTH >= 320
+-/* the panes under the bargraph, then from x 20 to the right edge the track
+- * band, the counter's viewport with the cassette, the progress and the
+- * footer */
+-#define PLAY_Y          48
+-#define PLAY_X          20
++/* the panes under the seekbar, then across the screen, under its foot, the
++ * track band, the counter's viewport with the cassette, and the footer */
++#define PLAY_Y          40
+ #define PLAY_COVER_Y    PLAY_Y
+ #define PLAY_INFO_X     (PANE_X + POD_COVER_LARGE + 8)  /* beside the cover */
+ #define NEXT_ROW        18
+-#define BAND_Y          164
++#define BAND_Y          158
+ #define BAND_H          22
+-#define COUNTER_X       PLAY_X  /* the counter's viewport */
+-#define COUNTER_Y       188
++#define BAND_TEXT_X     8
++#define COUNTER_Y       183     /* the counter's viewport, the width of the
++                                 * screen */
+ #define COUNTER_H       32
+ #define COUNTER_S       2       /* the elapsed time, twice the mini's */
+-#define REMAIN_X        112     /* the time left and SEEK; the time ends 8
++#define REMAIN_X        104     /* the time left and SEEK; the time ends 8
+                                  * px before */
+-#define CASSETTE_X      242     /* the 56x32 cassette, in the counter */
++#define CASSETTE_X      256     /* the 56x32 cassette, in the counter */
+ #define CASSETTE_Y      0
+-#define PROG_Y          222     /* four stripes of 1 px */
+-#define FOOT_Y          226
+-#define FOOT_TEXT_X     (PANE_X + 30)
++#define FOOT_Y          218
++#define FOOT_TEXT_X     (BAND_TEXT_X + 32)
+ #define HEART_S         3       /* the heart of a love, 3 px a dot */
+ #define HEART_BG        POD6_BAND
+ #define POD_TAPE        LCD_RGBPACK(0x6b, 0x45, 0x2c)
+@@ -2037,7 +2108,8 @@ static bool volume_shown(void)
+ }
+ 
+ /* The bargraph in play mode: lit up to the cue position in the track. After
+- * a turn of the wheel it is lit from the lowest volume to the volume. */
++ * a turn of the wheel it is lit from the lowest volume to the volume. The
++ * Classic says which under its foot. */
+ static void draw_play_bargraph(struct screen *d, const struct mp3entry *id3,
+                                unsigned long elapsed)
+ {
+@@ -2046,10 +2118,21 @@ static void draw_play_bargraph(struct screen *d, const struct mp3entry *id3,
+         int min = sound_min(SOUND_VOLUME), max = sound_max(SOUND_VOLUME);
+ 
+         draw_ticks(d, (global_status.volume - min) * BAR_N / MAX(1, max - min));
++#if LCD_WIDTH >= 320
++        draw_caption(d, f_tiny, "VOL", true);
++#endif
+     }
+     else
++    {
+         draw_ticks(d, id3->length ? MIN(elapsed, id3->length) * BAR_N
+                                     / id3->length : 0);
++#if LCD_WIDTH >= 320
++        if (status_get_ffmode())
++            draw_caption(d, f_tiny, "SEEK", true);
++        else
++            draw_caption(d, f_tiny, "TIME", false);
++#endif
++    }
+ }
+ 
+ /* the heart's dots, s px each: filled, or its outline */
+@@ -2315,11 +2398,11 @@ static void draw_play_band(struct screen *d, const struct mp3entry *id3)
+     const char *title = id3->title ? id3->title
+                         : strrchr(id3->path, '/') ? strrchr(id3->path, '/') + 1
+                                                   : id3->path;
+-    int x = PANE_X, right = LCD_WIDTH - 8;
++    int x = BAND_TEXT_X, right = LCD_WIDTH - 8;
+     int y = BAND_Y + (BAND_H - font_get(f_band)->height) / 2;
+ 
+     d->set_foreground(POD6_BAND);
+-    d->fillrect(PLAY_X, BAND_Y, LCD_WIDTH - PLAY_X, BAND_H);
++    d->fillrect(0, BAND_Y, LCD_WIDTH, BAND_H);
+     d->setfont(f_band);
+     snprintf(buf, sizeof(buf), "%02d/%02d", playlist_get_display_index(),
+              playlist_amount());
+@@ -2336,23 +2419,6 @@ static void draw_play_band(struct screen *d, const struct mp3entry *id3)
+     tape_text(d, f_band, x, y, right - x, title, false);
+ }
+ 
+-/* the tape: four stripes of 1 px, lit up to the cue position */
+-static void draw_play_progress(struct screen *d, const struct mp3entry *id3,
+-                               unsigned long elapsed)
+-{
+-    int w = LCD_WIDTH - PLAY_X;
+-    int lit = id3->length ? (unsigned long long)MIN(elapsed, id3->length) * w
+-                            / id3->length : 0;
+-
+-    for (int i = 0; i < 4; i++)
+-    {
+-        d->set_foreground(POD_HATCH(i));
+-        d->fillrect(PLAY_X, PROG_Y + i, lit, 1);
+-        d->set_foreground(POD_UNLIT);
+-        d->fillrect(PLAY_X + lit, PROG_Y + i, w - lit, 1);
+-    }
+-}
+-
+ /* "title · artist" of the next track, or nothing past the last one */
+ static void load_foot(void)
+ {
+@@ -2382,33 +2448,16 @@ static void load_foot(void)
+         strmemccpy(foot.text, title, sizeof(foot.text));
+ }
+ 
+-/* The footer: NEXT and the next track, or VOL and a bar of the stripes
+- * while the volume changes */
++/* The footer: NEXT and the next track. The seekbar has the volume. */
+ static void draw_play_foot(struct screen *d)
+ {
+     int y = FOOT_Y + (LCD_HEIGHT - FOOT_Y - font_get(f_tiny)->height) / 2;
+ 
+     d->set_foreground(POD6_BAND);
+-    d->fillrect(PLAY_X, FOOT_Y, LCD_WIDTH - PLAY_X, LCD_HEIGHT - FOOT_Y);
++    d->fillrect(0, FOOT_Y, LCD_WIDTH, LCD_HEIGHT - FOOT_Y);
+     d->setfont(f_tiny);
+     d->set_foreground(POD_AMBER);
+-    if (volume_shown())
+-    {
+-        int min = sound_min(SOUND_VOLUME), max = sound_max(SOUND_VOLUME);
+-        int w = LCD_WIDTH - 8 - FOOT_TEXT_X;
+-        int lit = (global_status.volume - min) * w / MAX(1, max - min);
+-
+-        d->putsxy(PANE_X, y, "VOL");
+-        /* segments of 3 px, each a column of the four stripes */
+-        for (int x = 0; x + 3 <= w; x += 4)
+-            for (int i = 0; i < 4; i++)
+-            {
+-                d->set_foreground(x < lit ? POD_HATCH(i) : POD_UNLIT);
+-                d->fillrect(FOOT_TEXT_X + x, FOOT_Y + 3 + 2 * i, 3, 2);
+-            }
+-        return;
+-    }
+-    d->putsxy(PANE_X, y, "NEXT");
++    d->putsxy(BAND_TEXT_X, y, "NEXT");
+     if (foot.here != playlist_get_display_index() - 1
+         || foot.amount != playlist_amount())
+         load_foot();
+@@ -2436,7 +2485,6 @@ void pod_deck_draw_play(struct screen *d, struct viewport *vp)
+     d->set_drawmode(DRMODE_SOLID);
+     d->set_foreground(POD_PAPER);
+     d->fillrect(0, 0, LCD_WIDTH, COUNTER_Y);
+-    d->fillrect(0, COUNTER_Y, COUNTER_X, COUNTER_H);
+     d->fillrect(0, COUNTER_Y + COUNTER_H, LCD_WIDTH,
+                 LCD_HEIGHT - COUNTER_Y - COUNTER_H);
+ #else
+@@ -2455,7 +2503,6 @@ void pod_deck_draw_play(struct screen *d, struct viewport *vp)
+         draw_play_cover(d, state, id3, play_tape(id3, &tags));
+ #if LCD_WIDTH >= 320
+     draw_play_band(d, id3);
+-    draw_play_progress(d, id3, elapsed);
+     draw_play_foot(d);
+ #endif
+     *vp = saved;
+diff --git a/apps/gui/pod_eq.c b/apps/gui/pod_eq.c
+index b03d98500fc6f3c192efe2cf11ba5ab1658378e0..ac4844f1649cd4728c41137e31ec232f0397859e 100644
+--- a/apps/gui/pod_eq.c
++++ b/apps/gui/pod_eq.c
+@@ -54,9 +54,9 @@
+ #define FONT_TINY       FONT_DIR "/12-Tape.fnt"
+ 
+ #define POD_PAPER       LCD_RGBPACK(0x0b, 0x0d, 0x14)
+-#define POD_BAND        LCD_RGBPACK(0x10, 0x13, 0x1c)
+-#define POD_FAINT       LCD_RGBPACK(0x22, 0x28, 0x38)
+-#define POD_MID         LCD_RGBPACK(0x5b, 0x61, 0x72)
++#define POD_BAND        LCD_RGBPACK(0x14, 0x11, 0x1f)
++#define POD_FAINT       LCD_RGBPACK(0x2c, 0x25, 0x40)
++#define POD_MID         LCD_RGBPACK(0x65, 0x5e, 0x7a)
+ #define POD_INK         LCD_RGBPACK(0xed, 0xe3, 0xcf)
+ #define POD_AXIS        LCD_RGBPACK(0x8c, 0x86, 0x78)
+ #define POD_ACCENT      LCD_RGBPACK(0xff, 0xa5, 0x26)
+@@ -357,22 +357,12 @@ static void draw(struct screen *d, int sel, int f_label, int f_value,
+     d->set_drawmode(DRMODE_FG);
+ 
+ #if LCD_WIDTH >= 320
+-    /* header: the band, the Δ mark, title, band count, on/off chip, and the
+-       four stripes kicking up to the right */
+-    static const unsigned stripes[] = {
+-        LCD_RGBPACK(0xf7, 0xb5, 0x2c), LCD_RGBPACK(0xf2, 0x70, 0x1c),
+-        LCD_RGBPACK(0xd9, 0x30, 0x2a), LCD_RGBPACK(0x7b, 0x1e, 0x3c),
+-    };
++    /* header: the band and its rule, the Δ mark, title, band count, and
++       the on/off chip on the right */
+     d->set_foreground(POD_BAND);
+     d->fillrect(0, 0, LCD_WIDTH, 24);
+-    for (unsigned i = 0; i < ARRAYLEN(stripes); i++)
+-    {
+-        int top = 24 + 2*i;
+-        d->set_foreground(stripes[i]);
+-        d->fillrect(0, top, 266, 2);
+-        for (int k = 0; k <= top + 1; k++)
+-            d->fillrect(266 + k, top - k, 1, 2);
+-    }
++    d->set_foreground(POD_FAINT);
++    d->hline(0, LCD_WIDTH - 1, 24);
+     d->set_foreground(POD_ACCENT);
+     d->drawline(15, 5, 8, 18);
+     d->drawline(15, 5, 22, 18);
+@@ -389,9 +379,9 @@ static void draw(struct screen *d, int sel, int f_label, int f_value,
+     const char *state = on ? "ON" : "OFF";
+     int sw = text_width(f_tiny, state) + 10;
+     d->set_foreground(on ? POD_LABEL : POD_MID);
+-    d->fillrect(258 - sw, 5, sw, th + 4);
++    d->fillrect(LCD_WIDTH - 8 - sw, 5, sw, th + 4);
+     d->set_foreground(POD_BAND);
+-    d->putsxy(258 - sw + 5, 7, state);
++    d->putsxy(LCD_WIDTH - 8 - sw + 5, 7, state);
+ #else
+     /* header: inverted bar with the Δ mark, title, band count, on/off chip */
+     d->set_foreground(POD_INK);
+diff --git a/apps/gui/pod_frame.c b/apps/gui/pod_frame.c
+index 37b00738f0d876a34ce8c43ddef38ee8239861c2..a030be9e1b657c00b8e1dc7a2330fbeb567624e1 100644
+--- a/apps/gui/pod_frame.c
++++ b/apps/gui/pod_frame.c
+@@ -18,8 +18,9 @@
+  *
+  ****************************************************************************/
+ 
+-/* The header the Classic's screens share: a band, the title and four stripes
+- * that kick up to the right, as the theme draws them. */
++/* The header the Classic's screens share: a band and the title. What sits
++ * under it is the screen's: the deck's and the player's seekbar, a rule
++ * elsewhere. */
+ 
+ #include "config.h"
+ #include "lcd.h"
+@@ -28,27 +29,20 @@
+ 
+ const unsigned pod6_stripes[4] = {
+     LCD_RGBPACK(0xf7, 0xb5, 0x2c), LCD_RGBPACK(0xf2, 0x70, 0x1c),
+-    LCD_RGBPACK(0xd9, 0x30, 0x2a), LCD_RGBPACK(0x7b, 0x1e, 0x3c),
++    LCD_RGBPACK(0xd9, 0x30, 0x2a), LCD_RGBPACK(0x8e, 0x2a, 0x7e),
+ };
+ 
+-void pod_frame_stripes(struct screen *d)
+-{
+-    for (int i = 0; i < 4; i++)
+-    {
+-        int top = 24 + 2*i;
+-        d->set_foreground(POD6_STRIPE(i));
+-        d->fillrect(0, top, 266, 2);
+-        for (int k = 0; k <= top + 1; k++)
+-            d->fillrect(266 + k, top - k, 1, 2);
+-    }
+-}
+-
+ void pod_frame_header(struct screen *d, const char *title, int font)
+ {
+     d->set_foreground(POD6_BAND);
+-    d->fillrect(0, 0, LCD_WIDTH, 24);
+-    pod_frame_stripes(d);
++    d->fillrect(0, 0, LCD_WIDTH, POD6_HEAD_H);
+     d->set_foreground(POD6_AMBER);
+     d->setfont(font);
+     d->putsxy(8, 5, title);
+ }
++
++void pod_frame_rule(struct screen *d)
++{
++    d->set_foreground(POD6_RULE);
++    d->hline(0, LCD_WIDTH - 1, POD6_HEAD_H);
++}
+diff --git a/apps/gui/pod_frame.h b/apps/gui/pod_frame.h
+index f0c1c5ea9c61a8f4b3d21c6c25a194d5fab97c67..55683b3641b23ff59fe10d01b6b9d08babb7ba29 100644
+--- a/apps/gui/pod_frame.h
++++ b/apps/gui/pod_frame.h
+@@ -23,27 +23,30 @@
+ #include "lcd.h"
+ #include "screen_access.h"
+ 
+-/* The Classic's autoreverse palette (see tools/mktheme6g.py) */
++/* The Classic's autoreverse palette (see tools/mktheme6g.py), its greys
++ * leaning to violet for the purple shell */
+ #define POD6_PANEL      LCD_RGBPACK(0x0b, 0x0d, 0x14)
+-#define POD6_BAND       LCD_RGBPACK(0x10, 0x13, 0x1c)
+-#define POD6_RULE       LCD_RGBPACK(0x22, 0x28, 0x38)
+-#define POD6_WELL       LCD_RGBPACK(0x12, 0x16, 0x22)
++#define POD6_BAND       LCD_RGBPACK(0x14, 0x11, 0x1f)
++#define POD6_RULE       LCD_RGBPACK(0x2c, 0x25, 0x40)
++#define POD6_WELL       LCD_RGBPACK(0x17, 0x13, 0x29)
+ #define POD6_TEXT       LCD_RGBPACK(0xed, 0xe3, 0xcf)
+ #define POD6_TEXT2      LCD_RGBPACK(0xcf, 0xc6, 0xb3)
+ #define POD6_TEXT3      LCD_RGBPACK(0x8c, 0x86, 0x78)
+-#define POD6_OFF        LCD_RGBPACK(0x5b, 0x61, 0x72)
++#define POD6_OFF        LCD_RGBPACK(0x65, 0x5e, 0x7a)
+ #define POD6_AMBER      LCD_RGBPACK(0xff, 0xa5, 0x26)
+ #define POD6_TEAL       LCD_RGBPACK(0x46, 0xdc, 0xc8)
+-#define POD6_SEL0       LCD_RGBPACK(0x26, 0x2e, 0x42)
+-#define POD6_SEL1       LCD_RGBPACK(0x17, 0x1c, 0x29)
++#define POD6_SEL0       LCD_RGBPACK(0x31, 0x28, 0x4a)
++#define POD6_SEL1       LCD_RGBPACK(0x1d, 0x18, 0x30)
+ #define POD6_STRIPE(i)  (pod6_stripes[i])
++#define POD6_HEAD_H     24
+ 
++/* yellow, orange, red and plum: the gradient of the seekbar and the tape */
+ extern const unsigned pod6_stripes[4];
+ 
+-/* Four stripes under the header, kicking up to the right */
+-void pod_frame_stripes(struct screen *d);
+-
+-/* The 24 px band with the title in amber, and the stripes under it */
++/* The 24 px band with the title in amber */
+ void pod_frame_header(struct screen *d, const char *title, int font);
+ 
++/* a 1 px rule under the band, on a screen without the seekbar */
++void pod_frame_rule(struct screen *d);
++
+ #endif /* _POD_FRAME_H_ */
+diff --git a/apps/gui/pod_letter.c b/apps/gui/pod_letter.c
+index 612d307fe833eb2a01eb69fd6cc3d18a4bb340be..42b7f1ad553631aa70d315a697d0eb3050ad7be9 100644
+--- a/apps/gui/pod_letter.c
++++ b/apps/gui/pod_letter.c
+@@ -34,13 +34,13 @@
+ #ifdef HAVE_LCD_COLOR
+ #define FONT_LETTER     FONT_DIR "/32-Tape-Bold.fnt"
+ #define BOX_SIZE        96
+-#define BOX_BG          LCD_RGBPACK(0x10, 0x13, 0x1c)
++#define BOX_BG          LCD_RGBPACK(0x14, 0x11, 0x1f)
+ #define BOX_FG          LCD_RGBPACK(0xff, 0xa5, 0x26)
+ #define BOX_UNDERLINE   4       /* the four stripes of the label */
+ #define BOX_LIFT        8       /* the letter sits above them */
+ static const unsigned stripes[BOX_UNDERLINE] = {
+     LCD_RGBPACK(0xf7, 0xb5, 0x2c), LCD_RGBPACK(0xf2, 0x70, 0x1c),
+-    LCD_RGBPACK(0xd9, 0x30, 0x2a), LCD_RGBPACK(0x7b, 0x1e, 0x3c),
++    LCD_RGBPACK(0xd9, 0x30, 0x2a), LCD_RGBPACK(0x8e, 0x2a, 0x7e),
+ };
+ #else
+ #define FONT_LETTER     FONT_DIR "/40-Deck-Letter.fnt"
+diff --git a/apps/gui/pod_search.c b/apps/gui/pod_search.c
+index 8d0eb1bd2d9f72530059ece4660e31101b1cde08..671032d3be5cdf9a7fa1ab342d2e4edc1d7834ea 100644
+--- a/apps/gui/pod_search.c
++++ b/apps/gui/pod_search.c
+@@ -467,6 +467,7 @@ static void draw(struct screen *d, int f_value, int f_tiny)
+ 
+     /* the header: the query in amber, and the block that is the cursor */
+     pod_frame_header(d, "", f_value);
++    pod_frame_rule(d);
+     d->set_foreground(POD6_AMBER);
+     draw_glass(d, 8, 6);
+     d->setfont(f_value);
+diff --git a/bootloader/podlogo.h b/bootloader/podlogo.h
+index fbb34f2f3c7df67d953e9ce215da0447b243497d..469279b9a57f57e6ed8c49ab89a274c5804e92c8 100644
+--- a/bootloader/podlogo.h
++++ b/bootloader/podlogo.h
+@@ -12,8 +12,8 @@
+     0xf7b52c, \
+     0xf2701c, \
+     0xd9302a, \
+-    0x7b1e3c, \
+-    0x5b6172
++    0x8e2a7e, \
++    0x655e7a
+ 
+ static const unsigned char podlogo[] = {
+     255, 0, 65, 0, 255, 0, 65, 0, 255, 0, 65, 0, 255, 0, 65, 0,

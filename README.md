@@ -100,6 +100,12 @@ sleep timer, and a cassette whose hubs turn while it plays. Below it, the
 track number and title and the elapsed time with the time left beside it.
 Paused, the digits and the cassette are grey and still.
 
+On the Classic the bargraph is a seekbar that sweeps from the middle of the
+left edge and under the header, and says under its foot what it shows: A-Z on
+the deck, TIME, SEEK or VOL in the player. The header always has the
+cassette: turning while it plays, still on pause or with a queue, grey with
+nothing to play.
+
 SELECT steps through three panes: the Cover, the Rating and Up next. In
 Rating the wheel sets the stars in half steps, and the number of plays shows
 under them. Up next lists the tracks after the playing one, and the wheel

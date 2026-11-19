@@ -478,8 +478,8 @@ expect() { [ "$(px "$1" "$2" "$3")" = "$4" ] || { echo "$1 at $2,$3 is $(px "$1"
 "$root/scripts/sim-shot.sh" "$out/classic-settings" "W400 MM W100 D F1 W30 D" ipod6g >/dev/null
 f=$out/classic-settings/02.png
 expect "$f" 300 120 080C10   # panel
-expect "$f" 10 24 F7B229     # stripe 1
-expect "$f" 10 30 7B1C3A     # stripe 4
+expect "$f" 10 24 29253A     # the rule under the header
+expect "$f" 10 30 080C10     # no stripes under it
 expect "$f" 1 70 FFA629      # the selected row's tab
 expect "$f" 100 10 101019    # header band
 "$root/scripts/sim-shot.sh" "$out/classic-usb" "W400 U W200 D" ipod6g >/dev/null
@@ -493,7 +493,8 @@ splash=$src/apps/bitmaps/native/rockboxlogo.320x240x16.bmp
 echo "classic theme ok"
 
 # The Classic's deck: v3 covers (112x112), the header, the amber bar over the
-# current tape, and Signal / Noise's cover in place of its card.
+# current tape, the seekbar's unlit ticks under the header, and Signal /
+# Noise's cover in place of its card.
 "$root/scripts/sim-shot.sh" "$out/classic-deck" "W300 D F3 W20 D" ipod6g >/dev/null
 f=$out/classic-deck/01.png
 grep -q '^pod: covers 1' "$out/classic-deck/sim.log" || { echo "the Classic did not read the v3 covers" >&2; exit 1; }
@@ -501,14 +502,15 @@ grep -q '^pod: cover read' "$out/classic-deck/sim.log" || { echo "the Classic dr
 expect "$f" 100 10 101019    # header band
 expect "$f" 140 121 FFA621   # the bar over the current tape
 expect "$f" 300 150 080C10   # panel
-# the current tape, 112x112 at (88,124): a hatched card, then the cover
-[ "$(magick compare -metric AE "$out/classic-deck/01.png[336x336+264+372]" "$out/classic-deck/02.png[336x336+264+372]" null: 2>&1 | cut -d' ' -f1)" != 0 ] \
+expect "$f" 300 28 292542    # an unlit tick
+# the current tape, 112x112 at (64,124): a hatched card, then the cover
+[ "$(magick compare -metric AE "$out/classic-deck/01.png[336x336+192+372]" "$out/classic-deck/02.png[336x336+192+372]" null: 2>&1 | cut -d' ' -f1)" != 0 ] \
   || { echo "the Classic's cover did not replace the card" >&2; exit 1; }
 echo "classic deck ok"
 
-# The Classic's player: the panes, the track band, the progress in the
-# stripes, the footer, and the cassette, whose label is striped while it
-# plays and grey on pause.
+# The Classic's player: the panes, the track band, the seekbar lit in the
+# stripes from its foot, the footer, and the cassette, whose label is
+# striped while it plays and grey on pause.
 "$root/scripts/sim-shot.sh" "$out/classic-player" "W300 F3 P W200 D S W20 D S W20 D P W50 D" ipod6g >/dev/null
 for i in 01 02 03 04; do
   [ -f "$out/classic-player/$i.png" ] || { echo "classic-player/$i.png is missing" >&2; exit 1; }
@@ -518,11 +520,11 @@ grep -q '^pod: up next Low Orbit' "$out/classic-player/sim.log" || { echo "the C
 f=$out/classic-player/01.png
 expect "$f" 100 175 101019   # track band
 expect "$f" 300 233 101019   # footer
-expect "$f" 21 222 F7B629    # progress, stripe 1
-expect "$f" 21 225 7B1C3A    # progress, stripe 4
-expect "$f" 300 222 21283A   # the rest of the tape
-expect "$f" 276 191 F7B629   # the cassette's label
-expect "$out/classic-player/04.png" 276 191 5A6173   # grey on pause
+expect "$f" 2 136 F7B629     # the seekbar's first tick, stripe 1
+expect "$f" 8 136 8C287B     # stripe 4
+expect "$f" 300 28 292542    # the rest of the track
+expect "$f" 276 187 F7B629   # the cassette's label
+expect "$out/classic-player/04.png" 276 187 635D7B   # grey on pause
 for i in 02 03; do
   [ "$(magick compare -metric AE "$f[960x336+0+144]" "$out/classic-player/$i.png[960x336+0+144]" null: 2>&1 | cut -d' ' -f1)" != 0 ] \
     || { echo "the Classic's pane $i looks like Cover" >&2; exit 1; }
@@ -542,7 +544,7 @@ expect "$out/classic-search/02.png" 1 70 FFA621     # the first hit's tab
 grep -q '^pod: queue move 0 -> 1' "$out/classic-queue/sim.log" || { echo "the Classic's queue did not move the track" >&2; exit 1; }
 expect "$out/classic-queue/01.png" 1 40 FFA621      # the selected row's tab
 expect "$out/classic-queue/02.png" 300 70 FFA621    # picked up
-expect "$out/classic-queue/03.png" 300 70 19253A    # dropped, the selection bar
+expect "$out/classic-queue/03.png" 300 70 292042    # dropped, the selection bar
 echo "classic search ok"
 
 # The Classic walks the mini's script, with the same checks of the log and its
@@ -561,7 +563,7 @@ csim() {
 cdiff() {
   magick compare -metric AE "$cw/$1.png[$3]" "$cw/$2.png[$3]" null: 2>&1 | cut -d' ' -f1
 }
-body=960x648+0+72 pane=900x336+60+144 counter=900x96+60+564 cover=336x336+60+144
+body=960x648+0+72 pane=900x336+60+120 counter=960x96+0+549 cover=336x336+96+120
 clog() { grep -q "^pod: $2" "$cw/$1/sim.log" || { echo "classic $1: $3" >&2; exit 1; }; }
 clast() { [ "$(grep "^pod: $2" "$cw/$1/sim.log" | tail -1)" = "pod: $3" ] || { echo "classic $1: $4" >&2; exit 1; }; }
 csim deck "W300 D F1 W20 D R W20 D L W20 D"
@@ -630,8 +632,8 @@ csim sleep "W300 2M W100 S F7 F6 S R S W100 MM W100 MM W100 F3 S W50 D M W100 M 
 unset POD_SLEEP_FAST
 clog sleep 'sleep fade' "the sleep timer did not fade"
 clog sleep 'sleep pause Analog Heart' "the sleep timer did not pause"
-# the time left is in the header, left of the battery
-[ "$(cdiff sleep/02 sleep/03 132x60+474+6)" != 0 ] || { echo "the Classic's time left stayed after the pause" >&2; exit 1; }
+# the time left is in the header, left of the cassette
+[ "$(cdiff sleep/02 sleep/03 216x60+450+6)" != 0 ] || { echo "the Classic's time left stayed after the pause" >&2; exit 1; }
 # the EQ (Settings, row 1): the wheel sets the gain, >> the band, SELECT the
 # preset, PLAY bypasses it and MENU goes back to the settings. The settings
 # are put back after.

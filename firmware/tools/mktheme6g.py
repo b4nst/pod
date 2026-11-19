@@ -6,9 +6,10 @@ theme config, splash, USB screen and the bootloader's splash.
 
 <font-dir> holds the BDF sources (ter12, ter14b, ter18b). The look is
 autoreverse's: a dark panel, a lighter band for the header and the footer,
-four stripes under the header that kick up to the right, amber readouts,
-teal status. Everything is drawn from the layout constants below so the
-skins and the bitmaps cannot drift apart.
+amber readouts, teal status, and four stripes from yellow to plum for what
+is lit. The greys lean to violet, for the purple shell. Everything is drawn
+from the layout constants below so the skins and the bitmaps cannot drift
+apart.
 """
 import math
 import os
@@ -20,18 +21,18 @@ LCD_W, LCD_H = 320, 240
 
 PALETTE = {
     "PANEL": "0B0D14",
-    "BAND": "10131C",
-    "RULE": "222838",
-    "WELL": "121622",
+    "BAND": "14111F",
+    "RULE": "2C2540",
+    "WELL": "171329",
     "TEXT": "EDE3CF",
     "TEXT2": "CFC6B3",
     "TEXT3": "8C8678",
-    "OFF": "5B6172",
+    "OFF": "655E7A",
     "AMBER": "FFA526",
     "TEAL": "46DCC8",
-    "STRIPES": ("F7B52C", "F2701C", "D9302A", "7B1E3C"),
-    "SEL0": "262E42",
-    "SEL1": "171C29",
+    "STRIPES": ("F7B52C", "F2701C", "D9302A", "8E2A7E"),
+    "SEL0": "31284A",
+    "SEL1": "1D1830",
 }
 P = PALETTE
 MAGENTA = RGBCanvas.MAGENTA
@@ -51,22 +52,25 @@ def save(c, name):
 
 # ---------------------------------------------------------------- layout
 
-HEAD_H = 24
-STRIPE_Y, STRIPE_T = HEAD_H, 2      # four bands of 2 px under the header
-KICK_X = 266                        # where the stripes turn up at 45 degrees
+HEAD_H = 24                         # the band, and a rule of 1 px under it
 LIST_Y, ROW_H, ROWS = 34, 24, 7
 LIST_H = ROW_H * ROWS
 FOOT_Y = 208                        # the rule over the footer band
 PROG_H = 2                          # the progress line, on the last rows
 
-BAT_X, BAT_Y = 166, 6               # outline, 23x12
+# the readouts from the right edge, as the deck has them: clock, battery,
+# its percentage, hold, the cassette
+CLOCK_X = 284
+BAT_X, BAT_Y = 253, 6               # outline, 23x12
 BAT_FILL = (BAT_X + 2, BAT_Y + 2, 19, 8)
-LOCK_X, LOCK_Y = 146, 7
+PCT_X = 215
+LOCK_X, LOCK_Y = 202, 7
+TAPE_X, TAPE_Y = 171, 5             # 25x15
 
 
 # ---------------------------------------------------------------- shared bits
 
-def stripes(c, y=STRIPE_Y, t=STRIPE_T, kick=KICK_X):
+def stripes(c, y, t, kick):
     """Four bands of t px from y down, turning up 45 degrees at x = kick and
     running off the top."""
     for k, col in enumerate(P["STRIPES"]):
@@ -78,7 +82,7 @@ def stripes(c, y=STRIPE_Y, t=STRIPE_T, kick=KICK_X):
 
 def header(c):
     c.rect(0, 0, LCD_W, HEAD_H, P["BAND"])
-    stripes(c)
+    c.hline(0, LCD_W - 1, HEAD_H, P["RULE"])
 
 
 def footer(c):
@@ -154,6 +158,28 @@ for y, row in enumerate(LOCK):
             lock.set(x, y, P["AMBER"])
 save(lock, "lock.bmp")
 
+# the cassette, as pod_deck.c draws it in the header: a strip of the eight
+# steps of the hubs' notches in teal, and the one in grey with nothing to play
+NOTCH = ((-2, -2), (0, -2), (2, -2), (2, 0), (2, 2), (0, 2), (-2, 2), (-2, 0))
+
+
+def tape_icon(c, x, y, colour, step):
+    c.frame(x, y, 25, 15, colour)
+    c.hline(x + 6, x + 18, y + 11, colour)
+    for h in range(2):
+        cx, cy = x + 7 + h * 11, y + 6
+        c.rect(cx - 2, cy - 2, 5, 5, colour)
+        c.set(cx + NOTCH[step][0], cy + NOTCH[step][1], P["PANEL"])
+
+
+tape = RGBCanvas(25, 15 * 8, P["BAND"])
+for step in range(8):
+    tape_icon(tape, 0, 15 * step, P["TEAL"], step)
+save(tape, "tape.bmp")
+tape_off = RGBCanvas(25, 15, P["BAND"])
+tape_icon(tape_off, 0, 0, P["OFF"], 0)
+save(tape_off, "tape_off.bmp")
+
 tab = RGBCanvas(3, ROW_H, P["AMBER"])
 save(tab, "tab.bmp")
 
@@ -184,18 +210,22 @@ sbs = f"""# pod - library chrome for the iPod Classic (bΔnst ⧉ design)
 %Fl({FONT_TITLE},14-Tape-Bold.fnt)
 %xl(T,tab.bmp,0,0)
 %xl(K,lock.bmp,{LOCK_X},{LOCK_Y})
+%xl(C,tape.bmp,{TAPE_X},{TAPE_Y},8)
+%xl(G,tape_off.bmp,{TAPE_X},{TAPE_Y})
 %Vi(-,0,{LIST_Y},{LCD_W},{LIST_H},1)
 %Lb(item,{LCD_W},{ROW_H})
-%?mh<%xd(K)|>
 
-# header: title in amber, battery and clock in teal
-%V(8,5,140,16,{FONT_TITLE})%Vf({P["AMBER"]})%Vb({P["BAND"]})
+# header: title in amber, hold, the cassette, battery and clock in teal
+%V(0,0,{LCD_W},{HEAD_H},-)
+%?mh<%xd(K)|>
+%?mp<%xd(G)|%xd(C,%pW)|%xd(C)|%xd(C,%pW)|%xd(C,%pW)>
+%V(8,5,{TAPE_X - 16},16,{FONT_TITLE})%Vf({P["AMBER"]})%Vb({P["BAND"]})
 %s%Lt
 %V({BAT_FILL[0]},{BAT_FILL[1]},{BAT_FILL[2]},{BAT_FILL[3]},1)
 %bl(0,0,{BAT_FILL[2]},{BAT_FILL[3]},image,batt.bmp)
-%V(196,6,32,12,{FONT_SMALL})%Vf({P["TEAL"]})%Vb({P["BAND"]})
+%V({PCT_X},6,32,12,{FONT_SMALL})%Vf({P["TEAL"]})%Vb({P["BAND"]})
 %ar%bl%%
-%V(230,6,32,12,{FONT_SMALL})%Vf({P["TEAL"]})%Vb({P["BAND"]})
+%V({CLOCK_X},6,30,12,{FONT_SMALL})%Vf({P["TEAL"]})%Vb({P["BAND"]})
 %ar%cH:%cM
 
 # the rows: the gradient bar and the amber tab under the selection. The UI
@@ -220,7 +250,7 @@ sbs = f"""# pod - library chrome for the iPod Classic (bΔnst ⧉ design)
 # (%pD: header, bargraph, panes, the track band, the progress and the
 # footer, everywhere but the counter) and the counter row with the time and
 # the cassette (%pC) on top of it. COUNTER is pod_deck.c's.
-COUNTER = (20, 188, 300, 32)
+COUNTER = (0, 183, LCD_W, 32)
 
 wps = f"""# pod - cassette deck WPS for the iPod Classic (bΔnst ⧉ design)
 %wd
@@ -349,8 +379,8 @@ header(c)
 delta_mark(c, 8, 5, P["AMBER"])
 c.text(ter14b, 28, 5, "DATA LINK", P["AMBER"])
 chip = ter12.width("USB") + 8
-c.frame(LCD_W - 66 - chip, 6, chip, 14, P["TEAL"])
-c.text_center(ter12, LCD_W - 66 - chip // 2 - 1, 7, "USB", P["TEAL"])
+c.frame(LCD_W - 8 - chip, 6, chip, 14, P["TEAL"])
+c.text_center(ter12, LCD_W - 8 - chip // 2 - 1, 7, "USB", P["TEAL"])
 cassette(c, 60, 44)
 c.text_center(ter18b, LCD_W // 2, 170, "LINKED", P["AMBER"])
 c.hline(0, LCD_W - 1, 204, P["RULE"])

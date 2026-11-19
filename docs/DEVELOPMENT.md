@@ -267,6 +267,18 @@ switch.
       (`cur_cmd.write_failed`): sent mid-data, with the next block already
       asked for, it had the host's data read as the next command, and both
       pipes stalled until a reboot.
+  48. the Classic's seekbar: the bargraph sweeps from the middle of the left
+      edge (`BAR_Y0`), round a 36 px corner and along the bottom of the
+      header, which no longer has stripes (a 1 px rule on the screens without
+      it). A lit tick is the four stripes, yellow outside, and its caption
+      under its foot says A-Z, TIME, SEEK or VOL. The player's progress line
+      and the footer's volume bar are gone, and its track band, counter and
+      footer take the whole width under the seekbar's foot, as the gallery's
+      covers do on the deck (the previous one, then three, the last cut by
+      the edge). The header's readouts go from the right edge, with the
+      cassette always there (`draw_header_cassette`; the lists' skin has it
+      as `tape.bmp`, with `%pW`). The greys lean to violet and the fourth
+      stripe is plum, for a purple shell.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod
@@ -274,7 +286,7 @@ switch.
   because a dark background shows up as a frame on the backlit LCD.
 - `firmware/tools/mktheme6g.py`: the same for the Classic, in colour (`RGBCanvas`
   in `canvas.py`), with autoreverse's palette and layout: header and footer
-  bands, four stripes kicking up to the right, amber readouts, teal status.
+  bands, amber readouts, teal status, the four stripes for what is lit.
   It also writes `pod.cfg` and `podlogo.h`.
 - `scripts/build-theme.sh <src> <target>`: rasterizes JetBrains Mono and
   Orbitron to Rockbox fonts and runs the generator for the target. Orbitron's
