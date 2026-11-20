@@ -1,0 +1,196 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Fri, 20 Nov 2026 10:46:54 +0100
+Subject: [PATCH] pod: a question's answers are keys like the footer's
+
+---
+ apps/gui/splash.c | 75 +++++++++++++++++++++++++++++++++++++++++++++--
+ apps/gui/splash.h | 11 +++++++
+ apps/gui/yesno.c  | 19 ++++++------
+ 3 files changed, 92 insertions(+), 13 deletions(-)
+
+diff --git a/apps/gui/splash.c b/apps/gui/splash.c
+index a4b4e966a3b732438ee832fc4243451bc8e7de1d..b71fbaf8473541c9562a3e3775a01230e479f3fd 100644
+--- a/apps/gui/splash.c
++++ b/apps/gui/splash.c
+@@ -61,6 +61,9 @@ static long progress_next_tick, talked_tick;
+ #define SPLASH_FG       LCD_RGBPACK(0xed, 0xe3, 0xcf)
+ #define SPLASH_WELL     LCD_RGBPACK(0x17, 0x13, 0x29)
+ #define SPLASH_BAR      LCD_RGBPACK(0xff, 0xa5, 0x26)
++#define SPLASH_KEY      SPLASH_BAR
++#define SPLASH_FG_ANSWER SPLASH_FG
++#define SPLASH_CHIP     0
+ static const unsigned splash_stripes[4] = {
+     LCD_RGBPACK(0xf7, 0xb5, 0x2c), LCD_RGBPACK(0xf2, 0x70, 0x1c),
+     LCD_RGBPACK(0xd9, 0x30, 0x2a), LCD_RGBPACK(0x8e, 0x2a, 0x7e),
+@@ -69,6 +72,8 @@ static const unsigned splash_stripes[4] = {
+ #define RECT_SPACING 6
+ #define SPLASH_FOOT 0
+ #define SPLASH_FRAME 2      /* inset of the frame */
++#define SPLASH_FG_ANSWER LCD_WHITE
++#define SPLASH_CHIP     2   /* the key's chip past its text */
+ #endif
+ #define SPLASH_BAR_H 6
+ #define SPLASH_MEMORY_INTERVAL (HZ)
+@@ -100,7 +105,7 @@ static const unsigned splash_stripes[4] = {
+  *  "\t\t" would break a line and add a total of 4 spaces to the next line
+ */
+ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
+-                            struct viewport *vp, int addl_lines)
++                            struct viewport *vp, int addl_lines, int addl_w)
+ {
+     static const char matchstr[] = "\r\n\f\v\t\b";
+     static int max_width[NB_SCREENS] = {0};
+@@ -295,6 +300,9 @@ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
+ 
+     screen->scroll_stop();
+ 
++    /* room for what the caller draws in its lines */
++    if (addl_w > maxw)
++        maxw = addl_w;
+     width = maxw + 2*RECT_SPACING;
+     height = maxh + 2*RECT_SPACING + SPLASH_FOOT;
+ 
+@@ -384,7 +392,7 @@ void splashf(int ticks, const char *fmt, ...)
+         struct viewport *last_vp = screen->set_viewport(&vp);
+ 
+         va_start(ap, fmt);
+-        if (splash_internal(screen, fmt, ap, &vp, 0))
++        if (splash_internal(screen, fmt, ap, &vp, 0, 0))
+             screen->update_viewport();
+         va_end(ap);
+ 
+@@ -438,7 +446,7 @@ void splash_progress(int current, int total, const char *fmt, ...)
+         struct viewport *last_vp = screen->set_viewport_ex(&vp, vp_flag);
+ 
+         va_start(ap, fmt);
+-        if (splash_internal(screen, fmt, ap, &vp, 1))
++        if (splash_internal(screen, fmt, ap, &vp, 1, 0))
+         {
+             /* a bar in the last line, amber in a well on a colour LCD */
+             int size = screen->getcharheight();
+@@ -469,3 +477,64 @@ void splash_progress(int current, int total, const char *fmt, ...)
+         screen->set_viewport(last_vp);
+     }
+ }
++
++/* pod: a splash with a key and its answer on each of its last lines, the
++ * key in amber like the footer's (a chip on the mini) */
++void splash_keys(int count, const char * const *keys,
++                 const char * const *answers, const char *fmt, ...)
++{
++    va_list ap;
++
++    fmt = P2STR((unsigned char *)fmt);
++    FOR_NB_SCREENS(i)
++    {
++        struct screen * screen = &(screens[i]);
++        struct viewport vp;
++        int key_w = 0, answer_w = 0, space_w, chr_h, w;
++
++        viewport_set_defaults(&vp, screen->screen_type);
++        font_getstringsize(" ", &space_w, &chr_h, vp.font);
++        for (int k = 0; k < count; k++)
++        {
++            w = font_getstringsize(keys[k], NULL, NULL, vp.font);
++            key_w = MAX(key_w, w);
++            w = font_getstringsize(answers[k], NULL, NULL, vp.font);
++            answer_w = MAX(answer_w, w);
++        }
++        key_w += 2 * SPLASH_CHIP;
++
++        struct viewport *last_vp = screen->set_viewport(&vp);
++
++        va_start(ap, fmt);
++        /* a blank line between the message and the keys */
++        if (splash_internal(screen, fmt, ap, &vp, count + 1,
++                            key_w + space_w + answer_w))
++        {
++            int x = (vp.width - (key_w + space_w + answer_w)) / 2;
++            int y = vp.height - SPLASH_FOOT - RECT_SPACING - count * chr_h;
++
++            /* the message is centered, the keys and answers are columns */
++            vp.flags &= ~VP_FLAG_ALIGN_CENTER;
++
++            for (int k = 0; k < count; k++, y += chr_h)
++            {
++#ifdef HAVE_LCD_COLOR
++                screen->set_foreground(SPLASH_KEY);
++#else
++                vp.drawmode = DRMODE_SOLID;
++                screen->set_foreground(LCD_WHITE);
++                screen->fillrect(x, y, key_w, chr_h - 1);
++                vp.drawmode = DRMODE_FG;
++                screen->set_foreground(LCD_BLACK);
++#endif
++                screen->putsxy(x + SPLASH_CHIP, y, keys[k]);
++                screen->set_foreground(SPLASH_FG_ANSWER);
++                screen->putsxy(x + key_w + space_w, y, answers[k]);
++            }
++            screen->update_viewport();
++        }
++        va_end(ap);
++
++        screen->set_viewport(last_vp);
++    }
++}
+diff --git a/apps/gui/splash.h b/apps/gui/splash.h
+index ca1af167d2a44d4eb9f88fd97558a0e79bc13965..e6ebf8d538570778b14ebd42b1bcfb324dabf258 100644
+--- a/apps/gui/splash.h
++++ b/apps/gui/splash.h
+@@ -52,4 +52,15 @@ extern void splash_progress_set_delay(long delay_ticks);
+  * updates limited internally to 20 fps - call repeatedly to update progress
+  */
+ extern void splash_progress(int current, int total, const char *fmt, ...) ATTRIBUTE_PRINTF(3, 4);
++
++/*
++ * Puts a splash message centered on all the screens with a key and its
++ * answer on each of its last lines (pod: the yes/no question)
++ *  - count : how many keys
++ *  - keys, answers : the key names and what they do
++ *  - fmt : what to say *printf style
++ */
++extern void splash_keys(int count, const char * const *keys,
++                        const char * const *answers,
++                        const char *fmt, ...) ATTRIBUTE_PRINTF(4, 5);
+ #endif /* _GUI_ICON_H_ */
+diff --git a/apps/gui/yesno.c b/apps/gui/yesno.c
+index b6361dfb17f0000f92573a945138070a3920f537..f3751b9ef8570026d224c9d310bf938f151e1131 100644
+--- a/apps/gui/yesno.c
++++ b/apps/gui/yesno.c
+@@ -82,26 +82,25 @@ static int add_message(char *buf, int n, const struct text_message *message)
+  */
+ static void gui_yesno_draw(struct gui_yesno * yn)
+ {
+-    char buf[YESNO_BUF] = "", hint[64];
+-    int n, tm_rem = (yn->end_tick - current_tick) / HZ;
++    static const char * const keys[] = {"SELECT", "MENU"};
++    char buf[YESNO_BUF] = "", answers[2][16];
++    const char *a[] = {answers[0], answers[1]};
++    int tm_rem = (yn->end_tick - current_tick) / HZ;
+ 
+     if (yn->display->screen_type != SCREEN_MAIN)
+         return;
+-    n = add_message(buf, 0, yn->main_message);
+-    n = add_line(buf, n, "");
++    add_message(buf, 0, yn->main_message);
+     for (int i = 0; i < 2; i++)
+     {
+-        const char *answer = str(i ? LANG_CANCEL_WITH_ANY
+-                                   : LANG_CONFIRM_WITH_BUTTON);
++        const char *answer = str(i ? LANG_SET_BOOL_NO : LANG_SET_BOOL_YES);
+ 
+         /* the countdown is by the answer it gives */
+         if (yn->tmo_default_res == (i ? YESNO_NO : YESNO_YES))
+-            snprintf(hint, sizeof(hint), "%s (%d)", answer, tm_rem);
++            snprintf(answers[i], sizeof(answers[i]), "%s (%d)", answer, tm_rem);
+         else
+-            strmemccpy(hint, answer, sizeof(hint));
+-        n = add_line(buf, n, hint);
++            strmemccpy(answers[i], answer, sizeof(answers[i]));
+     }
+-    splashf(0, "%s", buf);
++    splash_keys(2, keys, a, "%s", buf);
+ }
+ 
+ /*

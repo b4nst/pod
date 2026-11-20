@@ -297,6 +297,9 @@ switch.
       box like the letter box's: the band's colour with the four stripes
       along its foot and an amber bar on the Classic, black with a frame
       on the mini. A question is the same box with its answers under it.
+  52. a question's answers are keys like the footer's (`splash_keys`):
+      SELECT and MENU in amber on the Classic, in white chips on the mini,
+      with Yes and No beside them and the countdown by the default one
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod
