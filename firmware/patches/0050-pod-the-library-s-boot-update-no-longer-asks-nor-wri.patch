@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Fri, 20 Nov 2026 10:03:25 +0100
+Subject: [PATCH] pod: the library's boot update no longer asks, nor writes an
+ unchanged database again
+
+---
+ apps/root_menu.c |  6 ++----
+ apps/tagcache.c  | 43 ++++++++++++++++++++++---------------------
+ 2 files changed, 24 insertions(+), 25 deletions(-)
+
+diff --git a/apps/root_menu.c b/apps/root_menu.c
+index 48e355f58ff4a35315dfce526857251c342c5b96..df11ec56c46ef5bf036a1f5fc65fe08ec2c1f45b 100644
+--- a/apps/root_menu.c
++++ b/apps/root_menu.c
+@@ -190,12 +190,10 @@ static int browser(void* param)
+                         system_reboot();
+                     }
+ 
+-                    /* Check if ready status is known */
++                    /* the header check takes a second after boot: wait
++                     * on the splash rather than say it isn't ready */
+                     if (!stat->readyvalid)
+-                    {
+-                        splash(0, ID2P(LANG_TAGCACHE_BUSY));
+                         continue;
+-                    }
+ 
+                     /* Re-init if required */
+                     if (!reinit_attempted && !stat->ready &&
+diff --git a/apps/tagcache.c b/apps/tagcache.c
+index d148c36890056415124bbdf236ed6c5f91bebc34..1767e5322a60c61bd7ef1367ef0154badac02e87 100644
+--- a/apps/tagcache.c
++++ b/apps/tagcache.c
+@@ -76,7 +76,6 @@
+ #include "usb.h"
+ #include "metadata.h"
+ #include "tagcache.h"
+-#include "yesno.h"
+ #include "core_alloc.h"
+ #include "crc32.h"
+ #include "misc.h"
+@@ -3425,12 +3424,20 @@ static bool commit(void)
+         return false;
+     }
+ 
+-    if (tch.entry_count == 0)
+-        logf("nothing to commit");
+-
+     /* Fully initialize existing headers (if any) before going further. */
+     tc_stat.ready = check_all_headers();
+ 
++    /* an update that found nothing new leaves the indices as they are,
++     * rather than writing every one of them again at each boot */
++    if (tch.entry_count == 0 && tc_stat.ready)
++    {
++        logf("nothing to commit");
++        close(tmpfd);
++        remove_db_file(TAGCACHE_FILE_TEMP);
++        tc_stat.readyvalid = true;
++        return true;
++    }
++
+ #ifdef HAVE_EEPROM_SETTINGS
+     remove_db_file(TAGCACHE_STATEFILE);
+ #endif
+@@ -5224,7 +5231,10 @@ commit:
+ 
+     if (!ret)
+     {
++        /* a scan stopped by the shutdown or USB would ask at the next boot
++         * to commit what it found so far: the next scan finds it again */
+         logf("Aborted.");
++        remove_db_file(TAGCACHE_FILE_TEMP);
+         cpu_boost(false);
+         return ;
+     }
+@@ -5320,25 +5330,16 @@ static void tagcache_thread(void)
+     bool check_done = false;
+     cpu_boost(true);
+     /* If the previous cache build/update was interrupted, commit
+-     * the changes first in foreground. */
++     * the changes first in foreground, without asking: the boot shows
++     * its progress. */
+     if (db_file_exists(TAGCACHE_FILE_TEMP))
+     {
+-#if !(defined(__APPLE__) && (CONFIG_PLATFORM & PLATFORM_SDL))
+-        static const char *lines[] = {ID2P(LANG_TAGCACHE_BUSY),
+-                                      ID2P(LANG_TAGCACHE_UPDATE)};
+-        static const struct text_message message = {lines, 2};
+-
+-        if (gui_syncyesno_run_w_tmo(HZ * 5, YESNO_YES, str(LANG_TAGCACHE),
+-                                    &message, NULL, NULL) == YESNO_YES)
+-#endif
+-        {
+-            allocate_tempbuf();
+-            commit();
+-            free_tempbuf();
+-            /* a rescan put its commit off to this boot: get the stats back */
+-            if (tc_stat.ready)
+-                tagcache_import_changelog();
+-        }
++        allocate_tempbuf();
++        commit();
++        free_tempbuf();
++        /* a rescan put its commit off to this boot: get the stats back */
++        if (tc_stat.ready)
++            tagcache_import_changelog();
+     }
+ 
+ #ifdef HAVE_TC_RAMCACHE

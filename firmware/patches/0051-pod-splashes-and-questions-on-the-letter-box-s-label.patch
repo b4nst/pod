@@ -1,0 +1,371 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: banst <bastien@banst.ch>
+Date: Fri, 20 Nov 2026 10:03:25 +0100
+Subject: [PATCH] pod: splashes and questions on the letter box's label
+
+---
+ apps/gui/splash.c | 115 +++++++++++++++++++-----------------
+ apps/gui/yesno.c  | 144 ++++++++++++----------------------------------
+ 2 files changed, 101 insertions(+), 158 deletions(-)
+
+diff --git a/apps/gui/splash.c b/apps/gui/splash.c
+index 440164984b74be62f44cf9e9528e053844035b32..a4b4e966a3b732438ee832fc4243451bc8e7de1d 100644
+--- a/apps/gui/splash.c
++++ b/apps/gui/splash.c
+@@ -30,7 +30,6 @@
+ #include "splash.h"
+ #include "viewport.h"
+ #include "strptokspn_r.h"
+-#include "scrollbar.h"
+ #include "font.h"
+ #ifndef BOOTLOADER
+ #include "misc.h" /* get_current_activity */
+@@ -51,7 +50,27 @@ static long progress_next_tick, talked_tick;
+     #define MAXBUFFER (512)
+ #endif
+ 
+-#define RECT_SPACING 3
++/* pod: a label like the letter box's, the four stripes of the tape along
++ * its foot on a colour LCD, a frame inside the edge on the mini */
++#ifdef HAVE_LCD_COLOR
++#define RECT_SPACING 8
++#define SPLASH_STRIPE_H 2
++#define SPLASH_FOOT (4 * SPLASH_STRIPE_H)
++#define SPLASH_BG       LCD_RGBPACK(0x14, 0x11, 0x1f)
++#define SPLASH_RULE     LCD_RGBPACK(0x2c, 0x25, 0x40)
++#define SPLASH_FG       LCD_RGBPACK(0xed, 0xe3, 0xcf)
++#define SPLASH_WELL     LCD_RGBPACK(0x17, 0x13, 0x29)
++#define SPLASH_BAR      LCD_RGBPACK(0xff, 0xa5, 0x26)
++static const unsigned splash_stripes[4] = {
++    LCD_RGBPACK(0xf7, 0xb5, 0x2c), LCD_RGBPACK(0xf2, 0x70, 0x1c),
++    LCD_RGBPACK(0xd9, 0x30, 0x2a), LCD_RGBPACK(0x8e, 0x2a, 0x7e),
++};
++#else
++#define RECT_SPACING 6
++#define SPLASH_FOOT 0
++#define SPLASH_FRAME 2      /* inset of the frame */
++#endif
++#define SPLASH_BAR_H 6
+ #define SPLASH_MEMORY_INTERVAL (HZ)
+ 
+ /* splash_internal does the actual drawing of the splash box and text
+@@ -277,7 +296,7 @@ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
+     screen->scroll_stop();
+ 
+     width = maxw + 2*RECT_SPACING;
+-    height = maxh + 2*RECT_SPACING;
++    height = maxh + 2*RECT_SPACING + SPLASH_FOOT;
+ 
+     if (width > vp->width)
+         width = vp->width;
+@@ -296,55 +315,37 @@ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
+     max_width[screen->screen_type] = width - 2*RECT_SPACING;
+     max_height[screen->screen_type] = height - 2*RECT_SPACING;
+ 
+-#if LCD_DEPTH > 1
+-    unsigned fg = 0, bg = 0;
+-    bool broken = false;
+-
+-    if (screen->depth > 1)
++    vp->drawmode = DRMODE_SOLID;
++#ifdef HAVE_LCD_COLOR
++    screen->set_foreground(SPLASH_BG);
++    screen->fillrect(0, 0, width, height);
++    screen->set_foreground(SPLASH_RULE);
++    screen->drawrect(0, 0, width, height);
++    for (int i = 0; i < 4; i++)
+     {
+-        fg = screen->get_foreground();
+-        bg = screen->get_background();
+-
+-        if (fg == bg)
+-            broken = true;
+-
+-#if defined(HAVE_LCD_COLOR)
+-        /* iPod reFresh themes from '22 */
+-        if (screen->is_color)
+-        {
+-            if (bg == SCREEN_COLOR_TO_NATIVE(screen, LCD_RGBPACK(244, 244, 244)) &&
+-                fg == SCREEN_COLOR_TO_NATIVE(screen, LCD_RGBPACK(255, 255, 255)))
+-                broken = true;
+-        }
+-#endif
+-
+-        vp->drawmode = DRMODE_FG;
+-        /* can't do vp->fg_pattern here, since set_foreground does a bit more on
+-         * greyscale */
+-        screen->set_foreground(broken ? SCREEN_COLOR_TO_NATIVE(screen, LCD_LIGHTGRAY) :
+-                               bg);     /* gray as fallback for broken themes */
++        screen->set_foreground(splash_stripes[i]);
++        screen->fillrect(1, height - 1 - SPLASH_FOOT + i * SPLASH_STRIPE_H,
++                         width - 2, SPLASH_STRIPE_H);
+     }
+-    else
+-#endif
+-        vp->drawmode = (DRMODE_SOLID|DRMODE_INVERSEVID);
+-
++    screen->set_foreground(SPLASH_FG);
++#elif LCD_DEPTH > 1
++    screen->set_foreground(LCD_BLACK);
++    screen->fillrect(0, 0, width, height);
++    screen->set_foreground(LCD_LIGHTGRAY);
++    screen->drawrect(SPLASH_FRAME, SPLASH_FRAME,
++                     width - 2*SPLASH_FRAME, height - 2*SPLASH_FRAME);
++    screen->set_foreground(LCD_WHITE);
++#else
++    vp->drawmode = (DRMODE_SOLID|DRMODE_INVERSEVID);
+     screen->fill_viewport();
+-
+-#if LCD_DEPTH > 1
+-    if (screen->depth > 1)
+-        /* can't do vp->fg_pattern here, since set_foreground does a bit more on
+-         * greyscale */
+-        screen->set_foreground(broken ? SCREEN_COLOR_TO_NATIVE(screen, LCD_BLACK) :
+-                               fg);     /* black as fallback for broken themes */
+-    else
+-#endif
+-        vp->drawmode = DRMODE_SOLID;
+-
++    vp->drawmode = DRMODE_SOLID;
+     screen->draw_border_viewport();
++#endif
++    vp->drawmode = DRMODE_FG;
+ 
+-    /* center y within the available splash box */
++    /* center y within the box, over the stripes */
+     if (y < maxh)
+-        y = (maxh - y) / 2;
++        y = RECT_SPACING + (maxh - y) / 2;
+     else
+         y = RECT_SPACING;
+ 
+@@ -353,7 +354,7 @@ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
+     {
+         if (lines[i].len > 0)
+         {
+-            x = lines[i].x;
++            x = lines[i].x + (has_tabs ? RECT_SPACING : 0);
+             screen->putsxyf(x, y, "%.*s", lines[i].len, lines[i].str);
+         }
+     }
+@@ -439,17 +440,27 @@ void splash_progress(int current, int total, const char *fmt, ...)
+         va_start(ap, fmt);
+         if (splash_internal(screen, fmt, ap, &vp, 1))
+         {
++            /* a bar in the last line, amber in a well on a colour LCD */
+             int size = screen->getcharheight();
+             int x = RECT_SPACING;
+-            int y = vp.height - size - RECT_SPACING;
++            int y = vp.height - SPLASH_FOOT - RECT_SPACING
++                    - (size + SPLASH_BAR_H) / 2;
+             int w = vp.width - RECT_SPACING * 2;
+-            int h = size;
++            int fill = total > 0 ? w * MIN(current, total) / total : 0;
++
++            vp.drawmode = DRMODE_SOLID;
+ #ifdef HAVE_LCD_COLOR
+-            const int sb_flags = HORIZONTAL | FOREGROUND;
++            screen->set_foreground(SPLASH_WELL);
++            screen->fillrect(x, y, w, SPLASH_BAR_H);
++            screen->set_foreground(SPLASH_BAR);
++#elif LCD_DEPTH > 1
++            screen->set_foreground(LCD_DARKGRAY);
++            screen->fillrect(x, y, w, SPLASH_BAR_H);
++            screen->set_foreground(LCD_WHITE);
+ #else
+-            const int sb_flags = HORIZONTAL;
++            screen->drawrect(x, y, w, SPLASH_BAR_H);
+ #endif
+-            gui_scrollbar_draw(screen, x, y, w, h, total, 0, current, sb_flags);
++            screen->fillrect(x, y, fill, SPLASH_BAR_H);
+ 
+             screen->update_viewport();
+         }
+diff --git a/apps/gui/yesno.c b/apps/gui/yesno.c
+index fefaaeda453651675434202fd1b4c45f2786f288..b6361dfb17f0000f92573a945138070a3920f537 100644
+--- a/apps/gui/yesno.c
++++ b/apps/gui/yesno.c
+@@ -18,6 +18,7 @@
+  *
+  ****************************************************************************/
+ #include "config.h"
++#include <stdio.h>
+ #include "yesno.h"
+ #include "system.h"
+ #include "kernel.h"
+@@ -31,6 +32,9 @@
+ #include "splash.h"
+ #include "backlight.h"
+ #include "statusbar-skinned.h"
++#include "string-extra.h"
++
++#define YESNO_BUF 256
+ 
+ struct gui_yesno
+ {
+@@ -57,18 +61,19 @@ static void talk_text_message(const struct text_message * message, bool enqueue)
+     }
+ }
+ 
+-static int put_message(struct screen *display,
+-                        const struct text_message * message,
+-                        int start, int max_y)
++/* pod: the question and its answers are a splash's box over the screen */
++static int add_line(char *buf, int n, const char *line)
+ {
+-    int i;
+-    int ct = MIN(message->nb_lines, max_y - start);
+-    for(i=0; i < ct; i++)
+-    {
+-        display->puts_scroll(0, i+start,
+-                             P2STR((unsigned char *)message->message_lines[i]));
+-    }
+-    return i;
++    if (n < YESNO_BUF)
++        n += snprintf(buf + n, YESNO_BUF - n, "%s%s", n ? "\n" : "", line);
++    return n;
++}
++
++static int add_message(char *buf, int n, const struct text_message *message)
++{
++    for (int i = 0; i < message->nb_lines; i++)
++        n = add_line(buf, n, P2STR((unsigned char *)message->message_lines[i]));
++    return n;
+ }
+ 
+ /*
+@@ -77,97 +82,26 @@ static int put_message(struct screen *display,
+  */
+ static void gui_yesno_draw(struct gui_yesno * yn)
+ {
+-    struct screen * display=yn->display;
+-    struct viewport *vp = &yn->vp;
+-    int vp_lines = yn->vp_lines;
+-    enum yesno_res def_res = yn->tmo_default_res;
+-    const struct text_message *main_message = yn->main_message;
+-    int line_shift = 0;
+-    struct viewport *last_vp = display->set_viewport_ex(vp, VP_FLAG_VP_SET_CLEAN);
+-
+-    /* do our own clear to avoid stopping scrolling */
+-    int oldmode = vp->drawmode;
+-    vp->drawmode ^= DRMODE_INVERSEVID;
+-    vp->drawmode |= DRMODE_SOLID;
+-    display->fillrect(0, 0, vp->width, vp->height);
+-    vp->drawmode = oldmode;
+-
+-    if(main_message->nb_lines + 3 < vp_lines)
+-        line_shift = 1;
+-
+-    line_shift += put_message(display, main_message, line_shift, vp_lines);
+-
+-#ifdef HAVE_TOUCHSCREEN
+-    if (display->screen_type == SCREEN_MAIN)
++    char buf[YESNO_BUF] = "", hint[64];
++    int n, tm_rem = (yn->end_tick - current_tick) / HZ;
++
++    if (yn->display->screen_type != SCREEN_MAIN)
++        return;
++    n = add_message(buf, 0, yn->main_message);
++    n = add_line(buf, n, "");
++    for (int i = 0; i < 2; i++)
+     {
+-        int w,h,tmo_w;
+-        int tm_rem = 0;
+-        const char *btn_fmt;
+-        int rect_w = vp->width/2, rect_h = vp->height/2;
+-        int old_pattern = vp->fg_pattern;
+-        vp->fg_pattern = LCD_RGBPACK(0,255,0);
+-        display->drawrect(0, rect_h, rect_w, rect_h);
+-        display->getstringsize(str(LANG_SET_BOOL_YES), &w, &h);
+-
+-        if (def_res == YESNO_YES)
+-        {
+-            display->getstringsize(" (00)", &tmo_w, NULL);
+-            tm_rem = ((yn->end_tick - current_tick) / 100);
+-            btn_fmt = "%s (%02d)";
+-        }
+-        else
+-        {
+-            btn_fmt = "%s\0%d";
+-            tmo_w = 0;
+-        }
+-
+-        display->putsxyf((rect_w-(w+tmo_w))/2, rect_h+(rect_h-h)/2,
+-                         btn_fmt, str(LANG_SET_BOOL_YES), tm_rem);
++        const char *answer = str(i ? LANG_CANCEL_WITH_ANY
++                                   : LANG_CONFIRM_WITH_BUTTON);
+ 
+-        vp->fg_pattern = LCD_RGBPACK(255,0,0);
+-        display->drawrect(rect_w, rect_h, rect_w, rect_h);
+-        display->getstringsize(str(LANG_SET_BOOL_NO), &w, &h);
+-
+-        if (def_res == YESNO_NO)
+-        {
+-            display->getstringsize(" (00)", &tmo_w, NULL);
+-            tm_rem = ((yn->end_tick - current_tick) / 100);
+-            btn_fmt = "%s (%02d)";
+-        }
++        /* the countdown is by the answer it gives */
++        if (yn->tmo_default_res == (i ? YESNO_NO : YESNO_YES))
++            snprintf(hint, sizeof(hint), "%s (%d)", answer, tm_rem);
+         else
+-        {
+-            btn_fmt = "%s\0%d";
+-            tmo_w = 0;
+-        }
+-
+-        display->putsxyf(rect_w + (rect_w-(w+tmo_w))/2, rect_h+(rect_h-h)/2,
+-                         btn_fmt, str(LANG_SET_BOOL_NO), tm_rem);
+-
+-        vp->fg_pattern = old_pattern;
++            strmemccpy(hint, answer, sizeof(hint));
++        n = add_line(buf, n, hint);
+     }
+-#else
+-    /* Space remaining for yes / no text ? */
+-    if(line_shift + 2 <= vp_lines)
+-    {
+-        if(line_shift + 3 <= vp_lines)
+-            line_shift++;
+-        display->puts(0, line_shift, str(LANG_CONFIRM_WITH_BUTTON));
+-        display->puts(0, line_shift+1, str(LANG_CANCEL_WITH_ANY));
+-
+-        if (def_res == YESNO_YES || def_res == YESNO_NO)
+-        {
+-            int tm_rem = ((yn->end_tick - current_tick) / 100);
+-            if (def_res == YESNO_YES)
+-                display->putsf(0, line_shift, "%s (%02d)",
+-                               str(LANG_CONFIRM_WITH_BUTTON), tm_rem);
+-            else
+-                display->putsf(0, line_shift+1, "%s (%02d)",
+-                               str(LANG_CANCEL_WITH_ANY), tm_rem);
+-        }
+-    }
+-#endif
+-    display->update_viewport();
+-    display->set_viewport(last_vp);
++    splashf(0, "%s", buf);
+ }
+ 
+ /*
+@@ -179,14 +113,12 @@ static void gui_yesno_draw(struct gui_yesno * yn)
+  */
+ static void gui_yesno_draw_result(struct gui_yesno * yn, const struct text_message * message)
+ {
+-    struct viewport *vp = &yn->vp;
+-    struct screen * display=yn->display;
+-    struct viewport *last_vp = display->set_viewport_ex(vp, VP_FLAG_VP_SET_CLEAN);
+-
+-    display->clear_viewport();
+-    put_message(display, message, 0, yn->vp_lines);
+-    display->update_viewport();
+-    display->set_viewport(last_vp);
++    char buf[YESNO_BUF] = "";
++
++    if (yn->display->screen_type != SCREEN_MAIN)
++        return;
++    add_message(buf, 0, message);
++    splashf(0, "\f%s", buf);
+ }
+ #if 0
+ static void gui_yesno_ui_update(unsigned short id, void *event_data, void *user_data)

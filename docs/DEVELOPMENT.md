@@ -286,6 +286,17 @@ switch.
       The pane dots stay in the middle, with the sleep timer and the play
       modes left of them. Teal is now a neon ultraviolet (`POD6_UV`), with
       the purple shell.
+  50. the library's update at boot: a scan stopped by the shutdown or USB
+      drops `database_tmp.tcd` (the next scan finds its files again), so the
+      next boot no longer asks to commit it, and what is left from a power
+      cut is committed without asking. An update that found nothing new
+      leaves the indices alone, where it wrote every one of them again. The
+      deck waits on the splash for the header check, without "Database is
+      not ready".
+  51. splashes, progress and yes/no questions (`splash.c`, `yesno.c`) are a
+      box like the letter box's: the band's colour with the four stripes
+      along its foot and an amber bar on the Classic, black with a frame
+      on the mini. A question is the same box with its answers under it.
 - `firmware/tools/mktheme.py` + `firmware/tools/canvas.py`: draw every bitmap (splash, USB
   screen, battery, meters) and write the WPS/SBS from the same layout
   constants. `firmware/tools/iso.py`, the old player's cassette, is what pod
